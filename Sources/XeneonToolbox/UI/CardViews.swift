@@ -66,7 +66,37 @@ struct AgentCardView: View {
     var body: some View {
         switch card {
         case .processes(let rows): ProcessCard(rows: rows)
+        case .generic(let title, let rows): GenericCard(title: title, rows: rows)
         }
+    }
+}
+
+struct GenericCard: View {
+    let title: String
+    let rows: [CardRow]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "square.text.square.fill").foregroundStyle(Theme.accent)
+                Text(title).font(.deck(17, .bold)).foregroundStyle(Theme.textPrimary)
+            }
+            ForEach(rows) { r in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(r.label).font(.deck(15, .medium)).foregroundStyle(Theme.textSecondary)
+                    Spacer(minLength: 24)
+                    Text(r.value).font(.readout(15, .semibold)).foregroundStyle(Theme.textPrimary)
+                        .multilineTextAlignment(.trailing)
+                }
+                if r.id != rows.last?.id { Divider().overlay(Theme.stroke) }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: 820, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.accent.opacity(0.25), lineWidth: 1))
+        .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
     }
 }
 
