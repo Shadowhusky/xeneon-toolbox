@@ -1,0 +1,9 @@
+.build/
+XeneonToolbox.app/
+.DS_Store
+*.xcuserstate
+.swiftpm/
+# never commit secrets
+*.pem
+.env
+secrets*
