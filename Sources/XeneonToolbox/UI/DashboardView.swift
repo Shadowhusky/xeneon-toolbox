@@ -1,0 +1,22 @@
+import SwiftUI
+
+struct DashboardView: View {
+    @ObservedObject var model: ToolboxModel
+    @ObservedObject var metrics: SystemMetrics
+
+    var body: some View {
+        let snap = metrics.snap
+        HStack(spacing: Theme.tileGap) {
+            ClockTile(uptime: snap.uptime)
+            CPUTile(value: snap.cpu, history: metrics.cpuHistory)
+            MemoryTile(snap: snap)
+            NetworkTile(snap: snap, rxHistory: metrics.netRxHistory, txHistory: metrics.netTxHistory)
+            StorageTile(snap: snap)
+            PowerTile(battery: snap.battery, uptime: snap.uptime)
+            ControlsTile(touchOn: model.touchOn,
+                         edgeDetected: model.edgeDetected,
+                         toggleTouch: model.toggleTouch)
+                .frame(maxWidth: 300)
+        }
+    }
+}

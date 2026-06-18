@@ -1,23 +1,98 @@
 import SwiftUI
 
-struct PanelView: View {
+struct RootView: View {
     @ObservedObject var model: ToolboxModel
     @ObservedObject var metrics: SystemMetrics
 
     var body: some View {
-        ZStack {
-            DeckBackground()
-            if model.expanded {
-                ExpandedDeck(model: model, metrics: metrics)
-                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
-            } else {
-                MinimizedBar(model: model, metrics: metrics)
-                    .transition(.opacity)
+        HStack(spacing: 0) {
+            NavRail(route: $model.route, touchOn: model.touchOn)
+            ZStack {
+                DeckBackground()
+                content
+                    .padding(20)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
         .preferredColorScheme(.dark)
+        .ignoresSafeArea()
+    }
+
+    @ViewBuilder private var content: some View {
+        switch model.route {
+        case .dashboard: DashboardView(model: model, metrics: metrics)
+        case .clock: ClockAppView()
+        case .games: GamesView()
+        case .chat: ChatView()
+        }
+    }
+}
+
+struct NavRail: View {
+    @Binding var route: AppRoute
+    var touchOn: Bool
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "square.grid.2x2.fill")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(Theme.accent)
+                .padding(.top, 26).padding(.bottom, 6)
+
+            ForEach(AppRoute.allCases) { r in
+                NavButton(route: r, selected: route == r) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { route = r }
+                }
+            }
+            Spacer()
+            Label(touchOn ? "Touch on" : "Touch off", systemImage: touchOn ? "hand.tap.fill" : "hand.tap")
+                .labelStyle(.iconOnly)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(touchOn ? Theme.battery : Theme.textFaint)
+            Button { NSApplication.shared.terminate(nil) } label: {
+                Image(systemName: "power")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(Theme.textFaint)
+                    .frame(width: 64, height: 56)
+                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.05)))
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 22)
+        }
+        .frame(width: 128)
+        .frame(maxHeight: .infinity)
+        .background(Theme.backgroundEdge)
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(Theme.stroke).frame(width: 1)
+        }
+    }
+}
+
+private struct NavButton: View {
+    let route: AppRoute
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 7) {
+                Image(systemName: route.icon)
+                    .font(.system(size: 28, weight: .semibold))
+                Text(route.title).font(.deck(11, .semibold)).tracking(0.3)
+            }
+            .foregroundStyle(selected ? Theme.accent : Theme.textSecondary)
+            .frame(width: 92, height: 80)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(selected ? Theme.accent.opacity(0.16) : Color.white.opacity(0.03))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(selected ? Theme.accent.opacity(0.5) : .clear, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -26,86 +101,9 @@ struct DeckBackground: View {
         ZStack {
             LinearGradient(colors: [Theme.background, Theme.backgroundEdge],
                            startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [Theme.accent.opacity(0.10), .clear],
+            RadialGradient(colors: [Theme.accent.opacity(0.08), .clear],
                            center: .init(x: 0.5, y: -0.1), startRadius: 10, endRadius: 900)
         }
         .ignoresSafeArea()
-    }
-}
-
-struct ExpandedDeck: View {
-    @ObservedObject var model: ToolboxModel
-    @ObservedObject var metrics: SystemMetrics
-
-    var body: some View {
-        let snap = metrics.snap
-        HStack(spacing: Theme.tileGap) {
-            ClockTile(uptime: snap.uptime)
-            CPUTile(value: snap.cpu, history: metrics.cpuHistory)
-            MemoryTile(snap: snap)
-            NetworkTile(snap: snap, rxHistory: metrics.netRxHistory, txHistory: metrics.netTxHistory)
-            StorageTile(snap: snap)
-            PowerTile(battery: snap.battery, uptime: snap.uptime)
-            ControlsTile(touchOn: model.touchOn,
-                         edgeDetected: model.edgeDetected,
-                         toggleTouch: model.toggleTouch,
-                         minimize: { model.setExpanded(false) })
-                .frame(maxWidth: 320)
-        }
-        .padding(20)
-    }
-}
-
-struct MinimizedBar: View {
-    @ObservedObject var model: ToolboxModel
-    @ObservedObject var metrics: SystemMetrics
-
-    var body: some View {
-        let snap = metrics.snap
-        VStack {
-            Spacer()
-            HStack(spacing: 28) {
-                TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                    Text(ctx.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-                        .font(.readout(30, .bold)).foregroundStyle(Theme.textPrimary)
-                }
-                divider
-                chip("cpu.fill", Fmt.percent(snap.cpu), Theme.cpu)
-                chip("memorychip.fill", Fmt.percent(snap.memFraction), Theme.memory)
-                chip("arrow.down", Fmt.rate(snap.netRx).value + Fmt.rate(snap.netRx).unit, Theme.netDown)
-                if let b = snap.battery {
-                    chip(b.charging ? "bolt.fill" : "battery.100", Fmt.percent(b.level),
-                         b.level < 0.2 && !b.charging ? Theme.batteryLow : Theme.battery)
-                }
-                divider
-                HStack(spacing: 8) {
-                    Image(systemName: "hand.tap.fill").foregroundStyle(model.touchOn ? Theme.accent : Theme.textFaint)
-                    Text(model.touchOn ? "Touch" : "Off").font(.deck(15, .semibold))
-                        .foregroundStyle(model.touchOn ? Theme.accent : Theme.textFaint)
-                }
-                Image(systemName: "rectangle.expand.vertical").foregroundStyle(Theme.textFaint).font(.system(size: 16, weight: .bold))
-            }
-            .padding(.horizontal, 30).padding(.vertical, 18)
-            .background(
-                Capsule().fill(Theme.tileTop.opacity(0.9))
-                    .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
-                    .shadow(color: .black.opacity(0.5), radius: 16, y: 8)
-            )
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture { model.setExpanded(true) }
-    }
-
-    private var divider: some View {
-        Rectangle().fill(Theme.stroke).frame(width: 1, height: 26)
-    }
-
-    private func chip(_ icon: String, _ text: String, _ color: Color) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: icon).font(.system(size: 15, weight: .bold)).foregroundStyle(color)
-            Text(text).font(.readout(18, .semibold)).foregroundStyle(Theme.textPrimary)
-        }
     }
 }

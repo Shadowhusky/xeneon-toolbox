@@ -1,68 +1,68 @@
 # Xeneon Toolbox
 
-A macOS toolbox for the **Corsair Xeneon Edge** (14.5", 2560×720 touchscreen).
-It makes the panel genuinely useful on a Mac in two ways:
+A macOS toolbox for the **Corsair Xeneon Edge** (14.5", 2560×720 touchscreen). It
+makes the panel genuinely useful on a Mac: an absolute touch driver plus a set of
+full-screen apps designed for the ultrawide strip.
 
-1. **Touch driver** — macOS sees the Edge's digitizer but only produces vague
-   relative cursor motion ("touch board"). The toolbox reads the panel's
-   absolute coordinates and injects real pointer events, so taps and drags land
-   where you touch.
-2. **Status panel** — a telemetry deck designed to fill the 2560×720 screen:
-   live CPU, memory, network, storage, power, and a clock, with hue-coded ring
-   gauges and sparklines. Tap **Minimize** to collapse it to a slim bar.
+The touch driver is **embedded in the app** — while Xeneon Toolbox runs, touch
+works. No LaunchAgent, no kernel extension, no sudo. It opens in native
+fullscreen on the Edge and hides the system menu bar.
 
-The touch driver is **embedded in the app** — while Xeneon Toolbox is running,
-touch works. No LaunchAgent, no kernel extension, no sudo.
+![Dashboard](docs/panel-expanded.png)
+![Sever](docs/sever.png)
 
-![Expanded panel](docs/panel-expanded.png)
-![Minimized bar](docs/panel-minimized.png)
+## Apps
+
+- **Dashboard** — live telemetry deck: CPU, memory, network, storage, power,
+  clock/uptime, with hue-coded ring gauges and sparklines, plus a touch on/off
+  control.
+- **Clock** — local time, world clocks, and a focus (Pomodoro) timer.
+- **Games**
+  - **Sever** — a cyberpunk neon slash arcade made for the ultrawide: swipe to
+    slice data-shards streaming edge-to-edge, dodge the red ICE. Combos, waves,
+    lives. (Background art generated with `gpt-image-2`.)
+  - **2048** — swipe or use the on-screen pad.
+- **Assistant** — chat backed by any OpenAI-compatible endpoint. Set it up
+  in-app: pick OpenAI, a local model (Ollama / LM Studio), or a custom endpoint.
+
+## Touch driver
+
+macOS sees the Edge's WCH digitizer but only produces vague relative motion
+("touch board"). The toolbox reads its absolute coordinates and injects real
+pointer events so taps and drags land where you touch.
+
+- Reports as a mouse-style absolute device: X = GenericDesktop `0x30`,
+  Y = `0x31`, contact = Button page `0x09` / Button 1.
+- Coordinate ranges: X `0…16383`, Y `0…9599`.
+- macOS holds the digitizer exclusively, so the driver runs non-exclusively.
 
 ## Build & run
 
 ```bash
-swift build -c release        # build everything
-swift test                    # unit tests for the core logic
+swift build -c release
+swift test                  # unit tests: coordinate mapping, touch state, HID decode, 2048
 
-./scripts/make-app.sh         # produce XeneonToolbox.app
-open XeneonToolbox.app        # run it (renders on the Edge)
+./scripts/make-app.sh       # build XeneonToolbox.app (with icon)
+open XeneonToolbox.app
 ```
 
-### Permissions
-
-Grant **Xeneon Toolbox** both in *System Settings → Privacy & Security*:
-
-- **Input Monitoring** — to read the touch digitizer
-- **Accessibility** — to inject clicks (without it, clicks are silently dropped)
-
-If you were running the `xeneon-touch` CLI for touch, quit it first — only one
-process can hold the digitizer.
+Grant **Xeneon Toolbox** both **Input Monitoring** (read touch) and
+**Accessibility** (inject clicks) in System Settings → Privacy & Security. If the
+`xeneon-touch` CLI is running, quit it first — only one process can hold the
+digitizer.
 
 ## Layout
 
-A single Swift package with focused targets:
-
 | Target | Kind | Purpose |
 | --- | --- | --- |
-| `XeneonTouchCore` | library | Pure, unit-tested logic: coordinate mapping, the tap/drag state machine, HID report decoding |
-| `XeneonTouchDriver` | library | IOKit HID capture + CoreGraphics event injection; `TouchService` start/stop |
-| `XeneonToolbox` | app | SwiftUI status panel + embedded touch driver |
+| `XeneonTouchCore` | library | Pure, tested logic: coordinate mapping, tap/drag state machine, HID decode |
+| `XeneonTouchDriver` | library | IOKit HID capture + CoreGraphics injection; `TouchService` |
+| `ToolboxKit` | library | Pure app logic: 2048 engine, chat client |
+| `XeneonToolbox` | app | SwiftUI apps + embedded touch driver |
 | `xeneon-touch` | CLI | Diagnostics (`diagnose`, `list-displays`) and headless `run` |
 
-## Hardware notes (Xeneon Edge)
+## Asset generation
 
-- Touch digitizer: WCH HID controller `0x27c0:0x0859` (3 HID interfaces).
-- Reports as a mouse-style absolute device: X = GenericDesktop `0x30`,
-  Y = GenericDesktop `0x31`, contact = Button page `0x09` / Button 1.
-- Coordinate ranges: X `0…16383`, Y `0…9599`.
-- macOS holds the digitizer exclusively, so the driver runs non-exclusively and
-  injects absolute events alongside the system.
-
-## CLI diagnostics
-
-```bash
-swift run xeneon-touch diagnose       # confirm device + live HID reports
-swift run xeneon-touch list-displays  # display ids and bounds
-```
-
-If taps land mirrored or rotated, the driver supports `--flip-x`, `--flip-y`,
-and `--swap-xy`.
+`scripts/gen-asset.py` generates background art via OpenAI `gpt-image-2`
+(`OPENAI_API_KEY` from the environment — never committed). `scripts/make-icon.swift`
+renders the app icon procedurally.

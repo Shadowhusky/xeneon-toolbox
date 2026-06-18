@@ -10,18 +10,24 @@ let package = Package(
             name: "XeneonTouchDriver",
             dependencies: ["XeneonTouchCore"]
         ),
+        .target(name: "ToolboxKit"),
         .executableTarget(
             name: "xeneon-touch",
             dependencies: ["XeneonTouchCore", "XeneonTouchDriver"]
         ),
         .executableTarget(
             name: "XeneonToolbox",
-            dependencies: ["XeneonTouchCore", "XeneonTouchDriver"],
+            dependencies: ["XeneonTouchCore", "XeneonTouchDriver", "ToolboxKit"],
+            resources: [.copy("Resources")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
             name: "XeneonTouchCoreTests",
             dependencies: ["XeneonTouchCore"]
+        ),
+        .testTarget(
+            name: "ToolboxKitTests",
+            dependencies: ["ToolboxKit"]
         ),
     ]
 )

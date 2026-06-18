@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// Borderless windows can't become key by default, which blocks button taps.
 final class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
@@ -15,18 +14,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let screen = edgeScreen() ?? NSScreen.main
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 2560, height: 720)
+        let devMode = ProcessInfo.processInfo.environment["XENEON_NO_FULLSCREEN"] != nil
 
-        let win = KeyableWindow(contentRect: frame, styleMask: [.borderless],
-                                backing: .buffered, defer: false)
+        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        let win = KeyableWindow(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
+        win.title = "Xeneon Toolbox"
+        win.titlebarAppearsTransparent = true
+        win.titleVisibility = .hidden
         win.isOpaque = true
         win.backgroundColor = .black
         win.hasShadow = false
-        win.level = .normal
-        win.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
 
-        let host = NSHostingView(rootView: PanelView(model: model, metrics: model.metrics))
-        host.frame = NSRect(origin: .zero, size: frame.size)
-        win.contentView = host
+        win.collectionBehavior = [.fullScreenPrimary]
+        win.contentView = NSHostingView(rootView: RootView(model: model, metrics: model.metrics))
         win.setFrame(frame, display: true)
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -34,6 +34,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         self.window = win
         model.onAppear()
+
+        // Default to native fullscreen on the Edge — this hides the system menu
+        // bar and gives the panel the whole display. Skipped in dev for capture.
+        if !devMode {
+            NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                if !win.styleMask.contains(.fullScreen) { win.toggleFullScreen(nil) }
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

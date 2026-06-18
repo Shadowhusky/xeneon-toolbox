@@ -196,7 +196,6 @@ struct ControlsTile: View {
     var touchOn: Bool
     var edgeDetected: Bool
     var toggleTouch: () -> Void
-    var minimize: () -> Void
 
     var body: some View {
         TileSurface(accent: touchOn ? Theme.accent : Theme.textFaint) {
@@ -225,13 +224,6 @@ struct ControlsTile: View {
                       systemImage: edgeDetected ? "checkmark.circle.fill" : "questionmark.circle")
                     .font(.deck(13)).foregroundStyle(edgeDetected ? Theme.battery : Theme.textFaint)
                 Spacer()
-                Button(action: minimize) {
-                    Label("Minimize", systemImage: "rectangle.compress.vertical")
-                        .font(.deck(15, .semibold)).foregroundStyle(Theme.textSecondary)
-                        .frame(maxWidth: .infinity).padding(.vertical, 13)
-                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
-                }
-                .buttonStyle(.plain)
             }
         }
     }
