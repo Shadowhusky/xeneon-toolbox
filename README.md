@@ -14,8 +14,8 @@ fullscreen on the Edge and hides the system menu bar.
 ## Apps
 
 - **Dashboard** — live telemetry deck: CPU, memory, network, storage, power,
-  clock/uptime, with hue-coded ring gauges and sparklines, plus a touch on/off
-  control.
+  clock/uptime and **current weather** (Open-Meteo + IP geolocation, no key),
+  with hue-coded ring gauges and sparklines, plus a touch on/off control.
 - **Clock** — local time, world clocks, and a focus (Pomodoro) timer.
 - **Games** — full web games embedded for the Edge, switchable in-app:
   - **山海残卷 (Shanhai)** — the card roguelike at shanhai-yi.com.
@@ -27,13 +27,17 @@ fullscreen on the Edge and hides the system menu bar.
     toggle touch, and open games.
   - **Generative UI** — e.g. renders a touch-friendly card of top processes.
   - **Web** — `web_search`, `fetch_url`. **Files** — list / read / write.
-  - **System** — run shell commands, clipboard read/write, open URLs, date/time.
+  - **System** — run shell commands, clipboard, open URLs, date/time, volume.
 
-  Tool steps show **live** as the agent works, then collapse into one minimal
-  chip. Sensitive actions ask for **Approve / Always allow / Deny**; truly
-  dangerous ones (run command) always ask, everything safe auto-runs. Set it up
-  in-app: pick OpenAI or a local model (Ollama / LM Studio); the model list
-  auto-detects into a dropdown. The whole app uses smooth tab + modal transitions.
+  **Conversations persist** (across tab switches and app restarts) with a sidebar
+  to switch / new / delete. Tool steps show **live** then collapse to a chip; a
+  **stop** button cancels a running reply. Sensitive actions ask for
+  **Approve / Always allow / Deny** (dangerous ones always ask). Set it up in-app:
+  pick OpenAI or a local model (Ollama / LM Studio); models auto-detect into a
+  dropdown.
+- **Display modes** — **Minimal** (OLED clock + vitals on black) and **Sleep**
+  (black, monitoring stopped, drifting clock to save battery / avoid burn-in),
+  from the nav rail. Smooth tab + modal transitions throughout.
 
 ## Touch driver
 
