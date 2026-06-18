@@ -31,8 +31,15 @@ final class ToolboxModel: ObservableObject {
     @Published var route: AppRoute = .dashboard
     @Published var touchOn = false
     @Published var edgeDetected = false
+    @Published var gamePref = "shanhai"   // "shanhai" | "rhythm"
 
     private let touch = TouchService(config: TouchServiceConfig(preferSeize: true))
+    private var retryTimer: Timer?
+
+    /// What the touch control shows: Active (driving the panel), Searching
+    /// (wants touch but hasn't acquired the digitizer yet), or Off.
+    enum TouchStatus { case active, searching, off }
+    var touchStatus: TouchStatus { !touchOn ? .off : (edgeDetected ? .active : .searching) }
 
     init() {
         if let r = ProcessInfo.processInfo.environment["XENEON_ROUTE"],
@@ -49,7 +56,32 @@ final class ToolboxModel: ObservableObject {
         startTouch()
     }
 
-    func startTouch() { touchOn = touch.start() }
-    func stopTouch() { touch.stop(); touchOn = false }
+    func startTouch() {
+        touchOn = true
+        attemptAcquire()
+    }
+
+    /// Try to open the digitizer; if it's held (e.g. by the xeneon-touch CLI) or
+    /// not yet ready, keep retrying so touch comes alive once it's free.
+    private func attemptAcquire() {
+        guard touchOn else { return }
+        if touch.start() {
+            retryTimer?.invalidate(); retryTimer = nil
+        } else if retryTimer == nil {
+            let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.attemptAcquire() }
+            }
+            RunLoop.main.add(t, forMode: .common)
+            retryTimer = t
+        }
+    }
+
+    func stopTouch() {
+        touchOn = false
+        edgeDetected = false
+        retryTimer?.invalidate(); retryTimer = nil
+        touch.stop()
+    }
+
     func toggleTouch() { touchOn ? stopTouch() : startTouch() }
 }

@@ -6,7 +6,7 @@ struct RootView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            NavRail(route: $model.route, touchOn: model.touchOn)
+            NavRail(route: $model.route, touchActive: model.touchStatus == .active)
             ZStack {
                 DeckBackground()
                 content
@@ -23,15 +23,15 @@ struct RootView: View {
         switch model.route {
         case .dashboard: DashboardView(model: model, metrics: metrics)
         case .clock: ClockAppView()
-        case .games: GamesView()
-        case .chat: ChatView()
+        case .games: GamesView(model: model)
+        case .chat: ChatView(model: model)
         }
     }
 }
 
 struct NavRail: View {
     @Binding var route: AppRoute
-    var touchOn: Bool
+    var touchActive: Bool
 
     var body: some View {
         VStack(spacing: 16) {
@@ -46,10 +46,9 @@ struct NavRail: View {
                 }
             }
             Spacer()
-            Label(touchOn ? "Touch on" : "Touch off", systemImage: touchOn ? "hand.tap.fill" : "hand.tap")
-                .labelStyle(.iconOnly)
+            Image(systemName: touchActive ? "hand.tap.fill" : "hand.tap")
                 .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(touchOn ? Theme.battery : Theme.textFaint)
+                .foregroundStyle(touchActive ? Theme.battery : Theme.textFaint)
             Button { NSApplication.shared.terminate(nil) } label: {
                 Image(systemName: "power")
                     .font(.system(size: 22, weight: .bold))

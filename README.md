@@ -20,8 +20,16 @@ fullscreen on the Edge and hides the system menu bar.
 - **Games** — full web games embedded for the Edge, switchable in-app:
   - **山海残卷 (Shanhai)** — the card roguelike at shanhai-yi.com.
   - **Rhythm Plus** — the rhythm game at v2.rhythm-plus.com.
-- **Assistant** — chat backed by any OpenAI-compatible endpoint. Set it up
-  in-app: pick OpenAI, a local model (Ollama / LM Studio), or a custom endpoint.
+- **Assistant** — an agentic chat (SwiftOpenAI) backed by any OpenAI-compatible
+  endpoint. It **streams** responses, **renders markdown** (swift-markdown-ui)
+  with a pop-in highlight, accepts **images** (vision), and runs **tools**:
+  - **Controls the app** — knows the current tab + live stats; can navigate,
+    toggle touch, and open games.
+  - **Generative UI** — e.g. renders a touch-friendly card of top processes.
+  - **Web** — `web_search`, `fetch_url`. **Files** — list / read / write.
+
+  Set it up in-app: pick OpenAI or a local model (Ollama / LM Studio); the model
+  list is auto-detected into a dropdown.
 
 ## Touch driver
 

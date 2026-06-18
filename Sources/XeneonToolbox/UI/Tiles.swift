@@ -193,36 +193,46 @@ struct PowerTile: View {
 }
 
 struct ControlsTile: View {
-    var touchOn: Bool
-    var edgeDetected: Bool
+    var status: ToolboxModel.TouchStatus
     var toggleTouch: () -> Void
 
+    private var on: Bool { status != .off }
+    private var tint: Color {
+        switch status { case .active: return Theme.battery; case .searching: return Theme.netUp; case .off: return Theme.textFaint }
+    }
+    private var label: String {
+        switch status { case .active: return "Active"; case .searching: return "Searching…"; case .off: return "Off" }
+    }
+    private var detail: (String, String) {
+        switch status {
+        case .active: return ("checkmark.circle.fill", "Driving the Edge")
+        case .searching: return ("dot.radiowaves.left.and.right", "Looking for the panel…")
+        case .off: return ("hand.tap", "Tap to enable touch")
+        }
+    }
+
     var body: some View {
-        TileSurface(accent: touchOn ? Theme.accent : Theme.textFaint) {
+        TileSurface(accent: on ? Theme.accent : Theme.textFaint) {
             VStack(alignment: .leading, spacing: 0) {
-                TileHeader(title: "Controls", systemImage: "slider.horizontal.3", accent: touchOn ? Theme.accent : Theme.textFaint)
+                TileHeader(title: "Controls", systemImage: "slider.horizontal.3", accent: on ? Theme.accent : Theme.textFaint)
                 Spacer()
                 Button(action: toggleTouch) {
                     HStack(spacing: 14) {
                         Image(systemName: "hand.tap.fill")
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundStyle(touchOn ? Theme.accent : Theme.textFaint)
+                            .font(.system(size: 28, weight: .bold)).foregroundStyle(tint)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Touch").font(.deck(21, .semibold)).foregroundStyle(Theme.textPrimary)
-                            Text(touchOn ? "Active" : "Off").font(.deck(13))
-                                .foregroundStyle(touchOn ? Theme.accent : Theme.textFaint)
+                            Text(label).font(.deck(13)).foregroundStyle(tint)
                         }
                         Spacer()
-                        ToggleDot(on: touchOn)
+                        ToggleDot(on: on)
                     }
                     .padding(16)
                     .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.05)))
                 }
                 .buttonStyle(.plain)
                 Spacer().frame(height: 14)
-                Label(edgeDetected ? "Edge connected" : "Edge not detected",
-                      systemImage: edgeDetected ? "checkmark.circle.fill" : "questionmark.circle")
-                    .font(.deck(13)).foregroundStyle(edgeDetected ? Theme.battery : Theme.textFaint)
+                Label(detail.1, systemImage: detail.0).font(.deck(13)).foregroundStyle(tint)
                 Spacer()
             }
         }

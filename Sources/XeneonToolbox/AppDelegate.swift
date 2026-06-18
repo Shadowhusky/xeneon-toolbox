@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = ToolboxModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installMainMenu()
         let screen = edgeScreen() ?? NSScreen.main
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 2560, height: 720)
         let devMode = ProcessInfo.processInfo.environment["XENEON_NO_FULLSCREEN"] != nil
@@ -53,6 +54,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// Without a main menu, standard editing shortcuts (⌘A select-all, ⌘C/⌘V,
+    /// undo) never reach the focused text field. This wires them up.
+    private func installMainMenu() {
+        let main = NSMenu()
+
+        let appItem = NSMenuItem()
+        main.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit Xeneon Toolbox", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+
+        let editItem = NSMenuItem()
+        main.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+
+        NSApp.mainMenu = main
+    }
 
     private func edgeScreen() -> NSScreen? {
         NSScreen.screens.first {

@@ -1,31 +1,43 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 import ToolboxKit
 
-private struct Turn: Identifiable {
-    let id = UUID()
-    let role: String   // "user" | "assistant" | "error"
-    var text: String
-}
-
 struct ChatView: View {
-    @State private var config: ChatConfig? = ChatConfig.loadSaved()
-    @State private var showSettings = ChatConfig.loadSaved() == nil
-    @State private var turns: [Turn] = []
+    @ObservedObject var model: ToolboxModel
+    @StateObject private var agent: AgentController
+    @State private var config: ChatConfig?
+    @State private var showSettings: Bool
     @State private var input = ""
-    @State private var sending = false
+    @State private var pendingImageURL: URL?
+    @State private var pendingImageName: String?
+
+    init(model: ToolboxModel) {
+        self.model = model
+        let saved = ChatConfig.loadSaved()
+        _config = State(initialValue: saved)
+        _showSettings = State(initialValue: saved == nil)
+        _agent = StateObject(wrappedValue: AgentController(config: saved ?? ChatConfig.presets[0].config, app: model))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             if showSettings || config == nil {
                 ChatSettingsView(initial: config) { saved in
-                    saved.save(); config = saved; showSettings = false
+                    saved.save(); config = saved; agent.update(config: saved); showSettings = false
                 } cancel: {
                     if config != nil { showSettings = false }
                 }
             } else {
                 transcript
                 inputBar
+            }
+        }
+        .onAppear {
+            if let p = ProcessInfo.processInfo.environment["XENEON_AGENT_PROMPT"],
+               config != nil, agent.turns.isEmpty {
+                agent.send(text: p, imageDataURL: nil)
             }
         }
     }
@@ -42,8 +54,7 @@ struct ChatView: View {
                     .background(Capsule().fill(Color.white.opacity(0.06)))
                 Button { showSettings = true } label: {
                     Image(systemName: "gearshape.fill").font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(width: 50, height: 44)
+                        .foregroundStyle(Theme.textSecondary).frame(width: 50, height: 44)
                         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
                 }
                 .buttonStyle(.plain)
@@ -54,75 +65,122 @@ struct ChatView: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(turns) { t in bubble(t).id(t.id) }
-                    if sending {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text("Thinking…").font(.deck(14)).foregroundStyle(Theme.textFaint)
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 10) {
+                    if agent.turns.isEmpty { emptyState }
+                    ForEach(agent.turns) { t in bubble(t).id(t.id) }
+                    if agent.busy { dots }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(4)
             }
-            .onChange(of: turns.count) { _, _ in
-                if let last = turns.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
-            }
+            .onChange(of: agent.turns.count) { _, _ in scrollToEnd(proxy) }
+            .onChange(of: agent.turns.last?.text) { _, _ in scrollToEnd(proxy) }
         }
         .frame(maxHeight: .infinity)
     }
 
-    private func bubble(_ t: Turn) -> some View {
-        let isUser = t.role == "user", isError = t.role == "error"
-        return HStack {
-            if isUser { Spacer(minLength: 80) }
-            Text(t.text)
-                .font(.deck(16)).foregroundStyle(isError ? Theme.batteryLow : Theme.textPrimary)
+    private func scrollToEnd(_ proxy: ScrollViewProxy) {
+        if let last = agent.turns.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Ask anything — or tell me to drive the app").font(.deck(20, .semibold)).foregroundStyle(Theme.textSecondary)
+            Text("e.g. “open the card game”, “turn touch on”, “how's my CPU?”, or attach an image.")
+                .font(.deck(14)).foregroundStyle(Theme.textFaint)
+        }.padding(.vertical, 20)
+    }
+
+    @ViewBuilder private func bubble(_ t: Turn) -> some View {
+        switch t.role {
+        case "tool":
+            Text(t.text).font(.deck(13, .medium)).foregroundStyle(Theme.accent)
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                .background(Capsule().fill(Theme.accent.opacity(0.10)))
+        case "assistant":
+            AssistantBubble(text: t.text)
+        case "card":
+            if let card = t.card {
+                HStack { AgentCardView(card: card); Spacer(minLength: 40) }
+            }
+        default:
+            let isUser = t.role == "user", isError = t.role == "error"
+            HStack {
+                if isUser { Spacer(minLength: 80) }
+                VStack(alignment: .leading, spacing: 6) {
+                    if t.imageThumb {
+                        Label("Image attached", systemImage: "photo").font(.deck(12)).foregroundStyle(Theme.textFaint)
+                    }
+                    Text(t.text.isEmpty ? "…" : t.text)
+                        .font(.deck(16)).foregroundStyle(isError ? Theme.batteryLow : Theme.textPrimary)
+                        .textSelection(.enabled)
+                }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(isUser ? Theme.accent.opacity(0.22) : Color.white.opacity(0.06)))
-                .frame(maxWidth: 1400, alignment: isUser ? .trailing : .leading)
-            if !isUser { Spacer(minLength: 80) }
+                .frame(maxWidth: 1500, alignment: isUser ? .trailing : .leading)
+                if !isUser { Spacer(minLength: 80) }
+            }
+        }
+    }
+
+    private var dots: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("…").font(.deck(14)).foregroundStyle(Theme.textFaint)
         }
     }
 
     private var inputBar: some View {
-        HStack(spacing: 12) {
-            TextField("Message the assistant…", text: $input)
-                .textFieldStyle(.plain).font(.deck(17))
-                .padding(.horizontal, 18).padding(.vertical, 14)
-                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
-                .onSubmit(send)
-            Button(action: send) {
-                Image(systemName: "arrow.up.circle.fill").font(.system(size: 36))
-                    .foregroundStyle(canSend ? Theme.accent : Theme.textFaint)
+        VStack(alignment: .leading, spacing: 8) {
+            if let name = pendingImageName {
+                HStack(spacing: 8) {
+                    Image(systemName: "photo.fill").foregroundStyle(Theme.accent)
+                    Text(name).font(.deck(13)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    Button { pendingImageURL = nil; pendingImageName = nil } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.textFaint)
+                    }.buttonStyle(.plain)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(Capsule().fill(Color.white.opacity(0.06)))
             }
-            .buttonStyle(.plain).disabled(!canSend)
+            HStack(spacing: 12) {
+                Button(action: pickImage) {
+                    Image(systemName: "photo.badge.plus").font(.system(size: 24))
+                        .foregroundStyle(Theme.textSecondary).frame(width: 52, height: 52)
+                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)))
+                }.buttonStyle(.plain)
+                TextField("Message the assistant…", text: $input)
+                    .textFieldStyle(.plain).font(.deck(17))
+                    .padding(.horizontal, 18).padding(.vertical, 14)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
+                    .onSubmit(send)
+                Button(action: send) {
+                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 36))
+                        .foregroundStyle(canSend ? Theme.accent : Theme.textFaint)
+                }.buttonStyle(.plain).disabled(!canSend)
+            }
         }
     }
 
-    private var canSend: Bool { !input.trimmingCharacters(in: .whitespaces).isEmpty && !sending && config != nil }
+    private var canSend: Bool { !input.trimmingCharacters(in: .whitespaces).isEmpty && !agent.busy && config != nil }
     private func host(_ c: ChatConfig) -> String { URL(string: c.baseURL)?.host ?? "local" }
 
     private func send() {
-        guard let config else { return }
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !sending else { return }
+        guard !text.isEmpty, !agent.busy else { return }
         input = ""
-        turns.append(Turn(role: "user", text: text))
-        sending = true
-        let history = turns.filter { $0.role != "error" }.map { (role: $0.role, content: $0.text) }
-        let client = ChatClient(config: config)
-        Task {
-            do {
-                let reply = try await client.reply(to: history)
-                await MainActor.run { turns.append(Turn(role: "assistant", text: reply)); sending = false }
-            } catch {
-                await MainActor.run {
-                    turns.append(Turn(role: "error", text: "⚠️ \(error.localizedDescription)")); sending = false
-                }
-            }
-        }
+        agent.send(text: text, imageDataURL: pendingImageURL)
+        pendingImageURL = nil; pendingImageName = nil
+    }
+
+    private func pickImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .image]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
+        let mime = url.pathExtension.lowercased() == "png" ? "image/png" : "image/jpeg"
+        pendingImageURL = URL(string: "data:\(mime);base64,\(data.base64EncodedString())")
+        pendingImageName = url.lastPathComponent
     }
 }
 
@@ -148,47 +206,39 @@ private struct ChatSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Set up your assistant")
-                .font(.deck(20, .semibold)).foregroundStyle(Theme.textPrimary)
+            Text("Set up your assistant").font(.deck(20, .semibold)).foregroundStyle(Theme.textPrimary)
             Text("Pick a provider, or enter any OpenAI-compatible endpoint (local models included).")
                 .font(.deck(14)).foregroundStyle(Theme.textFaint)
-
             HStack(spacing: 12) {
                 ForEach(ChatConfig.presets, id: \.name) { preset in
                     Button {
-                        baseURL = preset.config.baseURL; model = preset.config.model
-                        detect()
+                        baseURL = preset.config.baseURL; model = preset.config.model; detect()
                     } label: {
                         Text(preset.name).font(.deck(15, .semibold)).foregroundStyle(Theme.accent)
                             .padding(.horizontal, 18).padding(.vertical, 12)
                             .background(Capsule().fill(Theme.accent.opacity(0.14)))
-                    }
-                    .buttonStyle(.plain)
+                    }.buttonStyle(.plain)
                 }
             }
-
             field("Endpoint", text: $baseURL, placeholder: "http://localhost:11434/v1")
             modelRow
             field("API key (optional for local)", text: $apiKey, placeholder: "sk-…", secure: true)
-
             HStack(spacing: 12) {
                 Button {
                     onSave(ChatConfig(baseURL: baseURL.trimmingCharacters(in: .whitespaces),
                                       model: model.trimmingCharacters(in: .whitespaces),
                                       apiKey: apiKey.isEmpty ? nil : apiKey,
-                                      systemPrompt: "You are a concise, helpful assistant on a compact touchscreen."))
+                                      systemPrompt: nil))
                 } label: {
                     Text("Save").font(.deck(17, .semibold)).foregroundStyle(Theme.background)
                         .padding(.horizontal, 32).padding(.vertical, 13)
                         .background(Capsule().fill(canSave ? Theme.accent : Theme.textFaint))
-                }
-                .buttonStyle(.plain).disabled(!canSave)
+                }.buttonStyle(.plain).disabled(!canSave)
                 if initial != nil {
                     Button(action: cancel) {
                         Text("Cancel").font(.deck(17, .medium)).foregroundStyle(Theme.textSecondary)
                             .padding(.horizontal, 24).padding(.vertical, 13)
-                    }
-                    .buttonStyle(.plain)
+                    }.buttonStyle(.plain)
                 }
             }
             Spacer()
@@ -226,8 +276,7 @@ private struct ChatSettingsView: View {
                     }
                     .font(.deck(16)).padding(.horizontal, 16).padding(.vertical, 12)
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
-                }
-                .menuStyle(.borderlessButton)
+                }.menuStyle(.borderlessButton)
             }
         }
     }
@@ -261,3 +310,5 @@ private struct ChatSettingsView: View {
         }
     }
 }
+
+typealias Turn = AgentController.Turn
