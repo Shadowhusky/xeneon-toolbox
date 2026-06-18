@@ -215,6 +215,9 @@ final class AgentController: ObservableObject {
             tool("open_url", "Open a URL in the default browser.",
                  ["url": .init(type: .string)], required: ["url"]),
             tool("current_datetime", "Get the current local date and time."),
+            tool("set_volume", "Set the Mac output volume (0–100).",
+                 ["level": .init(type: .integer)], required: ["level"]),
+            tool("get_volume", "Get the current Mac output volume (0–100)."),
         ]
     }
 
@@ -271,9 +274,27 @@ final class AgentController: ObservableObject {
         case "current_datetime":
             let f = DateFormatter(); f.dateStyle = .full; f.timeStyle = .medium
             return f.string(from: Date())
+        case "set_volume":
+            let lvl = max(0, min(100, (args["level"] as? Int) ?? 50))
+            _ = runOsa("set volume output volume \(lvl)")
+            return "Volume set to \(lvl)."
+        case "get_volume":
+            let v = runOsa("output volume of (get volume settings)")
+            return "Volume is \(v.isEmpty ? "unknown" : v)."
         default:
             return "Unknown tool \(name)."
         }
+    }
+
+    private func runOsa(_ script: String) -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        p.arguments = ["-e", script]
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+        guard (try? p.run()) != nil else { return "" }
+        p.waitUntilExit()
+        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     private func runCommand(_ command: String) -> String {
@@ -460,6 +481,8 @@ final class AgentController: ObservableObject {
         case "set_clipboard": return ("Copying…", "Set clipboard")
         case "open_url": let h = host(args["url"]); return ("Opening \(h)…", "Opened \(h) in browser")
         case "current_datetime": return ("Checking time…", "Checked the time")
+        case "set_volume": return ("Setting volume…", "Set volume to \(args["level"] as? Int ?? 0)")
+        case "get_volume": return ("Checking volume…", "Checked volume")
         default: return (name, name)
         }
     }
