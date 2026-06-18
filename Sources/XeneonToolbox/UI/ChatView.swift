@@ -31,6 +31,7 @@ struct ChatView: View {
                 }
             } else {
                 transcript
+                if let p = agent.pending { confirmBanner(p) }
                 inputBar
             }
         }
@@ -92,10 +93,8 @@ struct ChatView: View {
 
     @ViewBuilder private func bubble(_ t: Turn) -> some View {
         switch t.role {
-        case "tool":
-            Text(t.text).font(.deck(13, .medium)).foregroundStyle(Theme.accent)
-                .padding(.horizontal, 14).padding(.vertical, 7)
-                .background(Capsule().fill(Theme.accent.opacity(0.10)))
+        case "tools":
+            ToolStepsView(steps: t.steps)
         case "assistant":
             AssistantBubble(text: t.text)
         case "card":
@@ -160,6 +159,31 @@ struct ChatView: View {
                 }.buttonStyle(.plain).disabled(!canSend)
             }
         }
+    }
+
+    private func confirmBanner(_ p: AgentController.PendingAction) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.shield.fill").foregroundStyle(Theme.netUp)
+                Text("Approve: \(p.title)?").font(.deck(16, .bold)).foregroundStyle(Theme.textPrimary)
+                Spacer()
+            }
+            Text(p.detail).font(.system(size: 14, design: .monospaced)).foregroundStyle(Theme.textSecondary)
+                .lineLimit(5).frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 12) {
+                Button { agent.resolve(true) } label: {
+                    Text("Approve").font(.deck(16, .bold)).foregroundStyle(Theme.background)
+                        .padding(.horizontal, 28).padding(.vertical, 12).background(Capsule().fill(Theme.netUp))
+                }.buttonStyle(.plain)
+                Button { agent.resolve(false) } label: {
+                    Text("Deny").font(.deck(16, .semibold)).foregroundStyle(Theme.textSecondary)
+                        .padding(.horizontal, 24).padding(.vertical, 12).background(Capsule().fill(Color.white.opacity(0.08)))
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.netUp.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.netUp.opacity(0.4), lineWidth: 1))
     }
 
     private var canSend: Bool { !input.trimmingCharacters(in: .whitespaces).isEmpty && !agent.busy && config != nil }

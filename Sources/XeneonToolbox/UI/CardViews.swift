@@ -1,5 +1,41 @@
 import SwiftUI
 
+/// Minimal, collapsible summary of the tool steps the agent took.
+struct ToolStepsView: View {
+    let steps: [String]
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { expanded.toggle() } } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "wrench.and.screwdriver.fill").font(.system(size: 11))
+                    Text(steps.count == 1 ? steps[0] : "\(steps.count) steps")
+                        .font(.deck(13, .medium))
+                    if steps.count > 1 {
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.system(size: 9, weight: .bold))
+                    }
+                }
+                .foregroundStyle(Theme.textFaint)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Capsule().fill(Color.white.opacity(0.05)))
+            }
+            .buttonStyle(.plain)
+            if expanded && steps.count > 1 {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(steps.enumerated()), id: \.offset) { _, s in
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.battery)
+                            Text(s).font(.deck(12)).foregroundStyle(Theme.textSecondary)
+                        }
+                    }
+                }
+                .padding(.leading, 14)
+            }
+        }
+    }
+}
+
 /// Renders a generative-UI card the agent produced into the transcript.
 struct AgentCardView: View {
     let card: AgentCard

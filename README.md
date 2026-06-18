@@ -27,9 +27,12 @@ fullscreen on the Edge and hides the system menu bar.
     toggle touch, and open games.
   - **Generative UI** — e.g. renders a touch-friendly card of top processes.
   - **Web** — `web_search`, `fetch_url`. **Files** — list / read / write.
+  - **System** — run shell commands, clipboard read/write, open URLs, date/time.
 
-  Set it up in-app: pick OpenAI or a local model (Ollama / LM Studio); the model
-  list is auto-detected into a dropdown.
+  Dangerous actions (write file, run command) require an in-app **Approve/Deny**
+  confirmation. Tool steps collapse into one minimal chip. Set it up in-app: pick
+  OpenAI or a local model (Ollama / LM Studio); the model list auto-detects into
+  a dropdown.
 
 ## Touch driver
 

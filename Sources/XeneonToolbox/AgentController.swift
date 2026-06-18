@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import SwiftOpenAI
 import ToolboxKit
 
@@ -20,14 +21,37 @@ enum AgentCard {
 final class AgentController: ObservableObject {
     struct Turn: Identifiable {
         let id = UUID()
-        var role: String          // "user" | "assistant" | "tool" | "error" | "card"
+        var role: String          // "user" | "assistant" | "tools" | "error" | "card"
         var text: String
         var imageThumb: Bool = false
         var card: AgentCard? = nil
+        var steps: [String] = []  // for role "tools": collapsible action list
+    }
+
+    struct PendingAction: Identifiable {
+        let id = UUID()
+        let title: String
+        let detail: String
     }
 
     @Published var turns: [Turn] = []
     @Published var busy = false
+    @Published var pending: PendingAction?
+    private var confirmContinuation: CheckedContinuation<Bool, Never>?
+
+    /// Suspends the agent loop until the user approves/denies in the UI.
+    private func requestApproval(title: String, detail: String) async -> Bool {
+        await withCheckedContinuation { cont in
+            confirmContinuation = cont
+            pending = PendingAction(title: title, detail: detail)
+        }
+    }
+
+    func resolve(_ approved: Bool) {
+        pending = nil
+        confirmContinuation?.resume(returning: approved)
+        confirmContinuation = nil
+    }
 
     private var config: ChatConfig
     private weak var app: ToolboxModel?
@@ -76,8 +100,17 @@ final class AgentController: ObservableObject {
                  ["path": .init(type: .string)], required: ["path"]),
             tool("read_file", "Read a text file (supports ~). Truncated to 6000 chars.",
                  ["path": .init(type: .string)], required: ["path"]),
-            tool("write_file", "Write text to a file (supports ~), creating or overwriting it.",
+            tool("write_file", "Write text to a file (supports ~), creating or overwriting it. Asks the user to confirm.",
                  ["path": .init(type: .string), "content": .init(type: .string)], required: ["path", "content"]),
+            // System
+            tool("run_command", "Run a shell command and return its output. Asks the user to confirm first.",
+                 ["command": .init(type: .string)], required: ["command"]),
+            tool("get_clipboard", "Read the current macOS clipboard text."),
+            tool("set_clipboard", "Put text on the macOS clipboard.",
+                 ["text": .init(type: .string)], required: ["text"]),
+            tool("open_url", "Open a URL in the default browser.",
+                 ["url": .init(type: .string)], required: ["url"]),
+            tool("current_datetime", "Get the current local date and time."),
         ]
     }
 
@@ -114,10 +147,41 @@ final class AgentController: ObservableObject {
         case "read_file":
             return readFile((args["path"] as? String) ?? "")
         case "write_file":
-            return writeFile((args["path"] as? String) ?? "", (args["content"] as? String) ?? "")
+            let path = (args["path"] as? String) ?? "", content = (args["content"] as? String) ?? ""
+            let ok = await requestApproval(title: "Write file",
+                                           detail: "\(content.count) chars → \((path as NSString).abbreviatingWithTildeInPath)")
+            return ok ? writeFile(path, content) : "Denied: file not written."
+        case "run_command":
+            let cmd = (args["command"] as? String) ?? ""
+            let ok = await requestApproval(title: "Run command", detail: cmd)
+            return ok ? runCommand(cmd) : "Denied: command not run."
+        case "get_clipboard":
+            return NSPasteboard.general.string(forType: .string).map { "Clipboard: \($0)" } ?? "Clipboard is empty."
+        case "set_clipboard":
+            let text = (args["text"] as? String) ?? ""
+            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
+            return "Copied \(text.count) chars to the clipboard."
+        case "open_url":
+            guard let u = URL(string: (args["url"] as? String) ?? "") else { return "Invalid URL." }
+            NSWorkspace.shared.open(u); return "Opened \(u.absoluteString)."
+        case "current_datetime":
+            let f = DateFormatter(); f.dateStyle = .full; f.timeStyle = .medium
+            return f.string(from: Date())
         default:
             return "Unknown tool \(name)."
         }
+    }
+
+    private func runCommand(_ command: String) -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-lc", command]
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+        guard (try? p.run()) != nil else { return "Failed to launch command." }
+        p.waitUntilExit()
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "exit \(p.terminationStatus):\n" + String(trimmed.prefix(3000))
     }
 
     // MARK: - Tool implementations
@@ -144,18 +208,20 @@ final class AgentController: ObservableObject {
     private func webSearch(_ query: String) async -> String {
         guard !query.isEmpty,
               let q = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://lite.duckduckgo.com/lite/?q=\(q)") else { return "Invalid query." }
+              let url = URL(string: "https://html.duckduckgo.com/html/?q=\(q)") else { return "Invalid query." }
         var req = URLRequest(url: url)
-        req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", forHTTPHeaderField: "User-Agent")
         guard let (data, _) = try? await URLSession.shared.data(for: req),
               let html = String(data: data, encoding: .utf8) else { return "Search request failed." }
-        let links = matches(in: html, pattern: "class=\"result-link\"[^>]*>(.*?)</a>").map { strip($0) }
-        let snippets = matches(in: html, pattern: "class=\"result-snippet\"[^>]*>(.*?)</td>").map { strip($0) }
-        if links.isEmpty { return "No results found." }
-        var out = "Top results for \"\(query)\":\n"
-        for i in 0..<min(5, links.count) {
-            out += "\(i + 1). \(links[i])"
-            if i < snippets.count { out += " — \(snippets[i])" }
+        let titles = matches(in: html, pattern: "class=\"result__a\"[^>]*>(.*?)</a>").map { strip($0) }
+        let snippets = matches(in: html, pattern: "class=\"result__snippet\"[^>]*>(.*?)</a>").map { strip($0) }
+        let urls = matches(in: html, pattern: "class=\"result__url\"[^>]*>(.*?)</a>").map { strip($0) }
+        guard !titles.isEmpty else { return "No results found." }
+        var out = "Results for \"\(query)\":\n"
+        for i in 0..<min(5, titles.count) {
+            out += "\(i + 1). \(titles[i])"
+            if i < snippets.count, !snippets[i].isEmpty { out += " — \(snippets[i])" }
+            if i < urls.count, !urls[i].isEmpty { out += " [\(urls[i])]" }
             out += "\n"
         }
         return out
@@ -227,9 +293,48 @@ final class AgentController: ObservableObject {
         Task { await runLoop() }
     }
 
+    private var toolsTurnID: UUID?
+
+    private func addStep(_ label: String) {
+        if let id = toolsTurnID, let i = turns.firstIndex(where: { $0.id == id }) {
+            turns[i].steps.append(label)
+        } else {
+            var t = Turn(role: "tools", text: "")
+            t.steps = [label]
+            toolsTurnID = t.id
+            turns.append(t)
+        }
+    }
+
+    private func host(_ v: Any?) -> String { URL(string: (v as? String) ?? "")?.host ?? "page" }
+
+    /// A short description of what a tool did — never the raw (and possibly
+    /// failed) result. nil means show nothing (e.g. a card speaks for itself).
+    private func actionLabel(_ name: String, _ args: [String: Any]) -> String? {
+        switch name {
+        case "navigate": return "Opened \((args["tab"] as? String ?? "").capitalized)"
+        case "set_touch": return "Touch \((args["enabled"] as? Bool ?? false) ? "on" : "off")"
+        case "open_game": return "Opened \((args["game"] as? String) == "rhythm" ? "Rhythm Plus" : "山海残卷")"
+        case "get_app_state": return "Checked system stats"
+        case "show_top_processes": return nil
+        case "web_search": return "Searched “\(args["query"] as? String ?? "")”"
+        case "fetch_url": return "Read \(host(args["url"]))"
+        case "list_dir": return "Listed \(args["path"] as? String ?? "")"
+        case "read_file": return "Read \(args["path"] as? String ?? "")"
+        case "write_file": return "Wrote \(args["path"] as? String ?? "")"
+        case "run_command": return "Ran a command"
+        case "get_clipboard": return "Read clipboard"
+        case "set_clipboard": return "Set clipboard"
+        case "open_url": return "Opened \(host(args["url"])) in browser"
+        case "current_datetime": return "Checked the time"
+        default: return name
+        }
+    }
+
     private func runLoop() async {
         defer { busy = false }
         var assistantTurnID: UUID?
+        toolsTurnID = nil
 
         for _ in 0..<5 {
             let messages = [ChatCompletionParameters.Message(role: .system, content: .text(systemPrompt))] + history
@@ -276,7 +381,7 @@ final class AgentController: ObservableObject {
             for c in calls {
                 let args = (try? JSONSerialization.jsonObject(with: Data(c.args.utf8))) as? [String: Any] ?? [:]
                 let result = await runTool(c.name, args)
-                turns.append(Turn(role: "tool", text: "⚙ \(result)"))
+                if let label = actionLabel(c.name, args) { addStep(label) }
                 history.append(.init(role: .tool, content: .text(result), toolCallID: c.id))
             }
             assistantTurnID = nil   // next streamed text is a fresh turn
