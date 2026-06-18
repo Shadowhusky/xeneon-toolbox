@@ -249,7 +249,10 @@ final class AgentController: ObservableObject {
         case "get_app_state":
             guard let app else { return "App unavailable." }
             let s = app.metrics.snap
-            return "tab=\(app.route.rawValue); touch=\(app.touchOn ? "on" : "off"); cpu=\(Int(s.cpu*100))%; mem=\(Fmt.gb(s.memUsed))/\(Fmt.gb(s.memTotal))GB; diskFree=\(Fmt.gb(s.diskFree))GB; uptime=\(Fmt.uptime(s.uptime))"
+            var out = "tab=\(app.route.rawValue); touch=\(app.touchStatus == .active ? "active" : app.touchOn ? "searching" : "off"); cpu=\(Int(s.cpu*100))%; mem=\(Fmt.gb(s.memUsed))/\(Fmt.gb(s.memTotal))GB; diskFree=\(Fmt.gb(s.diskFree))GB; uptime=\(Fmt.uptime(s.uptime))"
+            if let b = s.battery { out += "; battery=\(Int(b.level*100))%\(b.charging ? " (charging)" : "")" }
+            if let w = app.weather.weather { out += "; weather=\(w.displayTemp) in \(w.city)" }
+            return out
         case "show_top_processes":
             let n = (args["count"] as? Int) ?? 6
             let rows = topProcesses(n)
@@ -431,7 +434,12 @@ final class AgentController: ObservableObject {
 
     private var systemPrompt: String {
         """
-        You are the built-in assistant inside Xeneon Toolbox, a macOS app on a Corsair Xeneon Edge — a 2560x720 ultrawide touchscreen. Tabs: Dashboard (live system telemetry), Clock (world clocks + focus timer), Games (embeds the 山海残卷 card roguelike and Rhythm Plus), and Assistant (you). "Touch" is the embedded driver that lets the user tap the Edge. Use your tools to inspect state and control the app when asked. Keep answers concise — the screen is small and wide.
+        You are the built-in assistant inside Xeneon Toolbox, a macOS app on a Corsair Xeneon Edge — a 2560x720 ultrawide touchscreen. Tabs: Dashboard (live system telemetry), Clock (world clocks + focus timer), Games (embeds the 山海残卷 card roguelike and Rhythm Plus), and Assistant (you). "Touch" is the embedded driver that lets the user tap the Edge.
+
+        Guidelines:
+        - Answer questions directly here in the Assistant. Use web_search/fetch_url for current facts, and show_card to present comparisons, lists, or stats as a visual card.
+        - Only use navigate or open_game when the user explicitly asks to switch tabs or open something — never navigate away just to answer a question.
+        - Use get_app_state for live system info. Keep answers concise; the screen is small and wide.
         """
     }
 
