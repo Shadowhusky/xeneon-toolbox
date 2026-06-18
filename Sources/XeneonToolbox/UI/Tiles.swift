@@ -4,15 +4,30 @@ private let ringSize: CGFloat = 176
 
 struct ClockTile: View {
     var uptime: TimeInterval
+    var weather: Weather?
     var body: some View {
         TileSurface(accent: Theme.accent) {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let now = context.date
                 VStack(alignment: .leading, spacing: 0) {
-                    TileHeader(title: "Local", systemImage: "clock.fill", accent: Theme.accent)
+                    HStack {
+                        TileHeader(title: "Local", systemImage: "clock.fill", accent: Theme.accent)
+                        if let w = weather {
+                            Spacer()
+                            HStack(spacing: 5) {
+                                Image(systemName: w.symbol).foregroundStyle(Theme.accent)
+                                Text(w.displayTemp).font(.readout(16, .bold)).foregroundStyle(Theme.textPrimary)
+                            }
+                        }
+                    }
                     Spacer()
-                    Text(now, format: .dateTime.weekday(.wide))
-                        .font(.deck(22, .medium)).foregroundStyle(Theme.textSecondary)
+                    HStack(spacing: 8) {
+                        Text(now, format: .dateTime.weekday(.wide))
+                            .font(.deck(22, .medium)).foregroundStyle(Theme.textSecondary)
+                        if let w = weather, !w.city.isEmpty {
+                            Text("· \(w.city)").font(.deck(16)).foregroundStyle(Theme.textFaint).lineLimit(1)
+                        }
+                    }
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
                         Text(now, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
                             .font(.readout(74, .bold)).foregroundStyle(Theme.textPrimary)

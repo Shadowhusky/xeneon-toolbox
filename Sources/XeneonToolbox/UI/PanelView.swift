@@ -41,7 +41,7 @@ struct RootView: View {
 
     @ViewBuilder private var content: some View {
         switch model.route {
-        case .dashboard: DashboardView(model: model, metrics: metrics)
+        case .dashboard: DashboardView(model: model, metrics: metrics, weather: model.weather)
         case .clock: ClockAppView()
         case .games: GamesView(model: model)
         case .chat: ChatView(model: model)

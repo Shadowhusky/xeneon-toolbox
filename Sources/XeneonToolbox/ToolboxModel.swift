@@ -31,6 +31,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
 @MainActor
 final class ToolboxModel: ObservableObject {
     let metrics = SystemMetrics()
+    let weather = WeatherService()
     lazy var agent = AgentController(config: ChatConfig.loadSaved() ?? ChatConfig.presets[0].config, app: self)
     @Published var route: AppRoute = .dashboard
     @Published var displayMode: DisplayMode = .full
@@ -70,6 +71,7 @@ final class ToolboxModel: ObservableObject {
 
     func onAppear() {
         metrics.start()
+        weather.start()
         startTouch()
     }
 
