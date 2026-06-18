@@ -56,34 +56,37 @@ struct NavRail: View {
     var onSleep: () -> Void = {}
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 0) {
             Image(systemName: "square.grid.2x2.fill")
-                .font(.system(size: 26, weight: .bold))
+                .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(Theme.accent)
-                .padding(.top, 26).padding(.bottom, 6)
+                .padding(.top, 22).padding(.bottom, 12)
 
-            ForEach(AppRoute.allCases) { r in
-                NavButton(route: r, selected: route == r) {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { route = r }
+            // App buttons scroll if the rail is shorter than their total height.
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 12) {
+                    ForEach(AppRoute.allCases) { r in
+                        NavButton(route: r, selected: route == r) {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { route = r }
+                        }
+                    }
                 }
+                .padding(.vertical, 4)
             }
-            Spacer()
-            Image(systemName: touchActive ? "hand.tap.fill" : "hand.tap")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(touchActive ? Theme.battery : Theme.textFaint)
-            HStack(spacing: 10) {
-                railIcon("rectangle.compress.vertical", action: onMinimal)
-                railIcon("moon.fill", action: onSleep)
+            .frame(maxHeight: .infinity)
+
+            // Always-visible bottom controls.
+            VStack(spacing: 12) {
+                Image(systemName: touchActive ? "hand.tap.fill" : "hand.tap")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(touchActive ? Theme.battery : Theme.textFaint)
+                HStack(spacing: 10) {
+                    railIcon("rectangle.compress.vertical", action: onMinimal)
+                    railIcon("moon.fill", action: onSleep)
+                }
+                railIcon("power", width: 92) { NSApplication.shared.terminate(nil) }
             }
-            Button { NSApplication.shared.terminate(nil) } label: {
-                Image(systemName: "power")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Theme.textFaint)
-                    .frame(width: 92, height: 44)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.05)))
-            }
-            .buttonStyle(.plain)
-            .padding(.bottom, 22)
+            .padding(.top, 10).padding(.bottom, 18)
         }
         .frame(width: 156)
         .frame(maxHeight: .infinity)
@@ -93,12 +96,12 @@ struct NavRail: View {
         }
     }
 
-    private func railIcon(_ name: String, action: @escaping () -> Void) -> some View {
+    private func railIcon(_ name: String, width: CGFloat = 41, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: name)
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(Theme.textSecondary)
-                .frame(width: 41, height: 44)
+                .frame(width: width, height: 44)
                 .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
         }
         .buttonStyle(.plain)
@@ -112,14 +115,14 @@ private struct NavButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 9) {
+            VStack(spacing: 7) {
                 Image(systemName: route.icon)
-                    .font(.system(size: 34, weight: .semibold))
-                Text(route.title).font(.deck(13, .semibold)).tracking(0.3)
+                    .font(.system(size: 29, weight: .semibold))
+                Text(route.title).font(.deck(12, .semibold)).tracking(0.3)
             }
             .foregroundStyle(selected ? Theme.accent : Theme.textSecondary)
             .shadow(color: selected ? Theme.accent.opacity(0.6) : .clear, radius: 10)
-            .frame(width: 124, height: 104)
+            .frame(width: 120, height: 82)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(selected
