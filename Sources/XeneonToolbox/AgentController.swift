@@ -228,6 +228,8 @@ final class AgentController: ObservableObject {
             tool("set_volume", "Set the Mac output volume (0–100).",
                  ["level": .init(type: .integer)], required: ["level"]),
             tool("get_volume", "Get the current Mac output volume (0–100)."),
+            tool("media_control", "Control media playback for any player: play/pause, next, or previous track.",
+                 ["action": .init(type: .string, enum: ["play_pause", "next", "previous"])], required: ["action"]),
         ]
     }
 
@@ -306,8 +308,23 @@ final class AgentController: ObservableObject {
         case "get_volume":
             let v = runOsa("output volume of (get volume settings)")
             return "Volume is \(v.isEmpty ? "unknown" : v)."
+        case "media_control":
+            let a = (args["action"] as? String) ?? "play_pause"
+            mediaKey(a == "next" ? 17 : (a == "previous" ? 18 : 16))
+            return "Sent media \(a)."
         default:
             return "Unknown tool \(name)."
+        }
+    }
+
+    private func mediaKey(_ key: Int32) {
+        for state in [0xA, 0xB] {
+            let data1 = (Int(key) << 16) | (state << 8)
+            guard let ev = NSEvent.otherEvent(with: .systemDefined, location: .zero,
+                                              modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state == 0xA ? 0xA00 : 0xB00)),
+                                              timestamp: 0, windowNumber: 0, context: nil,
+                                              subtype: 8, data1: data1, data2: -1) else { continue }
+            ev.cgEvent?.post(tap: .cghidEventTap)
         }
     }
 
@@ -514,6 +531,7 @@ final class AgentController: ObservableObject {
         case "current_datetime": return ("Checking time…", "Checked the time")
         case "set_volume": return ("Setting volume…", "Set volume to \(args["level"] as? Int ?? 0)")
         case "get_volume": return ("Checking volume…", "Checked volume")
+        case "media_control": return ("Controlling playback…", "Media \(args["action"] as? String ?? "")")
         default: return (name, name)
         }
     }
