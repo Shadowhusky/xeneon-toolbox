@@ -60,7 +60,7 @@ struct NavRail: View {
             .buttonStyle(.plain)
             .padding(.bottom, 22)
         }
-        .frame(width: 128)
+        .frame(width: 156)
         .frame(maxHeight: .infinity)
         .background(Theme.backgroundEdge)
         .overlay(alignment: .trailing) {
@@ -76,20 +76,20 @@ private struct NavButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 7) {
+            VStack(spacing: 9) {
                 Image(systemName: route.icon)
-                    .font(.system(size: 28, weight: .semibold))
-                Text(route.title).font(.deck(11, .semibold)).tracking(0.3)
+                    .font(.system(size: 34, weight: .semibold))
+                Text(route.title).font(.deck(13, .semibold)).tracking(0.3)
             }
             .foregroundStyle(selected ? Theme.accent : Theme.textSecondary)
-            .frame(width: 92, height: 80)
+            .frame(width: 124, height: 104)
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(selected ? Theme.accent.opacity(0.16) : Color.white.opacity(0.03))
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(selected ? Theme.accent.opacity(0.18) : Color.white.opacity(0.04))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(selected ? Theme.accent.opacity(0.5) : .clear, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(selected ? Theme.accent.opacity(0.55) : .clear, lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)

@@ -25,9 +25,5 @@ let package = Package(
             name: "XeneonTouchCoreTests",
             dependencies: ["XeneonTouchCore"]
         ),
-        .testTarget(
-            name: "ToolboxKitTests",
-            dependencies: ["ToolboxKit"]
-        ),
     ]
 )
