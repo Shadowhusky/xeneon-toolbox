@@ -17,11 +17,9 @@ fullscreen on the Edge and hides the system menu bar.
   clock/uptime, with hue-coded ring gauges and sparklines, plus a touch on/off
   control.
 - **Clock** — local time, world clocks, and a focus (Pomodoro) timer.
-- **Games**
-  - **Sever** — a cyberpunk neon slash arcade made for the ultrawide: swipe to
-    slice data-shards streaming edge-to-edge, dodge the red ICE. Combos, waves,
-    lives. (Background art generated with `gpt-image-2`.)
-  - **2048** — swipe or use the on-screen pad.
+- **Games** — full web games embedded for the Edge, switchable in-app:
+  - **山海残卷 (Shanhai)** — the card roguelike at shanhai-yi.com.
+  - **Rhythm Plus** — the rhythm game at v2.rhythm-plus.com.
 - **Assistant** — chat backed by any OpenAI-compatible endpoint. Set it up
   in-app: pick OpenAI, a local model (Ollama / LM Studio), or a custom endpoint.
 
@@ -61,8 +59,8 @@ digitizer.
 | `XeneonToolbox` | app | SwiftUI apps + embedded touch driver |
 | `xeneon-touch` | CLI | Diagnostics (`diagnose`, `list-displays`) and headless `run` |
 
-## Asset generation
+## Icon
 
-`scripts/gen-asset.py` generates background art via OpenAI `gpt-image-2`
-(`OPENAI_API_KEY` from the environment — never committed). `scripts/make-icon.swift`
-renders the app icon procedurally.
+`scripts/make-icon.swift` renders the app icon procedurally (neon ring gauge).
+`scripts/gen-asset.py` is a helper for generating art via OpenAI `gpt-image-2`
+(`OPENAI_API_KEY` read from the environment — never committed).

@@ -6,6 +6,12 @@ final class KeyableWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
+/// Lets a tap act immediately even when the window isn't focused, so injected
+/// touches don't get "eaten" as a mere focus click (the refocus-with-mouse bug).
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
@@ -26,7 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         win.hasShadow = false
 
         win.collectionBehavior = [.fullScreenPrimary]
-        win.contentView = NSHostingView(rootView: RootView(model: model, metrics: model.metrics))
+        win.acceptsMouseMovedEvents = true
+        win.contentView = FirstMouseHostingView(rootView: RootView(model: model, metrics: model.metrics))
         win.setFrame(frame, display: true)
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

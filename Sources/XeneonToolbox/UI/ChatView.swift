@@ -134,6 +134,8 @@ private struct ChatSettingsView: View {
     @State private var baseURL: String
     @State private var model: String
     @State private var apiKey: String
+    @State private var models: [String] = []
+    @State private var detecting = false
 
     init(initial: ChatConfig?, onSave: @escaping (ChatConfig) -> Void, cancel: @escaping () -> Void) {
         self.initial = initial
@@ -155,6 +157,7 @@ private struct ChatSettingsView: View {
                 ForEach(ChatConfig.presets, id: \.name) { preset in
                     Button {
                         baseURL = preset.config.baseURL; model = preset.config.model
+                        detect()
                     } label: {
                         Text(preset.name).font(.deck(15, .semibold)).foregroundStyle(Theme.accent)
                             .padding(.horizontal, 18).padding(.vertical, 12)
@@ -165,7 +168,7 @@ private struct ChatSettingsView: View {
             }
 
             field("Endpoint", text: $baseURL, placeholder: "http://localhost:11434/v1")
-            field("Model", text: $model, placeholder: "llama3.2 / gpt-4o-mini")
+            modelRow
             field("API key (optional for local)", text: $apiKey, placeholder: "sk-…", secure: true)
 
             HStack(spacing: 12) {
@@ -191,6 +194,55 @@ private struct ChatSettingsView: View {
             Spacer()
         }
         .frame(maxWidth: 760, alignment: .leading)
+    }
+
+    private var modelRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("MODEL").font(.deck(11, .bold)).tracking(1.2).foregroundStyle(Theme.textFaint)
+                Spacer()
+                Button(action: detect) {
+                    HStack(spacing: 6) {
+                        if detecting { ProgressView().controlSize(.small) }
+                        else { Image(systemName: "arrow.triangle.2.circlepath") }
+                        Text(detecting ? "Detecting…" : "Detect").font(.deck(12, .semibold))
+                    }.foregroundStyle(Theme.accent)
+                }.buttonStyle(.plain).disabled(detecting)
+            }
+            if models.isEmpty {
+                TextField("llama3.2 / gpt-4o-mini", text: $model)
+                    .textFieldStyle(.plain).font(.deck(16)).foregroundStyle(Theme.textPrimary)
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
+            } else {
+                Menu {
+                    ForEach(models, id: \.self) { m in Button(m) { model = m } }
+                } label: {
+                    HStack {
+                        Text(model.isEmpty ? "Select a model" : model)
+                            .foregroundStyle(model.isEmpty ? Theme.textFaint : Theme.textPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.down").foregroundStyle(Theme.textSecondary)
+                    }
+                    .font(.deck(16)).padding(.horizontal, 16).padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
+                }
+                .menuStyle(.borderlessButton)
+            }
+        }
+    }
+
+    private func detect() {
+        detecting = true
+        let url = baseURL, key = apiKey
+        Task {
+            let found = await ChatClient.listModels(baseURL: url, apiKey: key.isEmpty ? nil : key)
+            await MainActor.run {
+                models = found
+                if let first = found.first, !found.contains(model) { model = first }
+                detecting = false
+            }
+        }
     }
 
     private var canSave: Bool {

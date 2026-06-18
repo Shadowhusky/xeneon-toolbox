@@ -82,15 +82,21 @@ private struct NavButton: View {
                 Text(route.title).font(.deck(13, .semibold)).tracking(0.3)
             }
             .foregroundStyle(selected ? Theme.accent : Theme.textSecondary)
+            .shadow(color: selected ? Theme.accent.opacity(0.6) : .clear, radius: 10)
             .frame(width: 124, height: 104)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(selected ? Theme.accent.opacity(0.18) : Color.white.opacity(0.04))
+                    .fill(selected
+                          ? LinearGradient(colors: [Theme.accent.opacity(0.26), Theme.accent.opacity(0.10)],
+                                           startPoint: .top, endPoint: .bottom)
+                          : LinearGradient(colors: [Color.white.opacity(0.05), .clear], startPoint: .top, endPoint: .bottom))
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(selected ? Theme.accent.opacity(0.55) : .clear, lineWidth: 1.5)
-            )
+            .overlay(alignment: .leading) {
+                Capsule().fill(Theme.accent)
+                    .frame(width: 4, height: selected ? 52 : 0)
+                    .shadow(color: Theme.accent.opacity(0.8), radius: 6)
+                    .offset(x: -3)
+            }
         }
         .buttonStyle(.plain)
     }

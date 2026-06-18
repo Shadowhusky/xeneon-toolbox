@@ -70,6 +70,19 @@ public struct ChatClient {
     public let config: ChatConfig
     public init(config: ChatConfig) { self.config = config }
 
+    /// Queries an OpenAI-compatible `/models` endpoint (works with OpenAI,
+    /// Ollama, LM Studio) so the UI can offer a dropdown of available models.
+    public static func listModels(baseURL: String, apiKey: String?) async -> [String] {
+        guard let url = URL(string: baseURL.appending("/models")) else { return [] }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        if let k = apiKey, !k.isEmpty { req.setValue("Bearer \(k)", forHTTPHeaderField: "Authorization") }
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let arr = json["data"] as? [[String: Any]] else { return [] }
+        return arr.compactMap { $0["id"] as? String }.sorted()
+    }
+
     public func reply(to history: [(role: String, content: String)]) async throws -> String {
         guard let url = URL(string: config.baseURL.appending("/chat/completions")) else { throw ChatError.badURL }
 

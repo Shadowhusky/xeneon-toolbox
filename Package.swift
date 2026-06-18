@@ -18,7 +18,6 @@ let package = Package(
         .executableTarget(
             name: "XeneonToolbox",
             dependencies: ["XeneonTouchCore", "XeneonTouchDriver", "ToolboxKit"],
-            resources: [.copy("Resources")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
