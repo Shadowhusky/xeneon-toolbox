@@ -5,8 +5,26 @@ struct RootView: View {
     @ObservedObject var metrics: SystemMetrics
 
     var body: some View {
+        Group {
+            switch model.displayMode {
+            case .full: fullUI
+            case .minimal:
+                MinimalView(metrics: metrics).contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
+            case .sleep:
+                SleepView().contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
+        .preferredColorScheme(.dark)
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.4), value: model.displayMode)
+    }
+
+    private var fullUI: some View {
         HStack(spacing: 0) {
-            NavRail(route: $model.route, touchActive: model.touchStatus == .active)
+            NavRail(route: $model.route, touchActive: model.touchStatus == .active,
+                    onMinimal: { model.setDisplay(.minimal) }, onSleep: { model.setDisplay(.sleep) })
             ZStack {
                 DeckBackground()
                 content
@@ -18,10 +36,7 @@ struct RootView: View {
             }
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: model.route)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)
-        .preferredColorScheme(.dark)
-        .ignoresSafeArea()
     }
 
     @ViewBuilder private var content: some View {
@@ -37,6 +52,8 @@ struct RootView: View {
 struct NavRail: View {
     @Binding var route: AppRoute
     var touchActive: Bool
+    var onMinimal: () -> Void = {}
+    var onSleep: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 16) {
@@ -54,12 +71,16 @@ struct NavRail: View {
             Image(systemName: touchActive ? "hand.tap.fill" : "hand.tap")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(touchActive ? Theme.battery : Theme.textFaint)
+            HStack(spacing: 10) {
+                railIcon("rectangle.compress.vertical", action: onMinimal)
+                railIcon("moon.fill", action: onSleep)
+            }
             Button { NSApplication.shared.terminate(nil) } label: {
                 Image(systemName: "power")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(Theme.textFaint)
-                    .frame(width: 64, height: 56)
-                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.05)))
+                    .frame(width: 92, height: 44)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.05)))
             }
             .buttonStyle(.plain)
             .padding(.bottom, 22)
@@ -70,6 +91,17 @@ struct NavRail: View {
         .overlay(alignment: .trailing) {
             Rectangle().fill(Theme.stroke).frame(width: 1)
         }
+    }
+
+    private func railIcon(_ name: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 41, height: 44)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
+        }
+        .buttonStyle(.plain)
     }
 }
 

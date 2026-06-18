@@ -2,6 +2,8 @@ import SwiftUI
 import XeneonTouchDriver
 import ToolboxKit
 
+enum DisplayMode { case full, minimal, sleep }
+
 enum AppRoute: String, CaseIterable, Identifiable {
     case dashboard, clock, games, chat
     var id: String { rawValue }
@@ -31,9 +33,17 @@ final class ToolboxModel: ObservableObject {
     let metrics = SystemMetrics()
     lazy var agent = AgentController(config: ChatConfig.loadSaved() ?? ChatConfig.presets[0].config, app: self)
     @Published var route: AppRoute = .dashboard
+    @Published var displayMode: DisplayMode = .full
     @Published var touchOn = false
     @Published var edgeDetected = false
     @Published var gamePref = "shanhai"   // "shanhai" | "rhythm"
+
+    /// Sleep stops monitoring (saves battery, avoids burn-in); minimal keeps
+    /// light stats; full is the normal UI.
+    func setDisplay(_ mode: DisplayMode) {
+        if mode == .sleep { metrics.stop() } else { metrics.start() }
+        displayMode = mode
+    }
 
     private let touch = TouchService(config: TouchServiceConfig(preferSeize: true))
     private var retryTimer: Timer?
@@ -47,6 +57,11 @@ final class ToolboxModel: ObservableObject {
         if let r = ProcessInfo.processInfo.environment["XENEON_ROUTE"],
            let route = AppRoute(rawValue: r) {
             self.route = route
+        }
+        switch ProcessInfo.processInfo.environment["XENEON_DISPLAY"] {
+        case "minimal": displayMode = .minimal
+        case "sleep": displayMode = .sleep
+        default: break
         }
         touch.onPresenceChanged = { [weak self] present in
             Task { @MainActor in self?.edgeDetected = present }
