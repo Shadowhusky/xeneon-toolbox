@@ -24,6 +24,19 @@ struct ToolStep: Identifiable {
     var done: Bool
 }
 
+/// Persisted conversation (only user/assistant text; tool activity is ephemeral).
+struct StoredConversation: Codable, Identifiable {
+    let id: UUID
+    var title: String
+    var messages: [StoredMessage]
+    var updated: Date
+}
+
+struct StoredMessage: Codable {
+    let role: String   // "user" | "assistant"
+    let text: String
+}
+
 @MainActor
 final class AgentController: ObservableObject {
     struct Turn: Identifiable {
@@ -68,16 +81,91 @@ final class AgentController: ObservableObject {
         confirmContinuation = nil
     }
 
+    @Published var conversations: [StoredConversation] = []
+    @Published private(set) var activeID = UUID()
+
     private var config: ChatConfig
     private weak var app: ToolboxModel?
     private var history: [SwiftOpenAI.ChatCompletionParameters.Message] = []
 
+    private struct StoredFile: Codable { var conversations: [StoredConversation]; var activeID: UUID }
+    private static var storeURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/xeneon-toolbox/conversations.json")
+    }
+
     init(config: ChatConfig, app: ToolboxModel?) {
         self.config = config
         self.app = app
+        loadStore()
     }
 
     func update(config: ChatConfig) { self.config = config }
+
+    // MARK: - Conversations
+
+    func newConversation() {
+        saveActive()
+        let c = StoredConversation(id: UUID(), title: "New chat", messages: [], updated: Date())
+        conversations.insert(c, at: 0)
+        activeID = c.id
+        turns = []; history = []
+        writeStore()
+    }
+
+    func select(_ id: UUID) {
+        guard id != activeID else { return }
+        saveActive()
+        activeID = id
+        loadActiveTurns()
+        writeStore()
+    }
+
+    func delete(_ id: UUID) {
+        conversations.removeAll { $0.id == id }
+        if activeID == id {
+            if let first = conversations.first { activeID = first.id; loadActiveTurns() }
+            else { newConversation(); return }
+        }
+        writeStore()
+    }
+
+    private func loadStore() {
+        if let data = try? Data(contentsOf: Self.storeURL),
+           let file = try? JSONDecoder().decode(StoredFile.self, from: data), !file.conversations.isEmpty {
+            conversations = file.conversations.sorted { $0.updated > $1.updated }
+            activeID = conversations.contains { $0.id == file.activeID } ? file.activeID : conversations[0].id
+            loadActiveTurns()
+        } else {
+            let c = StoredConversation(id: UUID(), title: "New chat", messages: [], updated: Date())
+            conversations = [c]; activeID = c.id
+        }
+    }
+
+    private func loadActiveTurns() {
+        guard let c = conversations.first(where: { $0.id == activeID }) else { turns = []; history = []; return }
+        turns = c.messages.map { Turn(role: $0.role, text: $0.text) }
+        history = c.messages.map { .init(role: $0.role == "user" ? .user : .assistant, content: .text($0.text)) }
+    }
+
+    private func saveActive() {
+        guard let i = conversations.firstIndex(where: { $0.id == activeID }) else { return }
+        conversations[i].messages = turns.compactMap {
+            ($0.role == "user" || $0.role == "assistant") && !$0.text.isEmpty ? StoredMessage(role: $0.role, text: $0.text) : nil
+        }
+        if let firstUser = turns.first(where: { $0.role == "user" })?.text, conversations[i].title == "New chat" {
+            conversations[i].title = String(firstUser.prefix(42))
+        }
+        conversations[i].updated = Date()
+    }
+
+    private func writeStore() {
+        saveActive()
+        try? FileManager.default.createDirectory(at: Self.storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(StoredFile(conversations: conversations, activeID: activeID)) {
+            try? data.write(to: Self.storeURL)
+        }
+    }
 
     private var service: OpenAIService {
         // SwiftOpenAI appends /v1/...; pass the host without a trailing /v1.
@@ -366,7 +454,7 @@ final class AgentController: ObservableObject {
     }
 
     private func runLoop() async {
-        defer { busy = false }
+        defer { busy = false; writeStore() }
         var assistantTurnID: UUID?
         toolsTurnID = nil
 

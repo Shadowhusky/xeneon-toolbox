@@ -1,5 +1,6 @@
 import SwiftUI
 import XeneonTouchDriver
+import ToolboxKit
 
 enum AppRoute: String, CaseIterable, Identifiable {
     case dashboard, clock, games, chat
@@ -28,6 +29,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
 @MainActor
 final class ToolboxModel: ObservableObject {
     let metrics = SystemMetrics()
+    lazy var agent = AgentController(config: ChatConfig.loadSaved() ?? ChatConfig.presets[0].config, app: self)
     @Published var route: AppRoute = .dashboard
     @Published var touchOn = false
     @Published var edgeDetected = false

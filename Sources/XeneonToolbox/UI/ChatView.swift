@@ -5,7 +5,7 @@ import ToolboxKit
 
 struct ChatView: View {
     @ObservedObject var model: ToolboxModel
-    @StateObject private var agent: AgentController
+    @ObservedObject var agent: AgentController
     @State private var config: ChatConfig?
     @State private var showSettings: Bool
     @State private var input = ""
@@ -13,14 +13,28 @@ struct ChatView: View {
     @State private var pendingImageName: String?
 
     init(model: ToolboxModel) {
-        self.model = model
+        _model = ObservedObject(wrappedValue: model)
+        _agent = ObservedObject(wrappedValue: model.agent)
         let saved = ChatConfig.loadSaved()
         _config = State(initialValue: saved)
         _showSettings = State(initialValue: saved == nil)
-        _agent = StateObject(wrappedValue: AgentController(config: saved ?? ChatConfig.presets[0].config, app: model))
     }
 
     var body: some View {
+        HStack(spacing: 0) {
+            ConversationList(agent: agent)
+            mainColumn.padding(.leading, 18).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear {
+            if let p = ProcessInfo.processInfo.environment["XENEON_AGENT_PROMPT"],
+               config != nil, agent.turns.isEmpty {
+                agent.send(text: p, imageDataURL: nil)
+            }
+        }
+    }
+
+    private var mainColumn: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             if showSettings || config == nil {
@@ -38,12 +52,6 @@ struct ChatView: View {
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.82), value: agent.pending?.id)
-        .onAppear {
-            if let p = ProcessInfo.processInfo.environment["XENEON_AGENT_PROMPT"],
-               config != nil, agent.turns.isEmpty {
-                agent.send(text: p, imageDataURL: nil)
-            }
-        }
     }
 
     private var header: some View {
@@ -73,17 +81,23 @@ struct ChatView: View {
                     if agent.turns.isEmpty { emptyState }
                     ForEach(agent.turns) { t in bubble(t).id(t.id) }
                     if agent.busy { dots }
+                    Color.clear.frame(height: 1).id("BOTTOM")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(4)
             }
             .onChange(of: agent.turns.count) { _, _ in scrollToEnd(proxy) }
             .onChange(of: agent.turns.last?.text) { _, _ in scrollToEnd(proxy) }
+            .onChange(of: agent.busy) { _, _ in scrollToEnd(proxy) }
+            .onChange(of: agent.activeID) { _, _ in scrollToEnd(proxy) }
+            .onAppear { scrollToEnd(proxy) }
         }
         .frame(maxHeight: .infinity)
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        if let last = agent.turns.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
+        }
     }
 
     private var emptyState: some View {
@@ -192,12 +206,15 @@ struct ChatView: View {
         }.buttonStyle(.plain)
     }
 
-    private var canSend: Bool { !input.trimmingCharacters(in: .whitespaces).isEmpty && !agent.busy && config != nil }
+    private var canSend: Bool {
+        (!input.trimmingCharacters(in: .whitespaces).isEmpty || pendingImageURL != nil) && !agent.busy && config != nil
+    }
     private func host(_ c: ChatConfig) -> String { URL(string: c.baseURL)?.host ?? "local" }
 
     private func send() {
-        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !agent.busy else { return }
+        var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (!text.isEmpty || pendingImageURL != nil), !agent.busy, config != nil else { return }
+        if text.isEmpty, pendingImageURL != nil { text = "What's in this image?" }
         input = ""
         agent.send(text: text, imageDataURL: pendingImageURL)
         pendingImageURL = nil; pendingImageName = nil

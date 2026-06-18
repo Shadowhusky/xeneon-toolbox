@@ -19,10 +19,17 @@ struct MarkdownBubble: View {
             .markdownBlockStyle(\.codeBlock) { configuration in
                 configuration.label
                     .markdownTextStyle { FontFamilyVariant(.monospaced); FontSize(14) }
-                    .padding(12)
+                    .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.white.opacity(0.07))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .markdownMargin(top: .em(0.9), bottom: .em(1.1))
+            }
+            .markdownBlockStyle(\.paragraph) { configuration in
+                configuration.label.markdownMargin(top: .em(0.35), bottom: .em(0.35))
+            }
+            .markdownBlockStyle(\.listItem) { configuration in
+                configuration.label.markdownMargin(top: .em(0.2), bottom: .em(0.2))
             }
             .textSelection(.enabled)
     }
