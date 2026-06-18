@@ -170,10 +170,11 @@ struct ChatView: View {
                     .padding(.horizontal, 18).padding(.vertical, 14)
                     .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
                     .onSubmit(send)
-                Button(action: send) {
-                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 36))
-                        .foregroundStyle(canSend ? Theme.accent : Theme.textFaint)
-                }.buttonStyle(.plain).disabled(!canSend)
+                Button(action: agent.busy ? agent.cancel : send) {
+                    Image(systemName: agent.busy ? "stop.circle.fill" : "arrow.up.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundStyle(agent.busy ? Theme.batteryLow : (canSend ? Theme.accent : Theme.textFaint))
+                }.buttonStyle(.plain).disabled(!agent.busy && !canSend)
             }
         }
     }

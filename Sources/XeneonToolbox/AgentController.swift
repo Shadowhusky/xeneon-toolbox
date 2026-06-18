@@ -63,6 +63,7 @@ final class AgentController: ObservableObject {
     @Published var pending: PendingAction?
     private var confirmContinuation: CheckedContinuation<Bool, Never>?
     private var alwaysAllowed: Set<String> = []
+    private var task: Task<Void, Never>?
 
     /// Suspends the agent loop until the user decides. Auto-approves tools the
     /// user previously chose to always allow.
@@ -402,8 +403,18 @@ final class AgentController: ObservableObject {
             : .init(role: .user, content: .contentArray(content))
         history.append(userMessage)
         turns.append(Turn(role: "user", text: text, imageThumb: imageDataURL != nil))
+        writeStore()
 
-        Task { await runLoop() }
+        task = Task { await runLoop() }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+        pending = nil
+        confirmContinuation?.resume(returning: false)
+        confirmContinuation = nil
+        busy = false
     }
 
     private var toolsTurnID: UUID?
@@ -464,19 +475,26 @@ final class AgentController: ObservableObject {
 
             var liveText = ""
             var toolAcc: [Int: (id: String, name: String, args: String)] = [:]
+            var lastEmit = Date.distantPast
+            // Throttle markdown re-renders so fast token streams don't flicker.
+            func emit(force: Bool) {
+                guard force || Date().timeIntervalSince(lastEmit) > 0.07 else { return }
+                lastEmit = Date()
+                if let id = assistantTurnID, let i = turns.firstIndex(where: { $0.id == id }) {
+                    turns[i].text = liveText
+                } else if !liveText.isEmpty {
+                    let t = Turn(role: "assistant", text: liveText)
+                    assistantTurnID = t.id
+                    turns.append(t)
+                }
+            }
             do {
                 let stream = try await service.startStreamedChat(parameters: params)
                 for try await chunk in stream {
                     guard let choice = chunk.choices?.first else { continue }
                     if let c = choice.delta?.content, !c.isEmpty {
                         liveText += c
-                        if let id = assistantTurnID, let i = turns.firstIndex(where: { $0.id == id }) {
-                            turns[i].text = liveText
-                        } else {
-                            let t = Turn(role: "assistant", text: liveText)
-                            assistantTurnID = t.id
-                            turns.append(t)
-                        }
+                        emit(force: false)
                     }
                     for tc in choice.delta?.toolCalls ?? [] {
                         let idx = tc.index ?? 0
@@ -487,10 +505,14 @@ final class AgentController: ObservableObject {
                         toolAcc[idx] = e
                     }
                 }
+                emit(force: true)   // flush final tokens
             } catch {
-                turns.append(Turn(role: "error", text: "⚠️ \(error.localizedDescription)"))
+                if !(error is CancellationError) && !Task.isCancelled {
+                    turns.append(Turn(role: "error", text: "⚠️ \(error.localizedDescription)"))
+                }
                 return
             }
+            if Task.isCancelled { return }
 
             guard !toolAcc.isEmpty else { return }   // final answer streamed; done
 
