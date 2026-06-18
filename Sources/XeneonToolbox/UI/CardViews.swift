@@ -1,38 +1,61 @@
 import SwiftUI
 
-/// Minimal, collapsible summary of the tool steps the agent took.
+/// Shows the agent's tool activity live (spinner on the running step), then
+/// collapses to a minimal chip once everything's done.
 struct ToolStepsView: View {
-    let steps: [String]
+    let steps: [ToolStep]
     @State private var expanded = false
+    private var working: Bool { steps.contains { !$0.done } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { expanded.toggle() } } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "wrench.and.screwdriver.fill").font(.system(size: 11))
-                    Text(steps.count == 1 ? steps[0] : "\(steps.count) steps")
-                        .font(.deck(13, .medium))
-                    if steps.count > 1 {
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.system(size: 9, weight: .bold))
-                    }
-                }
-                .foregroundStyle(Theme.textFaint)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Capsule().fill(Color.white.opacity(0.05)))
-            }
-            .buttonStyle(.plain)
-            if expanded && steps.count > 1 {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(steps.enumerated()), id: \.offset) { _, s in
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.battery)
-                            Text(s).font(.deck(12)).foregroundStyle(Theme.textSecondary)
+        Group {
+            if working {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(steps) { s in
+                        HStack(spacing: 8) {
+                            if s.done {
+                                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.battery)
+                            } else {
+                                ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 14)
+                            }
+                            Text(s.text).font(.deck(13, .medium))
+                                .foregroundStyle(s.done ? Theme.textFaint : Theme.textSecondary)
                         }
                     }
                 }
-                .padding(.leading, 14)
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { expanded.toggle() } } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "wrench.and.screwdriver.fill").font(.system(size: 11))
+                            Text(steps.count == 1 ? steps.first!.text : "\(steps.count) steps")
+                                .font(.deck(13, .medium))
+                            if steps.count > 1 {
+                                Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.system(size: 9, weight: .bold))
+                            }
+                        }
+                        .foregroundStyle(Theme.textFaint)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Capsule().fill(Color.white.opacity(0.05)))
+                    }
+                    .buttonStyle(.plain)
+                    if expanded && steps.count > 1 {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(steps) { s in
+                                HStack(spacing: 6) {
+                                    Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.battery)
+                                    Text(s.text).font(.deck(12)).foregroundStyle(Theme.textSecondary)
+                                }
+                            }
+                        }
+                        .padding(.leading, 14)
+                    }
+                }
             }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: working)
     }
 }
 

@@ -10,8 +10,13 @@ struct RootView: View {
             ZStack {
                 DeckBackground()
                 content
+                    .id(model.route)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(x: 26)),
+                        removal: .opacity.combined(with: .offset(x: -26))))
                     .padding(20)
             }
+            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: model.route)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.background)

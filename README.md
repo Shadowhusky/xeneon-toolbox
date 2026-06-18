@@ -29,10 +29,11 @@ fullscreen on the Edge and hides the system menu bar.
   - **Web** — `web_search`, `fetch_url`. **Files** — list / read / write.
   - **System** — run shell commands, clipboard read/write, open URLs, date/time.
 
-  Dangerous actions (write file, run command) require an in-app **Approve/Deny**
-  confirmation. Tool steps collapse into one minimal chip. Set it up in-app: pick
-  OpenAI or a local model (Ollama / LM Studio); the model list auto-detects into
-  a dropdown.
+  Tool steps show **live** as the agent works, then collapse into one minimal
+  chip. Sensitive actions ask for **Approve / Always allow / Deny**; truly
+  dangerous ones (run command) always ask, everything safe auto-runs. Set it up
+  in-app: pick OpenAI or a local model (Ollama / LM Studio); the model list
+  auto-detects into a dropdown. The whole app uses smooth tab + modal transitions.
 
 ## Touch driver
 

@@ -31,10 +31,13 @@ struct ChatView: View {
                 }
             } else {
                 transcript
-                if let p = agent.pending { confirmBanner(p) }
+                if let p = agent.pending {
+                    confirmBanner(p).transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 inputBar
             }
         }
+        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: agent.pending?.id)
         .onAppear {
             if let p = ProcessInfo.processInfo.environment["XENEON_AGENT_PROMPT"],
                config != nil, agent.turns.isEmpty {
@@ -162,28 +165,31 @@ struct ChatView: View {
     }
 
     private func confirmBanner(_ p: AgentController.PendingAction) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let accent = p.dangerous ? Theme.batteryLow : Theme.netUp
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.shield.fill").foregroundStyle(Theme.netUp)
+                Image(systemName: p.dangerous ? "exclamationmark.triangle.fill" : "exclamationmark.shield.fill").foregroundStyle(accent)
                 Text("Approve: \(p.title)?").font(.deck(16, .bold)).foregroundStyle(Theme.textPrimary)
                 Spacer()
             }
             Text(p.detail).font(.system(size: 14, design: .monospaced)).foregroundStyle(Theme.textSecondary)
                 .lineLimit(5).frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 12) {
-                Button { agent.resolve(true) } label: {
-                    Text("Approve").font(.deck(16, .bold)).foregroundStyle(Theme.background)
-                        .padding(.horizontal, 28).padding(.vertical, 12).background(Capsule().fill(Theme.netUp))
-                }.buttonStyle(.plain)
-                Button { agent.resolve(false) } label: {
-                    Text("Deny").font(.deck(16, .semibold)).foregroundStyle(Theme.textSecondary)
-                        .padding(.horizontal, 24).padding(.vertical, 12).background(Capsule().fill(Color.white.opacity(0.08)))
-                }.buttonStyle(.plain)
+                pill("Approve", fg: Theme.background, bg: accent) { agent.resolve(.approve) }
+                if !p.dangerous { pill("Always allow", fg: Theme.accent, bg: Theme.accent.opacity(0.2)) { agent.resolve(.always) } }
+                pill("Deny", fg: Theme.textSecondary, bg: Color.white.opacity(0.08)) { agent.resolve(.deny) }
             }
         }
         .padding(16)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.netUp.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.netUp.opacity(0.4), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(accent.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(accent.opacity(0.4), lineWidth: 1))
+    }
+
+    private func pill(_ title: String, fg: Color, bg: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.deck(15, .semibold)).foregroundStyle(fg)
+                .padding(.horizontal, 22).padding(.vertical, 12).background(Capsule().fill(bg))
+        }.buttonStyle(.plain)
     }
 
     private var canSend: Bool { !input.trimmingCharacters(in: .whitespaces).isEmpty && !agent.busy && config != nil }

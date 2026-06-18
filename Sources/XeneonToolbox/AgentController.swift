@@ -17,6 +17,13 @@ enum AgentCard {
     case processes([ProcRow])
 }
 
+/// One step in the agent's tool activity — shown live (working) then completed.
+struct ToolStep: Identifiable {
+    let id = UUID()
+    var text: String
+    var done: Bool
+}
+
 @MainActor
 final class AgentController: ObservableObject {
     struct Turn: Identifiable {
@@ -25,31 +32,39 @@ final class AgentController: ObservableObject {
         var text: String
         var imageThumb: Bool = false
         var card: AgentCard? = nil
-        var steps: [String] = []  // for role "tools": collapsible action list
+        var steps: [ToolStep] = []  // for role "tools": live, collapsible activity
     }
+
+    enum ConfirmDecision { case approve, always, deny }
 
     struct PendingAction: Identifiable {
         let id = UUID()
+        let tool: String
         let title: String
         let detail: String
+        let dangerous: Bool   // dangerous actions can't be "always allowed"
     }
 
     @Published var turns: [Turn] = []
     @Published var busy = false
     @Published var pending: PendingAction?
     private var confirmContinuation: CheckedContinuation<Bool, Never>?
+    private var alwaysAllowed: Set<String> = []
 
-    /// Suspends the agent loop until the user approves/denies in the UI.
-    private func requestApproval(title: String, detail: String) async -> Bool {
-        await withCheckedContinuation { cont in
+    /// Suspends the agent loop until the user decides. Auto-approves tools the
+    /// user previously chose to always allow.
+    private func requestApproval(tool: String, dangerous: Bool, title: String, detail: String) async -> Bool {
+        if alwaysAllowed.contains(tool) { return true }
+        return await withCheckedContinuation { cont in
             confirmContinuation = cont
-            pending = PendingAction(title: title, detail: detail)
+            pending = PendingAction(tool: tool, title: title, detail: detail, dangerous: dangerous)
         }
     }
 
-    func resolve(_ approved: Bool) {
+    func resolve(_ decision: ConfirmDecision) {
+        if decision == .always, let tool = pending?.tool { alwaysAllowed.insert(tool) }
         pending = nil
-        confirmContinuation?.resume(returning: approved)
+        confirmContinuation?.resume(returning: decision != .deny)
         confirmContinuation = nil
     }
 
@@ -148,12 +163,12 @@ final class AgentController: ObservableObject {
             return readFile((args["path"] as? String) ?? "")
         case "write_file":
             let path = (args["path"] as? String) ?? "", content = (args["content"] as? String) ?? ""
-            let ok = await requestApproval(title: "Write file",
+            let ok = await requestApproval(tool: "write_file", dangerous: false, title: "Write file",
                                            detail: "\(content.count) chars → \((path as NSString).abbreviatingWithTildeInPath)")
             return ok ? writeFile(path, content) : "Denied: file not written."
         case "run_command":
             let cmd = (args["command"] as? String) ?? ""
-            let ok = await requestApproval(title: "Run command", detail: cmd)
+            let ok = await requestApproval(tool: "run_command", dangerous: true, title: "Run command", detail: cmd)
             return ok ? runCommand(cmd) : "Denied: command not run."
         case "get_clipboard":
             return NSPasteboard.general.string(forType: .string).map { "Clipboard: \($0)" } ?? "Clipboard is empty."
@@ -230,11 +245,21 @@ final class AgentController: ObservableObject {
     private func fetchURL(_ urlString: String) async -> String {
         guard let url = URL(string: urlString) else { return "Invalid URL." }
         var req = URLRequest(url: url)
-        req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", forHTTPHeaderField: "User-Agent")
         guard let (data, _) = try? await URLSession.shared.data(for: req),
               let html = String(data: data, encoding: .utf8) else { return "Fetch failed." }
-        let text = strip(html.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression))
-        return String(text.prefix(2500))
+        var s = html
+        // Drop non-content blocks before stripping tags (case-insensitive, dotall).
+        for pat in ["(?is)<script[^>]*>.*?</script>", "(?is)<style[^>]*>.*?</style>",
+                    "(?is)<head[^>]*>.*?</head>", "(?s)<!--.*?-->", "(?is)<noscript[^>]*>.*?</noscript>"] {
+            s = s.replacingOccurrences(of: pat, with: " ", options: .regularExpression)
+        }
+        s = s.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        s = strip(s)
+        s = s.replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
+        s = s.replacingOccurrences(of: "\\s*\\n\\s*\\n\\s*", with: "\n", options: .regularExpression)
+        let clean = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "No readable text on the page." : String(clean.prefix(2500))
     }
 
     private func listDir(_ path: String) -> String {
@@ -295,39 +320,48 @@ final class AgentController: ObservableObject {
 
     private var toolsTurnID: UUID?
 
-    private func addStep(_ label: String) {
+    /// Append a live "working" step and return whether one was added.
+    private func startStep(_ working: String) {
         if let id = toolsTurnID, let i = turns.firstIndex(where: { $0.id == id }) {
-            turns[i].steps.append(label)
+            turns[i].steps.append(ToolStep(text: working, done: false))
         } else {
             var t = Turn(role: "tools", text: "")
-            t.steps = [label]
+            t.steps = [ToolStep(text: working, done: false)]
             toolsTurnID = t.id
             turns.append(t)
         }
     }
 
+    /// Mark the latest step complete with its past-tense label.
+    private func endStep(_ done: String) {
+        guard let id = toolsTurnID, let i = turns.firstIndex(where: { $0.id == id }),
+              !turns[i].steps.isEmpty else { return }
+        turns[i].steps[turns[i].steps.count - 1].text = done
+        turns[i].steps[turns[i].steps.count - 1].done = true
+    }
+
     private func host(_ v: Any?) -> String { URL(string: (v as? String) ?? "")?.host ?? "page" }
 
-    /// A short description of what a tool did — never the raw (and possibly
-    /// failed) result. nil means show nothing (e.g. a card speaks for itself).
-    private func actionLabel(_ name: String, _ args: [String: Any]) -> String? {
+    /// (present-tense working label, past-tense done label) for a tool, or nil
+    /// to show nothing (e.g. a card speaks for itself).
+    private func toolLabels(_ name: String, _ args: [String: Any]) -> (String, String)? {
         switch name {
-        case "navigate": return "Opened \((args["tab"] as? String ?? "").capitalized)"
-        case "set_touch": return "Touch \((args["enabled"] as? Bool ?? false) ? "on" : "off")"
-        case "open_game": return "Opened \((args["game"] as? String) == "rhythm" ? "Rhythm Plus" : "山海残卷")"
-        case "get_app_state": return "Checked system stats"
+        case "navigate": let t = (args["tab"] as? String ?? "").capitalized; return ("Opening \(t)…", "Opened \(t)")
+        case "set_touch": let on = (args["enabled"] as? Bool ?? false); return ("Setting touch…", "Touch \(on ? "on" : "off")")
+        case "open_game": let g = (args["game"] as? String) == "rhythm" ? "Rhythm Plus" : "山海残卷"; return ("Opening \(g)…", "Opened \(g)")
+        case "get_app_state": return ("Checking system…", "Checked system stats")
         case "show_top_processes": return nil
-        case "web_search": return "Searched “\(args["query"] as? String ?? "")”"
-        case "fetch_url": return "Read \(host(args["url"]))"
-        case "list_dir": return "Listed \(args["path"] as? String ?? "")"
-        case "read_file": return "Read \(args["path"] as? String ?? "")"
-        case "write_file": return "Wrote \(args["path"] as? String ?? "")"
-        case "run_command": return "Ran a command"
-        case "get_clipboard": return "Read clipboard"
-        case "set_clipboard": return "Set clipboard"
-        case "open_url": return "Opened \(host(args["url"])) in browser"
-        case "current_datetime": return "Checked the time"
-        default: return name
+        case "web_search": let q = args["query"] as? String ?? ""; return ("Searching “\(q)”…", "Searched “\(q)”")
+        case "fetch_url": let h = host(args["url"]); return ("Reading \(h)…", "Read \(h)")
+        case "list_dir": let p = args["path"] as? String ?? ""; return ("Listing \(p)…", "Listed \(p)")
+        case "read_file": let p = args["path"] as? String ?? ""; return ("Reading \(p)…", "Read \(p)")
+        case "write_file": let p = args["path"] as? String ?? ""; return ("Writing \(p)…", "Wrote \(p)")
+        case "run_command": return ("Running command…", "Ran a command")
+        case "get_clipboard": return ("Reading clipboard…", "Read clipboard")
+        case "set_clipboard": return ("Copying…", "Set clipboard")
+        case "open_url": let h = host(args["url"]); return ("Opening \(h)…", "Opened \(h) in browser")
+        case "current_datetime": return ("Checking time…", "Checked the time")
+        default: return (name, name)
         }
     }
 
@@ -380,8 +414,10 @@ final class AgentController: ObservableObject {
             history.append(.init(role: .assistant, content: .text(liveText), toolCalls: toolCalls))
             for c in calls {
                 let args = (try? JSONSerialization.jsonObject(with: Data(c.args.utf8))) as? [String: Any] ?? [:]
+                let labels = toolLabels(c.name, args)
+                if let l = labels { startStep(l.0) }
                 let result = await runTool(c.name, args)
-                if let label = actionLabel(c.name, args) { addStep(label) }
+                if let l = labels { endStep(l.1) }
                 history.append(.init(role: .tool, content: .text(result), toolCallID: c.id))
             }
             assistantTurnID = nil   // next streamed text is a fresh turn
