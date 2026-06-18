@@ -14,7 +14,8 @@ struct DashboardView: View {
             NetworkTile(snap: snap, rxHistory: metrics.netRxHistory, txHistory: metrics.netTxHistory)
             StorageTile(snap: snap)
             PowerTile(battery: snap.battery, uptime: snap.uptime)
-            ControlsTile(status: model.touchStatus, toggleTouch: model.toggleTouch)
+            ControlsTile(status: model.touchStatus, toggleTouch: model.toggleTouch,
+                         flipX: $model.flipX, flipY: $model.flipY, swapXY: $model.swapXY)
                 .frame(maxWidth: 300)
         }
     }

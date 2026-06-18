@@ -39,6 +39,11 @@ final class ToolboxModel: ObservableObject {
     @Published var edgeDetected = false
     @Published var gamePref = "shanhai"   // "shanhai" | "rhythm"
 
+    // Touch calibration — flips persist and rebuild the driver when changed.
+    @Published var flipX = UserDefaults.standard.bool(forKey: "touch.flipX") { didSet { applyCalibration() } }
+    @Published var flipY = UserDefaults.standard.bool(forKey: "touch.flipY") { didSet { applyCalibration() } }
+    @Published var swapXY = UserDefaults.standard.bool(forKey: "touch.swapXY") { didSet { applyCalibration() } }
+
     /// Sleep stops monitoring (saves battery, avoids burn-in); minimal keeps
     /// light stats; full is the normal UI.
     func setDisplay(_ mode: DisplayMode) {
@@ -46,8 +51,25 @@ final class ToolboxModel: ObservableObject {
         displayMode = mode
     }
 
-    private let touch = TouchService(config: TouchServiceConfig(preferSeize: true))
+    private lazy var touch: TouchService = makeTouch()
     private var retryTimer: Timer?
+
+    private func makeTouch() -> TouchService {
+        let t = TouchService(config: TouchServiceConfig(flipX: flipX, flipY: flipY, swapXY: swapXY, preferSeize: true))
+        t.onPresenceChanged = { [weak self] present in Task { @MainActor in self?.edgeDetected = present } }
+        return t
+    }
+
+    private func applyCalibration() {
+        UserDefaults.standard.set(flipX, forKey: "touch.flipX")
+        UserDefaults.standard.set(flipY, forKey: "touch.flipY")
+        UserDefaults.standard.set(swapXY, forKey: "touch.swapXY")
+        let wasOn = touchOn
+        touch.stop()
+        edgeDetected = false
+        touch = makeTouch()
+        if wasOn { startTouch() }
+    }
 
     /// What the touch control shows: Active (driving the panel), Searching
     /// (wants touch but hasn't acquired the digitizer yet), or Off.
@@ -63,9 +85,6 @@ final class ToolboxModel: ObservableObject {
         case "minimal": displayMode = .minimal
         case "sleep": displayMode = .sleep
         default: break
-        }
-        touch.onPresenceChanged = { [weak self] present in
-            Task { @MainActor in self?.edgeDetected = present }
         }
     }
 

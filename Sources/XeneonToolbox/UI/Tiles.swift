@@ -210,6 +210,10 @@ struct PowerTile: View {
 struct ControlsTile: View {
     var status: ToolboxModel.TouchStatus
     var toggleTouch: () -> Void
+    @Binding var flipX: Bool
+    @Binding var flipY: Bool
+    @Binding var swapXY: Bool
+    @State private var showCalibrate = false
 
     private var on: Bool { status != .off }
     private var tint: Color {
@@ -249,6 +253,24 @@ struct ControlsTile: View {
                 Spacer().frame(height: 14)
                 Label(detail.1, systemImage: detail.0).font(.deck(13)).foregroundStyle(tint)
                 Spacer()
+                Button { showCalibrate.toggle() } label: {
+                    Label("Calibrate", systemImage: "slider.horizontal.3")
+                        .font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.05)))
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $showCalibrate, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Touch calibration").font(.deck(15, .bold)).foregroundStyle(Theme.textPrimary)
+                        Text("Use these if taps land mirrored or rotated.").font(.deck(12)).foregroundStyle(Theme.textFaint)
+                        Toggle("Flip horizontal", isOn: $flipX)
+                        Toggle("Flip vertical", isOn: $flipY)
+                        Toggle("Swap axes", isOn: $swapXY)
+                    }
+                    .font(.deck(14)).tint(Theme.accent)
+                    .padding(20).frame(width: 260)
+                }
             }
         }
     }
