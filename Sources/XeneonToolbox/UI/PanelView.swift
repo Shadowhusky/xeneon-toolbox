@@ -9,7 +9,7 @@ struct RootView: View {
             switch model.displayMode {
             case .full: fullUI
             case .minimal:
-                MinimalView(metrics: metrics).contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
+                MinimalView(metrics: metrics, todos: model.todos).contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
             case .sleep:
                 SleepView().contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
             }
