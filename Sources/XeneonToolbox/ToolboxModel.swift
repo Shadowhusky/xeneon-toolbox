@@ -34,7 +34,7 @@ final class ToolboxModel: ObservableObject {
     let weather = WeatherService()
     lazy var agent = AgentController(config: ChatConfig.loadSaved() ?? ChatConfig.presets[0].config, app: self)
     @Published var route: AppRoute = .dashboard
-    @Published var displayMode: DisplayMode = .full
+    @Published var displayMode: DisplayMode = .minimal   // ambient default; tap to wake to full
     @Published var showSettings = false
     var exportMode = false   // static input bar etc. for off-screen mockup renders
     @Published var touchOn = false
@@ -86,6 +86,7 @@ final class ToolboxModel: ObservableObject {
         switch ProcessInfo.processInfo.environment["XENEON_DISPLAY"] {
         case "minimal": displayMode = .minimal
         case "sleep": displayMode = .sleep
+        case "full": displayMode = .full   // override the minimal default (e.g. for testing)
         default: break
         }
         if ProcessInfo.processInfo.environment["XENEON_SETTINGS"] != nil { showSettings = true }
