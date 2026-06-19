@@ -176,6 +176,14 @@ struct ChatView: View {
                     Text(t.text.isEmpty ? "…" : t.text)
                         .font(.deck(16)).foregroundStyle(isError ? Theme.batteryLow : Theme.textPrimary)
                         .textSelection(.enabled)
+                    if isError && !agent.busy {
+                        Button(action: agent.retryLast) {
+                            Label("Retry", systemImage: "arrow.clockwise")
+                                .font(.deck(13, .semibold)).foregroundStyle(Theme.accent)
+                                .padding(.horizontal, 14).padding(.vertical, 7)
+                                .background(Capsule().fill(Theme.accent.opacity(0.16)))
+                        }.buttonStyle(.pressable)
+                    }
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(RoundedRectangle(cornerRadius: 16, style: .continuous)

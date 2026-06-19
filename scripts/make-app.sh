@@ -38,6 +38,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+    <!-- Allow plain-HTTP connections to user-configured local model servers
+         (LM Studio / Ollama on localhost or a LAN IP). ATS otherwise blocks
+         non-HTTPS to anything but localhost. -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key><true/>
+        <key>NSAllowsLocalNetworking</key><true/>
+    </dict>
+    <key>NSLocalNetworkUsageDescription</key><string>Xeneon Toolbox connects to AI model servers (such as LM Studio or Ollama) running on your local network.</string>
 </dict>
 </plist>
 PLIST
