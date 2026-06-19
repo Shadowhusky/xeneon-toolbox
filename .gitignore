@@ -14,3 +14,7 @@ blender/ref/
 blender/render*.png
 blender/_tmp*.png
 blender/gltf-preview.png
+blender/meshy-raw*.glb
+blender/meshy*view*.png
+blender/meshy-refined.png
+blender/gltf-preview.png
