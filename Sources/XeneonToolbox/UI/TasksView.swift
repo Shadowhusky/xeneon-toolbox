@@ -56,7 +56,10 @@ struct TasksView: View {
         ScrollView {
             VStack(spacing: 10) {
                 ForEach(todos.sorted) { item in
-                    TaskRow(item: item, onToggle: { todos.toggle(item.id) }, onDelete: { todos.remove(item.id) })
+                    TaskRow(item: item,
+                            onToggle: { todos.toggle(item.id) },
+                            onDelete: { todos.remove(item.id) },
+                            onSetDue: { todos.update(item.id, dueAt: .some($0)) })
                         .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
             }
@@ -87,7 +90,7 @@ private struct TaskRow: View {
     let item: TodoItem
     var onToggle: () -> Void
     var onDelete: () -> Void
-    @State private var hover = false
+    var onSetDue: (Date?) -> Void
 
     var body: some View {
         HStack(spacing: 14) {
@@ -108,6 +111,7 @@ private struct TaskRow: View {
                 }
             }
             Spacer(minLength: 12)
+            reminderMenu
             Button(action: onDelete) {
                 Image(systemName: "xmark").font(.system(size: 13, weight: .bold))
                     .foregroundStyle(Theme.textFaint).frame(width: 34, height: 34)
@@ -120,6 +124,32 @@ private struct TaskRow: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
             .strokeBorder(item.isOverdue ? Theme.batteryLow.opacity(0.4) : Theme.stroke, lineWidth: 1))
         .opacity(item.done ? 0.65 : 1)
+    }
+
+    private var reminderMenu: some View {
+        Menu {
+            Button("In 1 hour") { onSetDue(Date().addingTimeInterval(3600)) }
+            Button("In 3 hours") { onSetDue(Date().addingTimeInterval(3 * 3600)) }
+            Button("This evening · 6 PM") { onSetDue(Self.at(18)) }
+            Button("Tomorrow · 9 AM") { onSetDue(Self.at(9, tomorrow: true)) }
+            if item.dueAt != nil {
+                Divider()
+                Button("Clear reminder", role: .destructive) { onSetDue(nil) }
+            }
+        } label: {
+            Image(systemName: item.dueAt != nil ? "bell.fill" : "bell")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(item.dueAt != nil ? Theme.netUp : Theme.textFaint)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Color.white.opacity(0.05)))
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+    }
+
+    private static func at(_ hour: Int, tomorrow: Bool = false) -> Date {
+        let cal = Calendar.current
+        let base = tomorrow ? cal.date(byAdding: .day, value: 1, to: Date())! : Date()
+        return cal.date(bySettingHour: hour, minute: 0, second: 0, of: base) ?? base
     }
 
     private func dueChip(_ due: Date) -> some View {
