@@ -1,4 +1,5 @@
 import SwiftUI
+import ToolboxKit
 
 struct RootView: View {
     @ObservedObject var model: ToolboxModel
@@ -9,7 +10,7 @@ struct RootView: View {
             switch model.displayMode {
             case .full: fullUI
             case .minimal:
-                MinimalView(metrics: metrics).contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
+                MinimalView(metrics: metrics, todos: model.todos).contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
             case .sleep:
                 SleepView().contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
             }
@@ -23,7 +24,7 @@ struct RootView: View {
 
     private var fullUI: some View {
         HStack(spacing: 0) {
-            NavRail(route: $model.route, touchActive: model.touchStatus == .active,
+            NavRail(route: $model.route, touchActive: model.touchStatus == .active, todos: model.todos,
                     onMinimal: { model.setDisplay(.minimal) }, onSleep: { model.setDisplay(.sleep) },
                     onSettings: { model.showSettings = true })
             ZStack {
@@ -55,6 +56,7 @@ struct RootView: View {
         switch model.route {
         case .dashboard: DashboardView(model: model, metrics: metrics, weather: model.weather)
         case .clock: ClockAppView()
+        case .tasks: TasksView(todos: model.todos)
         case .games: GamesView(model: model)
         case .chat: ChatView(model: model)
         }
@@ -64,9 +66,13 @@ struct RootView: View {
 struct NavRail: View {
     @Binding var route: AppRoute
     var touchActive: Bool
+    @ObservedObject var todos: TodoStore
     var onMinimal: () -> Void = {}
     var onSleep: () -> Void = {}
     var onSettings: () -> Void = {}
+
+    private var openTasks: Int { todos.items.filter { !$0.done }.count }
+    private var hasOverdue: Bool { todos.items.contains { $0.isOverdue } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,7 +85,9 @@ struct NavRail: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 12) {
                     ForEach(AppRoute.allCases) { r in
-                        NavButton(route: r, selected: route == r) {
+                        NavButton(route: r, selected: route == r,
+                                  badge: r == .tasks ? openTasks : 0,
+                                  badgeUrgent: r == .tasks && hasOverdue) {
                             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { route = r }
                         }
                     }
@@ -127,6 +135,8 @@ struct NavRail: View {
 private struct NavButton: View {
     let route: AppRoute
     let selected: Bool
+    var badge: Int = 0
+    var badgeUrgent: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -134,6 +144,15 @@ private struct NavButton: View {
             VStack(spacing: 7) {
                 Image(systemName: route.icon)
                     .font(.system(size: 29, weight: .semibold))
+                    .overlay(alignment: .topTrailing) {
+                        if badge > 0 {
+                            Text("\(badge)")
+                                .font(.deck(11, .bold)).foregroundStyle(.white)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Capsule().fill(badgeUrgent ? Theme.batteryLow : Theme.accent))
+                                .offset(x: 16, y: -8)
+                        }
+                    }
                 Text(route.title).font(.deck(12, .semibold)).tracking(0.3)
             }
             .foregroundStyle(selected ? Theme.accent : Theme.textSecondary)
