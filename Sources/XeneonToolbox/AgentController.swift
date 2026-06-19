@@ -260,9 +260,10 @@ final class AgentController: ObservableObject {
                  ["title": .init(type: .string), "items": .init(type: .array, items: .init(type: .string)),
                   "type": .init(type: .string, enum: ["bar", "line"])],
                  required: ["title", "items"]),
-            tool("show_table", "Display tabular data as a touch-friendly table (good for comparisons with multiple columns). Provide column headers, and rows where each row string separates cells with ' | '.",
-                 ["title": .init(type: .string), "headers": .init(type: .array, items: .init(type: .string)),
-                  "rows": .init(type: .array, items: .init(type: .string))],
+            tool("show_table", "Display tabular data as a touch-friendly table (good for comparisons with multiple columns). 'headers' is the column names. 'rows' is a list of rows, where each row is a list of cell strings (one per column).",
+                 ["title": .init(type: .string),
+                  "headers": .init(type: .array, items: .init(type: .string)),
+                  "rows": .init(type: .array, items: .init(type: .array, items: .init(type: .string)))],
                  required: ["headers", "rows"]),
             tool("generate_image", "Generate an image from a text prompt and show it (requires an OpenAI API key in settings).",
                  ["prompt": .init(type: .string)], required: ["prompt"]),
@@ -361,9 +362,8 @@ final class AgentController: ObservableObject {
             return "Displayed a \(isLine ? "line" : "bar") chart titled \(title) with \(points.count) points."
         case "show_table":
             let title = (args["title"] as? String) ?? "Table"
-            let headers = (args["headers"] as? [Any])?.compactMap { $0 as? String } ?? []
-            let rawRows = (args["rows"] as? [Any])?.compactMap { $0 as? String } ?? []
-            let rows = rawRows.map { $0.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) } }
+            let headers = coerceCells(args["headers"])
+            let rows = coerceRows(args["rows"])
             guard !headers.isEmpty, !rows.isEmpty else { return "No table data to show." }
             turns.append(Turn(role: "card", text: "", card: .table(title: title, headers: headers, rows: rows)))
             return "Displayed a table titled \(title) with \(rows.count) rows and \(headers.count) columns."
@@ -435,6 +435,48 @@ final class AgentController: ObservableObject {
         default:
             return "Unknown tool \(name)."
         }
+    }
+
+    /// Coerce a loosely-typed value into a list of cell strings. Accepts a real
+    /// array, or a string with cells separated by '|' or ','.
+    private func coerceCells(_ raw: Any?) -> [String] {
+        if let arr = raw as? [Any] { return arr.map { stringify($0) }.filter { !$0.isEmpty } }
+        if let s = raw as? String {
+            let sep: Character = s.contains("|") ? "|" : ","
+            return s.split(separator: sep).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        }
+        return []
+    }
+
+    /// Coerce a loosely-typed value into rows of cells. Models emit table rows
+    /// inconsistently — a 2D array, an array of delimited strings, or even a
+    /// (sometimes malformed) JSON string. Handle all of them.
+    private func coerceRows(_ raw: Any?) -> [[String]] {
+        if let arr = raw as? [Any] {
+            return arr.compactMap { el -> [String]? in
+                if let row = el as? [Any] { return row.map { stringify($0) } }
+                let cells = coerceCells(el)
+                return cells.isEmpty ? nil : cells
+            }
+        }
+        if let s = raw as? String {
+            // Try parsing a JSON 2D array, repairing a missing leading bracket.
+            for candidate in [s, "[\(s)"] {
+                if let data = candidate.data(using: .utf8),
+                   let parsed = try? JSONSerialization.jsonObject(with: data) as? [[Any]] {
+                    return parsed.map { $0.map { stringify($0) } }
+                }
+            }
+            // Otherwise treat each line as a row of delimited cells.
+            return s.split(whereSeparator: \.isNewline).map { coerceCells(String($0)) }.filter { !$0.isEmpty }
+        }
+        return []
+    }
+
+    private func stringify(_ v: Any) -> String {
+        if let s = v as? String { return s.trimmingCharacters(in: .whitespaces) }
+        if let n = v as? NSNumber { return n.stringValue }
+        return "\(v)"
     }
 
     private func generateImage(_ prompt: String) async -> String {
