@@ -600,7 +600,7 @@ final class AgentController: ObservableObject {
         var assistantTurnID: UUID?
         toolsTurnID = nil
 
-        for _ in 0..<5 {
+        for _ in 0..<8 {
             let messages = [ChatCompletionParameters.Message(role: .system, content: .text(systemPrompt))] + history
             let params = ChatCompletionParameters(messages: messages, model: .custom(config.model), tools: tools())
 
@@ -628,7 +628,12 @@ final class AgentController: ObservableObject {
                         emit(force: false)
                     }
                     for tc in choice.delta?.toolCalls ?? [] {
-                        let idx = tc.index ?? 0
+                        // Some servers omit `index` while streaming; a chunk with a
+                        // new id starts a new call, otherwise it continues the last.
+                        let idx: Int
+                        if let i = tc.index { idx = i }
+                        else if tc.id != nil { idx = toolAcc.count }
+                        else { idx = max(0, toolAcc.count - 1) }
                         var e = toolAcc[idx] ?? ("", "", "")
                         if let id = tc.id { e.id = id }
                         if let n = tc.function.name { e.name = n }

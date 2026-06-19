@@ -23,6 +23,8 @@ struct ConversationList: View {
         }
         .frame(width: 240)
         .frame(maxHeight: .infinity)
+        .disabled(agent.busy)
+        .opacity(agent.busy ? 0.55 : 1)
     }
 
     private func row(_ c: StoredConversation) -> some View {
