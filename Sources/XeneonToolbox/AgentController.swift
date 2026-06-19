@@ -709,7 +709,8 @@ final class AgentController: ObservableObject {
         var assistantTurnID: UUID?
         toolsTurnID = nil
 
-        for _ in 0..<8 {
+        let maxRounds = 10
+        for round in 0..<maxRounds {
             let messages = [ChatCompletionParameters.Message(role: .system, content: .text(systemPrompt))] + history
             let params = ChatCompletionParameters(messages: messages, model: .custom(config.model), tools: tools())
 
@@ -776,6 +777,10 @@ final class AgentController: ObservableObject {
                 history.append(.init(role: .tool, content: .text(result), toolCallID: c.id))
             }
             assistantTurnID = nil   // next streamed text is a fresh turn
+
+            if round == maxRounds - 1 {
+                turns.append(Turn(role: "assistant", text: "I ran several steps but haven't wrapped up — ask me to continue if you'd like me to keep going."))
+            }
         }
     }
 
