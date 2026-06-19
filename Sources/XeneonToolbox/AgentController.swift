@@ -147,7 +147,7 @@ final class AgentController: ObservableObject {
         let c = StoredConversation(id: UUID(), title: "New chat", messages: [], updated: Date())
         conversations.insert(c, at: 0)
         activeID = c.id
-        turns = []; history = []
+        turns = []; history = []; alwaysAllowed.removeAll()
         writeStore()
     }
 
@@ -155,6 +155,7 @@ final class AgentController: ObservableObject {
         guard id != activeID else { return }
         saveActive()
         activeID = id
+        alwaysAllowed.removeAll()   // approvals are per-conversation, not process-wide
         loadActiveTurns()
         writeStore()
     }
@@ -310,6 +311,8 @@ final class AgentController: ObservableObject {
                  ["path": .init(type: .string)], required: ["path"]),
             tool("read_file", "Read a text file (supports ~). Truncated to 6000 chars.",
                  ["path": .init(type: .string)], required: ["path"]),
+            tool("find_files", "Find files anywhere on this Mac by name or keyword via Spotlight, when you don't know the exact path. Returns up to 20 matching paths.",
+                 ["query": .init(type: .string)], required: ["query"]),
             tool("write_file", "Write text to a file (supports ~), creating or overwriting it. Asks the user to confirm.",
                  ["path": .init(type: .string), "content": .init(type: .string)], required: ["path", "content"]),
             // System
@@ -415,6 +418,8 @@ final class AgentController: ObservableObject {
             return listDir((args["path"] as? String) ?? "")
         case "read_file":
             return readFile((args["path"] as? String) ?? "")
+        case "find_files":
+            return findFiles((args["query"] as? String) ?? "")
         case "write_file":
             let path = (args["path"] as? String) ?? "", content = (args["content"] as? String) ?? ""
             let ok = await requestApproval(tool: "write_file", dangerous: false, title: "Write file",
@@ -621,6 +626,20 @@ final class AgentController: ObservableObject {
         return items.prefix(100).sorted().joined(separator: "\n")
     }
 
+    private func findFiles(_ query: String) -> String {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return "No query." }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+        p.arguments = ["-name", q]
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = Pipe()
+        guard (try? p.run()) != nil else { return "File search unavailable." }
+        p.waitUntilExit()
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let lines = out.split(separator: "\n").prefix(20)
+        return lines.isEmpty ? "No files found matching \(q)." : lines.joined(separator: "\n")
+    }
+
     private func readFile(_ path: String) -> String {
         let p = (path as NSString).expandingTildeInPath
         guard let s = try? String(contentsOfFile: p, encoding: .utf8) else { return "Cannot read \(p)." }
@@ -773,6 +792,7 @@ final class AgentController: ObservableObject {
         case "fetch_url": let h = host(args["url"]); return ("Reading \(h)…", "Read \(h)")
         case "list_dir": let p = args["path"] as? String ?? ""; return ("Listing \(p)…", "Listed \(p)")
         case "read_file": let p = args["path"] as? String ?? ""; return ("Reading \(p)…", "Read \(p)")
+        case "find_files": let q = args["query"] as? String ?? ""; return ("Finding “\(q)”…", "Searched files for “\(q)”")
         case "write_file": let p = args["path"] as? String ?? ""; return ("Writing \(p)…", "Wrote \(p)")
         case "run_command": return ("Running command…", "Ran a command")
         case "get_clipboard": return ("Reading clipboard…", "Read clipboard")
@@ -799,8 +819,11 @@ final class AgentController: ObservableObject {
         let maxRounds = 10
         for round in 0..<maxRounds {
             let messages = [ChatCompletionParameters.Message(role: .system, content: .text(systemPrompt))] + history
+            // On the final round, drop tools so the model must produce a text answer
+            // (rather than calling another tool and hitting a dead-end).
+            let lastRound = (round == maxRounds - 1)
             let params = ChatCompletionParameters(messages: messages, model: .custom(config.model),
-                                                  tools: toolsUnsupported ? nil : tools())
+                                                  tools: (toolsUnsupported || lastRound) ? nil : tools())
 
             var liveText = ""
             var toolAcc: [Int: (id: String, name: String, args: String)] = [:]
@@ -895,10 +918,6 @@ final class AgentController: ObservableObject {
             }
             if Task.isCancelled { return }
             assistantTurnID = nil   // next streamed text is a fresh turn
-
-            if round == maxRounds - 1 {
-                turns.append(Turn(role: "assistant", text: "I ran several steps but haven't wrapped up — ask me to continue if you'd like me to keep going."))
-            }
         }
     }
 
