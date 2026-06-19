@@ -89,6 +89,12 @@ private struct FocusTimerCard: View {
                 }
                 .frame(maxWidth: .infinity)
                 Spacer()
+                HStack(spacing: 8) {
+                    ForEach([15, 25, 45], id: \.self) { mins in
+                        preset(mins)
+                    }
+                }
+                Spacer().frame(height: 12)
                 HStack(spacing: 12) {
                     control(running ? "Pause" : "Start", icon: running ? "pause.fill" : "play.fill", accent: true) {
                         running.toggle()
@@ -106,6 +112,21 @@ private struct FocusTimerCard: View {
         }
     }
     private var clock: String { String(format: "%02d:%02d", remaining / 60, remaining % 60) }
+    private func preset(_ mins: Int) -> some View {
+        let selected = total == mins * 60
+        return Button {
+            total = mins * 60; remaining = mins * 60; running = false
+        } label: {
+            Text("\(mins)m").font(.deck(15, .semibold))
+                .foregroundStyle(selected ? Theme.netUp : Theme.textSecondary)
+                .frame(maxWidth: .infinity).padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(selected ? Theme.netUp.opacity(0.16) : Color.white.opacity(0.05)))
+                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(selected ? Theme.netUp.opacity(0.5) : .clear, lineWidth: 1))
+        }
+        .buttonStyle(.pressable)
+    }
     private func control(_ title: String, icon: String, accent: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
