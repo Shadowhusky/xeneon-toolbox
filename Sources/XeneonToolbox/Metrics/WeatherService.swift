@@ -42,6 +42,11 @@ final class WeatherService: ObservableObject {
         timer = t
     }
 
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
     func refresh() async {
         guard let loc = await geolocate(),
               let url = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(loc.lat)&longitude=\(loc.lon)&current=temperature_2m,weather_code"),

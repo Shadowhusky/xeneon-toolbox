@@ -48,7 +48,7 @@ final class ToolboxModel: ObservableObject {
     /// Sleep stops monitoring (saves battery, avoids burn-in); minimal keeps
     /// light stats; full is the normal UI.
     func setDisplay(_ mode: DisplayMode) {
-        if mode == .sleep { metrics.stop() } else { metrics.start() }
+        if mode == .sleep { metrics.stop(); weather.stop() } else { metrics.start(); weather.start() }
         displayMode = mode
     }
 
