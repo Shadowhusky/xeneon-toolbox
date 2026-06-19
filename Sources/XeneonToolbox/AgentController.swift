@@ -435,10 +435,14 @@ final class AgentController: ObservableObject {
             let title = (args["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else { return "No task title given." }
             let due = (args["due"] as? String).flatMap { parseDate($0) }
-            let rec = Recurrence(rawValue: (args["repeat"] as? String) ?? "none") ?? .none
+            let asked = Recurrence(rawValue: (args["repeat"] as? String) ?? "none") ?? .none
+            let rec = due == nil ? .none : asked   // recurrence needs a time to anchor + notify on
             app.todos.add(title, dueAt: due, recurrence: rec)
+            if asked != .none, due == nil {
+                return "Added “\(title)”. A recurring reminder needs a time — tell me when (e.g. every day at 9 AM) and I'll set it to repeat."
+            }
             let suffix = rec != .none ? " (\(rec.rawValue))" : ""
-            return due != nil ? "Added reminder “\(title)” for \(formatDue(due!))\(suffix)." : "Added to-do “\(title)”\(suffix)."
+            return due != nil ? "Added reminder “\(title)” for \(formatDue(due!))\(suffix)." : "Added to-do “\(title)”."
         case "list_todos":
             guard let app else { return "App unavailable." }
             let items = app.todos.sorted
@@ -454,9 +458,12 @@ final class AgentController: ObservableObject {
         case "complete_todo":
             guard let app else { return "App unavailable." }
             guard let item = TodoMatch.resolve((args["task"] as? String) ?? "", in: app.todos.sorted) else { return "No matching task found." }
-            app.todos.toggle(item.id)
-            let done = app.todos.items.first(where: { $0.id == item.id })?.done ?? true
-            return done ? "Marked done: “\(item.title)”." : "Reopened: “\(item.title)”."
+            switch app.todos.toggle(item.id) {
+            case .completed: return "Marked done: “\(item.title)”."
+            case .reopened: return "Reopened: “\(item.title)”."
+            case .rolledForward(let next): return "Completed “\(item.title)” — next occurrence \(formatDue(next))."
+            case .notFound: return "No matching task found."
+            }
         case "delete_todo":
             guard let app else { return "App unavailable." }
             guard let item = TodoMatch.resolve((args["task"] as? String) ?? "", in: app.todos.sorted) else { return "No matching task found." }

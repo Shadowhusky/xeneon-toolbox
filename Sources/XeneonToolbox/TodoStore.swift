@@ -49,20 +49,24 @@ final class TodoStore: ObservableObject {
         return item
     }
 
-    func toggle(_ id: UUID) {
-        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+    enum ToggleResult { case completed, reopened, rolledForward(Date), notFound }
+
+    @discardableResult
+    func toggle(_ id: UUID) -> ToggleResult {
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return .notFound }
         // Completing a recurring reminder rolls it forward instead of marking done.
         if !items[i].done, items[i].recurrence != .none, items[i].dueAt != nil {
             cancel(id)
             items[i] = items[i].advanced()
             save()
             schedule(items[i])
-            return
+            return .rolledForward(items[i].dueAt ?? Date())
         }
         items[i].done.toggle()
         save()
         if items[i].done { cancel(id) }
         else if items[i].dueAt != nil { schedule(items[i]) }
+        return items[i].done ? .completed : .reopened
     }
 
     func remove(_ id: UUID) {
