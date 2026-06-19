@@ -578,18 +578,33 @@ final class AgentController: ObservableObject {
         return rows
     }
 
+    private static let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+
     private func webSearch(_ query: String) async -> String {
         guard !query.isEmpty,
-              let q = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://html.duckduckgo.com/html/?q=\(q)") else { return "Invalid query." }
+              let q = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return "Invalid query." }
+        if let r = await ddg("https://html.duckduckgo.com/html/?q=\(q)", query,
+                             titlePat: "class=\"result__a\"[^>]*>(.*?)</a>",
+                             snipPat: "class=\"result__snippet\"[^>]*>(.*?)</a>",
+                             urlPat: "class=\"result__url\"[^>]*>(.*?)</a>") { return r }
+        // Fallback: the lite endpoint has simpler, more stable markup.
+        if let r = await ddg("https://lite.duckduckgo.com/lite/?q=\(q)", query,
+                             titlePat: "class=\"result-link\"[^>]*>(.*?)</a>",
+                             snipPat: "class=\"result-snippet\"[^>]*>(.*?)</td>",
+                             urlPat: nil) { return r }
+        return "No web results for \"\(query)\". Try rephrasing the query, or use fetch_url if you already know the page."
+    }
+
+    private func ddg(_ urlString: String, _ query: String, titlePat: String, snipPat: String, urlPat: String?) async -> String? {
+        guard let url = URL(string: urlString) else { return nil }
         var req = URLRequest(url: url)
-        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", forHTTPHeaderField: "User-Agent")
+        req.setValue(Self.webUA, forHTTPHeaderField: "User-Agent")
         guard let (data, _) = try? await URLSession.shared.data(for: req),
-              let html = String(data: data, encoding: .utf8) else { return "Search request failed." }
-        let titles = matches(in: html, pattern: "class=\"result__a\"[^>]*>(.*?)</a>").map { strip($0) }
-        let snippets = matches(in: html, pattern: "class=\"result__snippet\"[^>]*>(.*?)</a>").map { strip($0) }
-        let urls = matches(in: html, pattern: "class=\"result__url\"[^>]*>(.*?)</a>").map { strip($0) }
-        guard !titles.isEmpty else { return "No results found." }
+              let html = String(data: data, encoding: .utf8) else { return nil }
+        let titles = matches(in: html, pattern: titlePat).map { strip($0) }.filter { !$0.isEmpty }
+        guard !titles.isEmpty else { return nil }
+        let snippets = matches(in: html, pattern: snipPat).map { strip($0) }
+        let urls = urlPat.map { matches(in: html, pattern: $0).map { strip($0) } } ?? []
         var out = "Results for \"\(query)\":\n"
         for i in 0..<min(5, titles.count) {
             out += "\(i + 1). \(titles[i])"
