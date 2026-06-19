@@ -45,6 +45,7 @@ struct StoredConversation: Codable, Identifiable {
     var title: String
     var messages: [StoredMessage]
     var updated: Date
+    var autoTitled: Bool? = nil
 }
 
 struct StoredMessage: Codable {
@@ -173,6 +174,37 @@ final class AgentController: ObservableObject {
             conversations[i].title = String(firstUser.prefix(42))
         }
         conversations[i].updated = Date()
+    }
+
+    /// After the first exchange, ask the model for a short title for the chat.
+    private func maybeAutoTitle() {
+        guard let i = conversations.firstIndex(where: { $0.id == activeID }),
+              !(conversations[i].autoTitled ?? false),
+              conversations[i].messages.contains(where: { $0.role == "assistant" }),
+              conversations[i].messages.contains(where: { $0.role == "user" }) else { return }
+        conversations[i].autoTitled = true
+        let convID = activeID
+        let context = conversations[i].messages.prefix(4).map { "\($0.role): \($0.text)" }.joined(separator: "\n")
+        Task {
+            let title = await generateTitle(context)
+            guard !title.isEmpty, let j = conversations.firstIndex(where: { $0.id == convID }) else { return }
+            conversations[j].title = title
+            writeStore()
+        }
+    }
+
+    private func generateTitle(_ context: String) async -> String {
+        let params = ChatCompletionParameters(
+            messages: [
+                .init(role: .system, content: .text("Reply with ONLY a 3–5 word title for the conversation. No quotes, no punctuation, no preamble.")),
+                .init(role: .user, content: .text(context)),
+            ],
+            model: .custom(config.model))
+        guard let result = try? await service.startChat(parameters: params),
+              let text = result.choices?.first?.message?.content else { return "" }
+        return text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\".'")))
+            .replacingOccurrences(of: "\n", with: " ")
+            .prefix(48).description
     }
 
     private func writeStore() {
@@ -596,7 +628,7 @@ final class AgentController: ObservableObject {
     }
 
     private func runLoop() async {
-        defer { busy = false; writeStore() }
+        defer { busy = false; writeStore(); maybeAutoTitle() }
         var assistantTurnID: UUID?
         toolsTurnID = nil
 
