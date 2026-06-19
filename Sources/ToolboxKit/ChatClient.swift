@@ -70,17 +70,42 @@ public struct ChatClient {
     public let config: ChatConfig
     public init(config: ChatConfig) { self.config = config }
 
-    /// Queries an OpenAI-compatible `/models` endpoint (works with OpenAI,
-    /// Ollama, LM Studio) so the UI can offer a dropdown of available models.
+    /// Lists models for the dropdown. Queries the OpenAI-compatible `/models`
+    /// (OpenAI, Ollama, LM Studio) AND, when present, LM Studio's native
+    /// `/api/v0/models` — which lists EVERY installed model (even ones not
+    /// currently loaded) and tags each with a `type`, so embedding models (which
+    /// can't chat) are dropped. Results from both are merged.
     public static func listModels(baseURL: String, apiKey: String?) async -> [String] {
-        guard let url = URL(string: baseURL.appending("/models")) else { return [] }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 8
-        if let k = apiKey, !k.isEmpty { req.setValue("Bearer \(k)", forHTTPHeaderField: "Authorization") }
-        guard let (data, _) = try? await URLSession.shared.data(for: req),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let arr = json["data"] as? [[String: Any]] else { return [] }
-        return arr.compactMap { $0["id"] as? String }.sorted()
+        func get(_ urlString: String) async -> [[String: Any]] {
+            guard let url = URL(string: urlString) else { return [] }
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            if let k = apiKey, !k.isEmpty { req.setValue("Bearer \(k)", forHTTPHeaderField: "Authorization") }
+            guard let (data, _) = try? await URLSession.shared.data(for: req),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let arr = json["data"] as? [[String: Any]] else { return [] }
+            return arr
+        }
+
+        var models = Set<String>()
+
+        // LM Studio native API: all installed models, with a `type` to filter on.
+        var host = baseURL
+        if host.hasSuffix("/v1") { host = String(host.dropLast(3)) }
+        else if host.hasSuffix("/v1/") { host = String(host.dropLast(4)) }
+        if host.hasSuffix("/") { host = String(host.dropLast()) }
+        for m in await get(host.appending("/api/v0/models")) {
+            if (m["type"] as? String) == "embeddings" { continue }
+            if let id = m["id"] as? String { models.insert(id) }
+        }
+
+        // OpenAI-compatible endpoint (and the fallback for non-LM-Studio servers).
+        for m in await get(baseURL.appending("/models")) {
+            // /v1/models has no type; skip obvious embedding models by name.
+            if let id = m["id"] as? String, !id.lowercased().contains("embed") { models.insert(id) }
+        }
+
+        return models.sorted()
     }
 
     public func reply(to history: [(role: String, content: String)]) async throws -> String {
