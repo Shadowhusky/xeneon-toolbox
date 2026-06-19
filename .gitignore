@@ -13,3 +13,4 @@ blender/textures/
 blender/ref/
 blender/render*.png
 blender/_tmp*.png
+blender/gltf-preview.png
