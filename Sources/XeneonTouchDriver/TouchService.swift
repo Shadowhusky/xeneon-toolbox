@@ -16,6 +16,7 @@ final class TouchDriver {
     private var display: DisplayRect?
     private var machine = TouchStateMachine()
     private var decoder = HIDTouchDecoder()
+    private var announcedActive = false
     var onPresenceChanged: ((Bool) -> Void)?
 
     init(verbose: Bool, flipX: Bool, flipY: Bool, swapXY: Bool, preferredDisplayID: CGDirectDisplayID?) {
@@ -44,6 +45,7 @@ final class TouchDriver {
         calibration = nil
         display = nil
         decoder = HIDTouchDecoder()
+        announcedActive = false
         onPresenceChanged?(false)
     }
 
@@ -58,6 +60,7 @@ final class TouchDriver {
         guard let cal = calibration, let disp = display,
               let x = decoder.rawX, let y = decoder.rawY else { return }
 
+        if !announcedActive { announcedActive = true; onPresenceChanged?(true) }
         let point = CoordinateMapper.mapToScreen(rawX: x, rawY: y, calibration: cal, display: disp)
         for action in machine.update(contact: decoder.contact, point: point) {
             post(action)

@@ -15,6 +15,11 @@ echo "Assembling $APP…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BUILD_DIR/$BIN_NAME" "$APP/Contents/MacOS/$BIN_NAME"
+# Strip symbol/debug tables (~9MB of __LINKEDIT) — cuts the binary ~13MB→~5MB.
+# Safe: Swift runtime metadata lives in __TEXT/__DATA, not the symbol table; the
+# whole bundle is re-signed below.
+strip -rSTx "$APP/Contents/MacOS/$BIN_NAME" 2>/dev/null || true
+[ -f AppIcon.icns ] && cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -25,6 +30,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key><string>Xeneon Toolbox</string>
     <key>CFBundleIdentifier</key><string>com.shadowhusky.xeneon-toolbox</string>
     <key>CFBundleExecutable</key><string>$BIN_NAME</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0.0</string>
     <key>CFBundleVersion</key><string>1</string>

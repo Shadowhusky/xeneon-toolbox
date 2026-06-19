@@ -1,10 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// Borderless windows can't become key by default, which blocks button taps.
 final class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+}
+
+/// Lets a tap act immediately even when the window isn't focused, so injected
+/// touches don't get "eaten" as a mere focus click (the refocus-with-mouse bug).
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 @MainActor
@@ -13,20 +18,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = ToolboxModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installMainMenu()
+
+        // Headless high-res export: render the UI off-screen at NxN scale (the UI
+        // is vector, so this is far crisper than capturing the 2560x720 panel).
+        // XENEON_RENDER="route@scale@warmupSeconds@/abs/out.png"
+        if let spec = ProcessInfo.processInfo.environment["XENEON_RENDER"] {
+            renderOffscreenThenExit(spec)
+            return
+        }
+
         let screen = edgeScreen() ?? NSScreen.main
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 2560, height: 720)
+        let devMode = ProcessInfo.processInfo.environment["XENEON_NO_FULLSCREEN"] != nil
 
-        let win = KeyableWindow(contentRect: frame, styleMask: [.borderless],
-                                backing: .buffered, defer: false)
+        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        let win = KeyableWindow(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
+        win.title = "Xeneon Toolbox"
+        win.titlebarAppearsTransparent = true
+        win.titleVisibility = .hidden
         win.isOpaque = true
         win.backgroundColor = .black
         win.hasShadow = false
-        win.level = .normal
-        win.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
 
-        let host = NSHostingView(rootView: PanelView(model: model, metrics: model.metrics))
-        host.frame = NSRect(origin: .zero, size: frame.size)
-        win.contentView = host
+        win.collectionBehavior = [.fullScreenPrimary]
+        win.acceptsMouseMovedEvents = true
+        win.contentView = FirstMouseHostingView(rootView: RootView(model: model, metrics: model.metrics))
         win.setFrame(frame, display: true)
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -34,9 +51,84 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         self.window = win
         model.onAppear()
+
+        // Default to native fullscreen on the Edge — this hides the system menu
+        // bar and gives the panel the whole display. Skipped in dev for capture.
+        if !devMode {
+            NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                if !win.styleMask.contains(.fullScreen) { win.toggleFullScreen(nil) }
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    private func renderOffscreenThenExit(_ spec: String) {
+        let parts = spec.components(separatedBy: "@")
+        guard parts.count == 4, let scale = Double(parts[1]), let warmup = Double(parts[2]) else {
+            fputs("XENEON_RENDER bad spec; expected route@scale@warmup@/path\n", stderr); NSApp.terminate(nil); return
+        }
+        let route = parts[0], outPath = parts[3]
+        if let r = AppRoute(rawValue: route == "assistant" ? "chat" : route) { model.route = r }
+        if route == "minimal" { model.displayMode = .minimal }
+        if route == "sleep" { model.displayMode = .sleep }
+        if route == "assistant" {
+            model.exportMode = true
+            model.agent.turns = [
+                .init(role: "user", text: "Compare the RTX 4090, RTX 4080 Super, and RX 7900 XTX"),
+                .init(role: "card", text: "", card: .table(title: "GPU Comparison",
+                    headers: ["GPU", "VRAM", "TDP", "MSRP"],
+                    rows: [["RTX 4090", "24 GB", "450 W", "$1599"],
+                           ["RTX 4080 Super", "16 GB", "320 W", "$999"],
+                           ["RX 7900 XTX", "24 GB", "355 W", "$949"]])),
+                .init(role: "assistant", text: "The **4090** leads on raw performance; the **7900 XTX** matches its VRAM for less. The **4080 Super** is the efficiency pick."),
+            ]
+        }
+        model.touchOn = true; model.edgeDetected = true   // show Touch "Active" in demo renders
+        model.metrics.start()
+        model.weather.start()
+        DispatchQueue.main.asyncAfter(deadline: .now() + warmup) { [self] in
+            let content = RootView(model: model, metrics: model.metrics)
+                .frame(width: 2560, height: 720)
+                .environment(\.colorScheme, .dark)
+            let renderer = ImageRenderer(content: content)
+            renderer.scale = CGFloat(scale)
+            guard let cg = renderer.cgImage else { fputs("render failed\n", stderr); NSApp.terminate(nil); return }
+            let rep = NSBitmapImageRep(cgImage: cg)
+            if let data = rep.representation(using: .png, properties: [:]) {
+                try? data.write(to: URL(fileURLWithPath: outPath))
+                fputs("RENDERED \(cg.width)x\(cg.height) -> \(outPath)\n", stderr)
+            }
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// Without a main menu, standard editing shortcuts (⌘A select-all, ⌘C/⌘V,
+    /// undo) never reach the focused text field. This wires them up.
+    private func installMainMenu() {
+        let main = NSMenu()
+
+        let appItem = NSMenuItem()
+        main.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit Xeneon Toolbox", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+
+        let editItem = NSMenuItem()
+        main.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+
+        NSApp.mainMenu = main
+    }
 
     private func edgeScreen() -> NSScreen? {
         NSScreen.screens.first {

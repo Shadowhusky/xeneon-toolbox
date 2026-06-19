@@ -16,6 +16,7 @@ enum Theme {
 
     // Hue-coded per metric — the colour encodes which signal you're reading.
     static let cpu = Color(red: 0.33, green: 0.84, blue: 0.92)      // cyan
+    static let gpu = Color(red: 1.0, green: 0.45, blue: 0.72)       // pink
     static let memory = Color(red: 0.56, green: 0.49, blue: 1.0)    // violet
     static let netDown = Color(red: 0.36, green: 0.90, blue: 0.65)  // mint
     static let netUp = Color(red: 0.98, green: 0.74, blue: 0.38)    // amber
@@ -26,6 +27,20 @@ enum Theme {
 
     static let tileCorner: CGFloat = 26
     static let tileGap: CGFloat = 16
+}
+
+/// Press feedback for touch — scales and dims slightly while held.
+struct PressableStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == PressableStyle {
+    static var pressable: PressableStyle { PressableStyle() }
 }
 
 extension Font {

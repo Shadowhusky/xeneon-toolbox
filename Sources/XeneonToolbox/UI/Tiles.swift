@@ -4,15 +4,30 @@ private let ringSize: CGFloat = 176
 
 struct ClockTile: View {
     var uptime: TimeInterval
+    var weather: Weather?
     var body: some View {
         TileSurface(accent: Theme.accent) {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let now = context.date
                 VStack(alignment: .leading, spacing: 0) {
-                    TileHeader(title: "Local", systemImage: "clock.fill", accent: Theme.accent)
+                    HStack {
+                        TileHeader(title: "Local", systemImage: "clock.fill", accent: Theme.accent)
+                        if let w = weather {
+                            Spacer()
+                            HStack(spacing: 5) {
+                                Image(systemName: w.symbol).foregroundStyle(Theme.accent)
+                                Text(w.displayTemp).font(.readout(16, .bold)).foregroundStyle(Theme.textPrimary)
+                            }
+                        }
+                    }
                     Spacer()
-                    Text(now, format: .dateTime.weekday(.wide))
-                        .font(.deck(22, .medium)).foregroundStyle(Theme.textSecondary)
+                    HStack(spacing: 8) {
+                        Text(now, format: .dateTime.weekday(.wide))
+                            .font(.deck(22, .medium)).foregroundStyle(Theme.textSecondary)
+                        if let w = weather, !w.city.isEmpty {
+                            Text("· \(w.city)").font(.deck(16)).foregroundStyle(Theme.textFaint).lineLimit(1)
+                        }
+                    }
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
                         Text(now, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
                             .font(.readout(74, .bold)).foregroundStyle(Theme.textPrimary)
@@ -73,10 +88,22 @@ struct CPUTile: View {
     }
 }
 
+struct GPUTile: View {
+    var value: Double
+    var history: [Double]
+    var body: some View {
+        GaugeTile(title: "Graphics", icon: "cube.transparent.fill", accent: Theme.gpu, value: value, caption: "GPU") {
+            AnyView(Sparkline(values: history, color: Theme.gpu).frame(height: 48))
+        }
+    }
+}
+
 struct MemoryTile: View {
     var snap: MetricsSnapshot
+    private var warn: Bool { snap.memFraction > 0.9 }
     var body: some View {
-        GaugeTile(title: "Memory", icon: "memorychip.fill", accent: Theme.memory, value: snap.memFraction, caption: "USED") {
+        GaugeTile(title: "Memory", icon: "memorychip.fill", accent: warn ? Theme.batteryLow : Theme.memory,
+                  value: snap.memFraction, caption: warn ? "PRESSURE" : "USED") {
             AnyView(
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(Fmt.gb(snap.memUsed)).font(.readout(26, .bold)).foregroundStyle(Theme.textPrimary)
@@ -121,20 +148,23 @@ struct NetworkTile: View {
 
 struct StorageTile: View {
     var snap: MetricsSnapshot
+    private var warn: Bool { snap.diskUsedFraction > 0.9 }
+    private var tint: Color { warn ? Theme.batteryLow : Theme.disk }
     var body: some View {
-        TileSurface(accent: Theme.disk) {
+        TileSurface(accent: tint) {
             VStack(alignment: .leading, spacing: 0) {
-                TileHeader(title: "Storage", systemImage: "internaldrive.fill", accent: Theme.disk)
+                TileHeader(title: "Storage", systemImage: "internaldrive.fill", accent: tint)
                 Spacer()
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(Fmt.gb(snap.diskFree)).font(.readout(58, .bold)).foregroundStyle(Theme.textPrimary)
                     Text("GB free").font(.deck(18)).foregroundStyle(Theme.textSecondary)
                 }
                 Spacer()
-                CapacityBar(fraction: snap.diskUsedFraction, color: Theme.disk)
+                CapacityBar(fraction: snap.diskUsedFraction, color: tint)
                 Spacer().frame(height: 12)
                 HStack {
-                    Text("\(Fmt.percent(snap.diskUsedFraction)) used").font(.deck(13)).foregroundStyle(Theme.textFaint)
+                    Text(warn ? "Low space" : "\(Fmt.percent(snap.diskUsedFraction)) used")
+                        .font(.deck(13)).foregroundStyle(warn ? Theme.batteryLow : Theme.textFaint)
                     Spacer()
                     Text("\(Fmt.gb(snap.diskTotal)) GB total").font(.deck(13)).foregroundStyle(Theme.textFaint)
                 }
@@ -193,45 +223,69 @@ struct PowerTile: View {
 }
 
 struct ControlsTile: View {
-    var touchOn: Bool
-    var edgeDetected: Bool
+    var status: ToolboxModel.TouchStatus
     var toggleTouch: () -> Void
-    var minimize: () -> Void
+    @Binding var flipX: Bool
+    @Binding var flipY: Bool
+    @Binding var swapXY: Bool
+    @State private var showCalibrate = false
+
+    private var on: Bool { status != .off }
+    private var tint: Color {
+        switch status { case .active: return Theme.battery; case .searching: return Theme.netUp; case .off: return Theme.textFaint }
+    }
+    private var label: String {
+        switch status { case .active: return "Active"; case .searching: return "Searching…"; case .off: return "Off" }
+    }
+    private var detail: (String, String) {
+        switch status {
+        case .active: return ("checkmark.circle.fill", "Driving the Edge")
+        case .searching: return ("dot.radiowaves.left.and.right", "Looking for the panel…")
+        case .off: return ("hand.tap", "Tap to enable touch")
+        }
+    }
 
     var body: some View {
-        TileSurface(accent: touchOn ? Theme.accent : Theme.textFaint) {
+        TileSurface(accent: on ? Theme.accent : Theme.textFaint) {
             VStack(alignment: .leading, spacing: 0) {
-                TileHeader(title: "Controls", systemImage: "slider.horizontal.3", accent: touchOn ? Theme.accent : Theme.textFaint)
+                TileHeader(title: "Controls", systemImage: "slider.horizontal.3", accent: on ? Theme.accent : Theme.textFaint)
                 Spacer()
                 Button(action: toggleTouch) {
                     HStack(spacing: 14) {
                         Image(systemName: "hand.tap.fill")
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundStyle(touchOn ? Theme.accent : Theme.textFaint)
+                            .font(.system(size: 28, weight: .bold)).foregroundStyle(tint)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Touch").font(.deck(21, .semibold)).foregroundStyle(Theme.textPrimary)
-                            Text(touchOn ? "Active" : "Off").font(.deck(13))
-                                .foregroundStyle(touchOn ? Theme.accent : Theme.textFaint)
+                            Text(label).font(.deck(13)).foregroundStyle(tint)
                         }
                         Spacer()
-                        ToggleDot(on: touchOn)
+                        ToggleDot(on: on)
                     }
                     .padding(16)
                     .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.white.opacity(0.05)))
                 }
                 .buttonStyle(.plain)
                 Spacer().frame(height: 14)
-                Label(edgeDetected ? "Edge connected" : "Edge not detected",
-                      systemImage: edgeDetected ? "checkmark.circle.fill" : "questionmark.circle")
-                    .font(.deck(13)).foregroundStyle(edgeDetected ? Theme.battery : Theme.textFaint)
+                Label(detail.1, systemImage: detail.0).font(.deck(13)).foregroundStyle(tint)
                 Spacer()
-                Button(action: minimize) {
-                    Label("Minimize", systemImage: "rectangle.compress.vertical")
-                        .font(.deck(15, .semibold)).foregroundStyle(Theme.textSecondary)
-                        .frame(maxWidth: .infinity).padding(.vertical, 13)
-                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
+                Button { showCalibrate.toggle() } label: {
+                    Label("Calibrate", systemImage: "slider.horizontal.3")
+                        .font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
+                        .frame(maxWidth: .infinity).padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.05)))
                 }
                 .buttonStyle(.plain)
+                .popover(isPresented: $showCalibrate, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Touch calibration").font(.deck(15, .bold)).foregroundStyle(Theme.textPrimary)
+                        Text("Use these if taps land mirrored or rotated.").font(.deck(12)).foregroundStyle(Theme.textFaint)
+                        Toggle("Flip horizontal", isOn: $flipX)
+                        Toggle("Flip vertical", isOn: $flipY)
+                        Toggle("Swap axes", isOn: $swapXY)
+                    }
+                    .font(.deck(14)).tint(Theme.accent)
+                    .padding(20).frame(width: 260)
+                }
             }
         }
     }

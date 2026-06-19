@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import IOKit
 import IOKit.ps
 
 struct BatteryInfo: Equatable {
@@ -10,6 +11,7 @@ struct BatteryInfo: Equatable {
 
 struct MetricsSnapshot: Equatable {
     var cpu: Double = 0                 // 0...1
+    var gpu: Double = 0                 // 0...1
     var memUsed: UInt64 = 0
     var memTotal: UInt64 = 0
     var netRx: Double = 0               // bytes/sec
@@ -30,6 +32,7 @@ struct MetricsSnapshot: Equatable {
 final class SystemMetrics: ObservableObject {
     @Published private(set) var snap = MetricsSnapshot()
     @Published private(set) var cpuHistory: [Double] = []
+    @Published private(set) var gpuHistory: [Double] = []
     @Published private(set) var netRxHistory: [Double] = []
     @Published private(set) var netTxHistory: [Double] = []
 
@@ -59,6 +62,7 @@ final class SystemMetrics: ObservableObject {
     private func sample() {
         var s = MetricsSnapshot()
         s.cpu = sampleCPU()
+        s.gpu = sampleGPU()
         let mem = sampleMemory()
         s.memUsed = mem.used
         s.memTotal = mem.total
@@ -73,6 +77,7 @@ final class SystemMetrics: ObservableObject {
         snap = s
 
         cpuHistory = trimmed(cpuHistory + [s.cpu])
+        gpuHistory = trimmed(gpuHistory + [s.gpu])
         netRxHistory = trimmed(netRxHistory + [s.netRx])
         netTxHistory = trimmed(netTxHistory + [s.netTx])
     }
@@ -103,6 +108,28 @@ final class SystemMetrics: ObservableObject {
         let dBusy = busy - prev.busy
         let dTotal = total - prev.total
         return dTotal > 0 ? max(0, min(1, dBusy / dTotal)) : 0
+    }
+
+    private func sampleGPU() -> Double {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &iterator) == KERN_SUCCESS else {
+            return snap.gpu
+        }
+        defer { IOObjectRelease(iterator) }
+        var util = -1.0
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            if let props = IORegistryEntryCreateCFProperty(service, "PerformanceStatistics" as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? [String: Any] {
+                if let u = props["Device Utilization %"] as? Int { util = Double(u) }
+                else if let u = props["Device Utilization %"] as? Double { util = u }
+                else if let u = props["GPU Activity(%)"] as? Int { util = Double(u) }
+            }
+            IOObjectRelease(service)
+            if util >= 0 { break }
+            service = IOIteratorNext(iterator)
+        }
+        return util >= 0 ? max(0, min(1, util / 100)) : snap.gpu
     }
 
     private func sampleMemory() -> (used: UInt64, total: UInt64) {

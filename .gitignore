@@ -7,3 +7,16 @@ XeneonToolbox.app/
 *.pem
 .env
 secrets*
+
+# Blender working files (regenerable; large)
+blender/textures/
+blender/ref/
+blender/render*.png
+blender/_tmp*.png
+blender/gltf-preview.png
+blender/meshy-raw*.glb
+blender/meshy*view*.png
+blender/meshy-refined.png
+blender/gltf-preview.png
+blender/meshy-multi.glb
+blender/multi-view.png
