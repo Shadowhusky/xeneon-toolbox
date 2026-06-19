@@ -65,7 +65,7 @@ pointer events so taps and drags land where you touch.
 
 ```bash
 swift build -c release
-swift test                  # unit tests: coordinate mapping, touch state, HID decode
+swift test                  # unit tests: coordinate mapping, touch state, HID decode, agent data parsing
 
 ./scripts/make-app.sh       # build XeneonToolbox.app (with icon)
 open XeneonToolbox.app

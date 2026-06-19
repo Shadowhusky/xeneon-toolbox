@@ -356,8 +356,8 @@ final class AgentController: ObservableObject {
         case "show_card":
             let title = (args["title"] as? String) ?? "Info"
             let rows: [CardRow] = (args["items"] as? [Any] ?? []).compactMap { item in
-                let (l, v) = labelValue(item)
-                return l.isEmpty && v.isEmpty ? nil : CardRow(label: l, value: v)
+                let lv = AgentDataParsing.labelValue(from: item)
+                return lv.label.isEmpty && lv.value.isEmpty ? nil : CardRow(label: lv.label, value: lv.value)
             }
             guard !rows.isEmpty else { return "No items to show." }
             turns.append(Turn(role: "card", text: "", card: .generic(title: title, rows: rows)))
@@ -366,18 +366,18 @@ final class AgentController: ObservableObject {
             let title = (args["title"] as? String) ?? "Chart"
             let isLine = (args["type"] as? String) == "line"
             let points: [ChartPoint] = (args["items"] as? [Any] ?? []).compactMap { item in
-                let (l, v) = labelValue(item)
-                let num = v.filter { "0123456789.-".contains($0) }
+                let lv = AgentDataParsing.labelValue(from: item)
+                let num = lv.value.filter { "0123456789.-".contains($0) }
                 guard let d = Double(num) else { return nil }
-                return ChartPoint(label: l, value: d)
+                return ChartPoint(label: lv.label, value: d)
             }
             guard !points.isEmpty else { return "No numeric data to chart." }
             turns.append(Turn(role: "card", text: "", card: .chart(title: title, points: points, line: isLine)))
             return "Displayed a \(isLine ? "line" : "bar") chart titled \(title) with \(points.count) points."
         case "show_table":
             let title = (args["title"] as? String) ?? "Table"
-            let headers = coerceCells(args["headers"])
-            let rows = coerceRows(args["rows"])
+            let headers = AgentDataParsing.cells(from: args["headers"])
+            let rows = AgentDataParsing.rows(from: args["rows"])
             guard !headers.isEmpty, !rows.isEmpty else { return "No table data to show." }
             turns.append(Turn(role: "card", text: "", card: .table(title: title, headers: headers, rows: rows)))
             return "Displayed a table titled \(title) with \(rows.count) rows and \(headers.count) columns."
@@ -449,66 +449,6 @@ final class AgentController: ObservableObject {
         default:
             return "Unknown tool \(name)."
         }
-    }
-
-    /// Coerce a loosely-typed value into a list of cell strings. Accepts a real
-    /// array, or a string with cells separated by '|' or ','.
-    private func coerceCells(_ raw: Any?) -> [String] {
-        if let arr = raw as? [Any] { return arr.map { stringify($0) }.filter { !$0.isEmpty } }
-        if let s = raw as? String {
-            let sep: Character = s.contains("|") ? "|" : ","
-            return s.split(separator: sep).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        }
-        return []
-    }
-
-    /// Coerce a loosely-typed value into rows of cells. Models emit table rows
-    /// inconsistently — a 2D array, an array of delimited strings, or even a
-    /// (sometimes malformed) JSON string. Handle all of them.
-    private func coerceRows(_ raw: Any?) -> [[String]] {
-        if let arr = raw as? [Any] {
-            return arr.compactMap { el -> [String]? in
-                if let row = el as? [Any] { return row.map { stringify($0) } }
-                let cells = coerceCells(el)
-                return cells.isEmpty ? nil : cells
-            }
-        }
-        if let s = raw as? String {
-            // Try parsing a JSON 2D array, repairing a missing leading bracket.
-            for candidate in [s, "[\(s)"] {
-                if let data = candidate.data(using: .utf8),
-                   let parsed = try? JSONSerialization.jsonObject(with: data) as? [[Any]] {
-                    return parsed.map { $0.map { stringify($0) } }
-                }
-            }
-            // Otherwise treat each line as a row of delimited cells.
-            return s.split(whereSeparator: \.isNewline).map { coerceCells(String($0)) }.filter { !$0.isEmpty }
-        }
-        return []
-    }
-
-    /// Extract a (label, value) pair from one card/chart item, whether the model
-    /// emitted a "Label: value" string or a {label/name, value} object.
-    private func labelValue(_ item: Any) -> (String, String) {
-        if let s = item as? String {
-            if let r = s.range(of: ":") {
-                return (String(s[..<r.lowerBound]).trimmingCharacters(in: .whitespaces),
-                        String(s[r.upperBound...]).trimmingCharacters(in: .whitespaces))
-            }
-            return (s.trimmingCharacters(in: .whitespaces), "")
-        }
-        if let d = item as? [String: Any] {
-            let label = d["label"] ?? d["name"] ?? d["key"] ?? d["title"]
-            let value = d["value"] ?? d["val"] ?? d["count"] ?? d["amount"] ?? d["y"]
-            return (label.map(stringify) ?? "", value.map(stringify) ?? "")
-        }
-        return (stringify(item), "")
-    }
-
-    private func stringify(_ v: Any) -> String {
-        if let s = v as? String { return s.trimmingCharacters(in: .whitespaces) }
-        if let n = v as? NSNumber { return n.stringValue }
-        return "\(v)"
     }
 
     private func generateImage(_ prompt: String) async -> String {
