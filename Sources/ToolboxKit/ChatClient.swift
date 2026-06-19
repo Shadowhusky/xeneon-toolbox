@@ -70,12 +70,37 @@ public struct ChatClient {
     public let config: ChatConfig
     public init(config: ChatConfig) { self.config = config }
 
+    /// Local model servers (LM Studio / Ollama) speak plain HTTP, so an
+    /// `https://` endpoint pointed at localhost or a LAN IP causes a TLS error.
+    /// Downgrade those to `http://` automatically; leave public/cloud hosts alone.
+    public static func resolveBaseURL(_ urlString: String) -> String {
+        guard var comps = URLComponents(string: urlString),
+              comps.scheme?.lowercased() == "https",
+              let host = comps.host, isLocalHost(host) else { return urlString }
+        comps.scheme = "http"
+        return comps.string ?? urlString
+    }
+
+    static func isLocalHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        if h == "localhost" || h == "127.0.0.1" || h == "::1" || h.hasSuffix(".local") { return true }
+        if h.hasSuffix(".ts.net") { return true }   // Tailscale MagicDNS
+        if h.hasPrefix("10.") || h.hasPrefix("192.168.") || h.hasPrefix("169.254.") { return true }
+        func octet2(_ s: String) -> Int? {
+            let p = s.split(separator: "."); return p.count >= 2 ? Int(p[1]) : nil
+        }
+        if h.hasPrefix("172."), let o = octet2(h), (16...31).contains(o) { return true }  // private
+        if h.hasPrefix("100."), let o = octet2(h), (64...127).contains(o) { return true } // Tailscale CGNAT
+        return false
+    }
+
     /// Lists models for the dropdown. Queries the OpenAI-compatible `/models`
     /// (OpenAI, Ollama, LM Studio) AND, when present, LM Studio's native
     /// `/api/v0/models` — which lists EVERY installed model (even ones not
     /// currently loaded) and tags each with a `type`, so embedding models (which
     /// can't chat) are dropped. Results from both are merged.
-    public static func listModels(baseURL: String, apiKey: String?) async -> [String] {
+    public static func listModels(baseURL rawBaseURL: String, apiKey: String?) async -> [String] {
+        let baseURL = resolveBaseURL(rawBaseURL)
         func get(_ urlString: String) async -> [[String: Any]] {
             guard let url = URL(string: urlString) else { return [] }
             var req = URLRequest(url: url)

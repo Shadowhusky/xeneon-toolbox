@@ -261,7 +261,8 @@ final class AgentController: ObservableObject {
 
     private var service: OpenAIService {
         // SwiftOpenAI appends /v1/...; pass the host without a trailing /v1.
-        var host = config.baseURL
+        // Auto-downgrade https→http for local/LAN servers (they're plain HTTP).
+        var host = ChatClient.resolveBaseURL(config.baseURL)
         if host.hasSuffix("/v1") { host = String(host.dropLast(3)) }
         if host.hasSuffix("/") { host = String(host.dropLast()) }
         return OpenAIServiceFactory.service(apiKey: .apiKey(config.apiKey ?? ""), baseURL: host)
@@ -901,7 +902,14 @@ final class AgentController: ObservableObject {
                     continue
                 }
                 if !(error is CancellationError) && !Task.isCancelled {
-                    turns.append(Turn(role: "error", text: "⚠️ \(error.localizedDescription)"))
+                    var text = "⚠️ \(error.localizedDescription)"
+                    let m = msg
+                    if m.contains("tls") || m.contains("ssl") || m.contains("secure connection") {
+                        text += "\n\nTip: local model servers use plain HTTP — set your endpoint to http:// (not https://)."
+                    } else if m.contains("connection") || m.contains("could not connect") || m.contains("offline") {
+                        text += "\n\nTip: check the endpoint host/port, and that the model server allows connections from this machine."
+                    }
+                    turns.append(Turn(role: "error", text: text))
                 }
                 return
             }
