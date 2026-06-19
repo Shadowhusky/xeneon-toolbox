@@ -5,12 +5,13 @@ import ToolboxKit
 enum DisplayMode { case full, minimal, sleep }
 
 enum AppRoute: String, CaseIterable, Identifiable {
-    case dashboard, clock, games, chat
+    case dashboard, clock, tasks, games, chat
     var id: String { rawValue }
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
         case .clock: return "Clock"
+        case .tasks: return "Tasks"
         case .games: return "Games"
         case .chat: return "Assistant"
         }
@@ -19,6 +20,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "gauge.with.dots.needle.67percent"
         case .clock: return "clock.fill"
+        case .tasks: return "checklist"
         case .games: return "gamecontroller.fill"
         case .chat: return "sparkles"
         }
@@ -32,6 +34,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
 final class ToolboxModel: ObservableObject {
     let metrics = SystemMetrics()
     let weather = WeatherService()
+    let todos = TodoStore()
     lazy var agent = AgentController(config: ChatConfig.loadSaved() ?? ChatConfig.presets[0].config, app: self)
     @Published var route: AppRoute = .dashboard
     @Published var displayMode: DisplayMode = .minimal   // ambient default; tap to wake to full
@@ -95,6 +98,7 @@ final class ToolboxModel: ObservableObject {
     func onAppear() {
         metrics.start()
         weather.start()
+        todos.start()
         startTouch()
     }
 

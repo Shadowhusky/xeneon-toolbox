@@ -340,6 +340,14 @@ final class AgentController: ObservableObject {
                  ["fact": .init(type: .string)], required: ["fact"]),
             tool("forget", "Remove remembered facts that contain the given text.",
                  ["fact": .init(type: .string)], required: ["fact"]),
+            // To-dos & reminders (shown in the Tasks tab)
+            tool("add_todo", "Add a to-do or reminder to the user's Tasks list. Set 'due' (ISO 8601 local datetime, e.g. 2026-06-19T18:30) to make it a reminder that notifies at that time — compute it from the current local time given above.",
+                 ["title": .init(type: .string), "due": .init(type: .string)], required: ["title"]),
+            tool("list_todos", "List the user's current to-dos and reminders (numbered, with done status and due times)."),
+            tool("complete_todo", "Toggle a to-do done/undone. Identify it by its number from list_todos or a word from its title.",
+                 ["task": .init(type: .string)], required: ["task"]),
+            tool("delete_todo", "Delete a to-do. Identify it by its number from list_todos or a word from its title.",
+                 ["task": .init(type: .string)], required: ["task"]),
         ]
     }
 
@@ -421,6 +429,35 @@ final class AgentController: ObservableObject {
             return readFile((args["path"] as? String) ?? "")
         case "find_files":
             return findFiles((args["query"] as? String) ?? "")
+        case "add_todo":
+            guard let app else { return "App unavailable." }
+            let title = (args["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { return "No task title given." }
+            let due = (args["due"] as? String).flatMap { parseDate($0) }
+            app.todos.add(title, dueAt: due)
+            return due != nil ? "Added reminder “\(title)” for \(formatDue(due!))." : "Added to-do “\(title)”."
+        case "list_todos":
+            guard let app else { return "App unavailable." }
+            let items = app.todos.sorted
+            guard !items.isEmpty else { return "The task list is empty." }
+            var out = "Tasks:\n"
+            for (i, t) in items.enumerated() {
+                var line = "\(i + 1). [\(t.done ? "x" : " ")] \(t.title)"
+                if let d = t.dueAt { line += " (due \(formatDue(d))\(t.isOverdue ? " — OVERDUE" : ""))" }
+                out += line + "\n"
+            }
+            return out
+        case "complete_todo":
+            guard let app else { return "App unavailable." }
+            guard let item = TodoMatch.resolve((args["task"] as? String) ?? "", in: app.todos.sorted) else { return "No matching task found." }
+            app.todos.toggle(item.id)
+            let done = app.todos.items.first(where: { $0.id == item.id })?.done ?? true
+            return done ? "Marked done: “\(item.title)”." : "Reopened: “\(item.title)”."
+        case "delete_todo":
+            guard let app else { return "App unavailable." }
+            guard let item = TodoMatch.resolve((args["task"] as? String) ?? "", in: app.todos.sorted) else { return "No matching task found." }
+            app.todos.remove(item.id)
+            return "Deleted “\(item.title)”."
         case "write_file":
             let path = (args["path"] as? String) ?? "", content = (args["content"] as? String) ?? ""
             let ok = await requestApproval(tool: "write_file", dangerous: false, title: "Write file",
@@ -642,6 +679,25 @@ final class AgentController: ObservableObject {
         return items.prefix(100).sorted().joined(separator: "\n")
     }
 
+    private func parseDate(_ s: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = iso.date(from: s) { return d }
+        iso.formatOptions = [.withInternetDateTime]
+        if let d = iso.date(from: s) { return d }
+        for fmt in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"] {
+            let f = DateFormatter()
+            f.dateFormat = fmt; f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = .current
+            if let d = f.date(from: s) { return d }
+        }
+        return nil
+    }
+
+    private func formatDue(_ d: Date) -> String {
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short
+        return f.string(from: d)
+    }
+
     private func findFiles(_ query: String) -> String {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return "No query." }
@@ -733,6 +789,7 @@ final class AgentController: ObservableObject {
         - Only use navigate or open_game when the user explicitly asks to switch tabs or open something — never navigate away just to answer a question.
         - Use get_app_state for live system info. Keep answers concise; the screen is small and wide.
         - When the user shares something durable about themselves or their setup (name, preferences, units, recurring needs), quietly call remember so you can use it later. Don't announce it unless asked.
+        - The user has a Tasks list (to-dos + reminders). Use add_todo / list_todos / complete_todo / delete_todo to manage it. For "remind me to X at/in …", compute the due datetime from the current local time above and pass it as 'due' so it notifies.
         """
         p += "\n\nCurrent local time: " + DateFormatter.localizedString(from: Date(), dateStyle: .full, timeStyle: .short) + "."
         if !memories.isEmpty {
@@ -818,6 +875,10 @@ final class AgentController: ObservableObject {
         case "list_dir": let p = args["path"] as? String ?? ""; return ("Listing \(p)…", "Listed \(p)")
         case "read_file": let p = args["path"] as? String ?? ""; return ("Reading \(p)…", "Read \(p)")
         case "find_files": let q = args["query"] as? String ?? ""; return ("Finding “\(q)”…", "Searched files for “\(q)”")
+        case "add_todo": let t = args["title"] as? String ?? ""; return ("Adding task…", "Added “\(t)”")
+        case "list_todos": return ("Checking tasks…", "Checked tasks")
+        case "complete_todo": return ("Updating task…", "Updated task")
+        case "delete_todo": return ("Deleting task…", "Deleted task")
         case "write_file": let p = args["path"] as? String ?? ""; return ("Writing \(p)…", "Wrote \(p)")
         case "run_command": return ("Running command…", "Ran a command")
         case "get_clipboard": return ("Reading clipboard…", "Read clipboard")

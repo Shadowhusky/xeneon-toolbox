@@ -55,6 +55,7 @@ struct RootView: View {
         switch model.route {
         case .dashboard: DashboardView(model: model, metrics: metrics, weather: model.weather)
         case .clock: ClockAppView()
+        case .tasks: TasksView(todos: model.todos)
         case .games: GamesView(model: model)
         case .chat: ChatView(model: model)
         }
