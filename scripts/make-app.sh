@@ -15,6 +15,10 @@ echo "Assembling $APP…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BUILD_DIR/$BIN_NAME" "$APP/Contents/MacOS/$BIN_NAME"
+# Strip symbol/debug tables (~9MB of __LINKEDIT) — cuts the binary ~13MB→~5MB.
+# Safe: Swift runtime metadata lives in __TEXT/__DATA, not the symbol table; the
+# whole bundle is re-signed below.
+strip -rSTx "$APP/Contents/MacOS/$BIN_NAME" 2>/dev/null || true
 [ -f AppIcon.icns ] && cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
