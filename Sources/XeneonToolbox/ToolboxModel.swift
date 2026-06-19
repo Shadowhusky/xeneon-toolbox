@@ -35,6 +35,7 @@ final class ToolboxModel: ObservableObject {
     lazy var agent = AgentController(config: ChatConfig.loadSaved() ?? ChatConfig.presets[0].config, app: self)
     @Published var route: AppRoute = .dashboard
     @Published var displayMode: DisplayMode = .full
+    @Published var showSettings = false
     @Published var touchOn = false
     @Published var edgeDetected = false
     @Published var gamePref = "shanhai"   // "shanhai" | "rhythm"
@@ -86,6 +87,7 @@ final class ToolboxModel: ObservableObject {
         case "sleep": displayMode = .sleep
         default: break
         }
+        if ProcessInfo.processInfo.environment["XENEON_SETTINGS"] != nil { showSettings = true }
     }
 
     func onAppear() {

@@ -24,7 +24,8 @@ struct RootView: View {
     private var fullUI: some View {
         HStack(spacing: 0) {
             NavRail(route: $model.route, touchActive: model.touchStatus == .active,
-                    onMinimal: { model.setDisplay(.minimal) }, onSleep: { model.setDisplay(.sleep) })
+                    onMinimal: { model.setDisplay(.minimal) }, onSleep: { model.setDisplay(.sleep) },
+                    onSettings: { model.showSettings = true })
             ZStack {
                 DeckBackground()
                 content
@@ -37,6 +38,17 @@ struct RootView: View {
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: model.route)
         }
         .background(Theme.background)
+        .overlay {
+            if model.showSettings {
+                ZStack {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                        .onTapGesture { model.showSettings = false }
+                    SettingsView(model: model) { model.showSettings = false }
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: model.showSettings)
     }
 
     @ViewBuilder private var content: some View {
@@ -54,6 +66,7 @@ struct NavRail: View {
     var touchActive: Bool
     var onMinimal: () -> Void = {}
     var onSleep: () -> Void = {}
+    var onSettings: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -84,7 +97,10 @@ struct NavRail: View {
                     railIcon("rectangle.compress.vertical", action: onMinimal)
                     railIcon("moon.fill", action: onSleep)
                 }
-                railIcon("power", width: 92) { NSApplication.shared.terminate(nil) }
+                HStack(spacing: 10) {
+                    railIcon("gearshape.fill", action: onSettings)
+                    railIcon("power") { NSApplication.shared.terminate(nil) }
+                }
             }
             .padding(.top, 10).padding(.bottom, 18)
         }

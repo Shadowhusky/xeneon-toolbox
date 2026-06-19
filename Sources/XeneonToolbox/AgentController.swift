@@ -138,6 +138,15 @@ final class AgentController: ObservableObject {
         writeStore()
     }
 
+    func clearAll() {
+        cancel()
+        let c = StoredConversation(id: UUID(), title: "New chat", messages: [], updated: Date())
+        conversations = [c]
+        activeID = c.id
+        turns = []; history = []
+        writeStore()
+    }
+
     func delete(_ id: UUID) {
         conversations.removeAll { $0.id == id }
         if activeID == id {
