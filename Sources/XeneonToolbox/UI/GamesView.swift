@@ -3,6 +3,7 @@ import SwiftUI
 struct GamesView: View {
     @ObservedObject var model: ToolboxModel
     @State private var reloadID = UUID()
+    @State private var loadState: WebLoadState = .loading
 
     enum Game: String, CaseIterable {
         case shanhai = "山海残卷"
@@ -34,17 +35,53 @@ struct GamesView: View {
                     }
                     .buttonStyle(.pressable)
                 }
-                Button { reloadID = UUID() } label: {
+                Button { reload() } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Theme.textSecondary).frame(width: 46, height: 46)
                         .background(Circle().fill(Color.white.opacity(0.06)))
                 }
                 .buttonStyle(.pressable)
             }
-            WebGameView(url: selected.url)
-                .id("\(selected.key)-\(reloadID)")
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ZStack {
+                WebGameView(url: selected.url, state: $loadState)
+                    .id("\(selected.key)-\(reloadID)")
+                if loadState == .loading { loadingOverlay }
+                if loadState == .failed { errorOverlay }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(.easeInOut(duration: 0.3), value: loadState)
+        }
+        .onChange(of: selected.key) { loadState = .loading }
+    }
+
+    private func reload() { loadState = .loading; reloadID = UUID() }
+
+    private var loadingOverlay: some View {
+        ZStack {
+            Theme.background.opacity(0.9)
+            VStack(spacing: 16) {
+                ProgressView().controlSize(.large).tint(Theme.accent)
+                Text("Loading \(selected.rawValue)…").font(.deck(16, .medium)).foregroundStyle(Theme.textSecondary)
+            }
+        }
+    }
+
+    private var errorOverlay: some View {
+        ZStack {
+            Theme.background.opacity(0.95)
+            VStack(spacing: 18) {
+                Image(systemName: "wifi.exclamationmark").font(.system(size: 44, weight: .semibold)).foregroundStyle(Theme.textFaint)
+                Text("Couldn't load \(selected.rawValue)").font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
+                Text("Check your internet connection and try again.").font(.deck(14)).foregroundStyle(Theme.textFaint)
+                Button { reload() } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                        .font(.deck(16, .semibold)).foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 26).padding(.vertical, 13)
+                        .background(Capsule().fill(Theme.accent.opacity(0.16)))
+                }
+                .buttonStyle(.pressable)
+            }
         }
     }
 }
