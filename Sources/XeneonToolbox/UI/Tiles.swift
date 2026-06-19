@@ -88,6 +88,16 @@ struct CPUTile: View {
     }
 }
 
+struct GPUTile: View {
+    var value: Double
+    var history: [Double]
+    var body: some View {
+        GaugeTile(title: "Graphics", icon: "cube.transparent.fill", accent: Theme.gpu, value: value, caption: "GPU") {
+            AnyView(Sparkline(values: history, color: Theme.gpu).frame(height: 48))
+        }
+    }
+}
+
 struct MemoryTile: View {
     var snap: MetricsSnapshot
     var body: some View {

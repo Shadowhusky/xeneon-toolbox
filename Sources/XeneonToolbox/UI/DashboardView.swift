@@ -10,6 +10,7 @@ struct DashboardView: View {
         HStack(spacing: Theme.tileGap) {
             ClockTile(uptime: snap.uptime, weather: weather.weather)
             CPUTile(value: snap.cpu, history: metrics.cpuHistory)
+            GPUTile(value: snap.gpu, history: metrics.gpuHistory)
             MemoryTile(snap: snap)
             NetworkTile(snap: snap, rxHistory: metrics.netRxHistory, txHistory: metrics.netTxHistory)
             StorageTile(snap: snap)
