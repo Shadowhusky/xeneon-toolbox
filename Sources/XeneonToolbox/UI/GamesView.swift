@@ -32,14 +32,14 @@ struct GamesView: View {
                             .padding(.horizontal, 22).padding(.vertical, 13)
                             .background(Capsule().fill(selected == g ? Theme.accent.opacity(0.18) : Color.white.opacity(0.05)))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable)
                 }
                 Button { reloadID = UUID() } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Theme.textSecondary).frame(width: 46, height: 46)
                         .background(Circle().fill(Color.white.opacity(0.06)))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
             }
             WebGameView(url: selected.url)
                 .id("\(selected.key)-\(reloadID)")

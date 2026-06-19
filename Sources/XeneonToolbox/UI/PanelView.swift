@@ -104,7 +104,7 @@ struct NavRail: View {
                 .frame(width: width, height: 44)
                 .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }
 
@@ -137,7 +137,7 @@ private struct NavButton: View {
                     .offset(x: -3)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }
 

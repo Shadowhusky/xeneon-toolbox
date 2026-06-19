@@ -12,7 +12,7 @@ struct ConversationList: View {
                     .padding(.horizontal, 14).padding(.vertical, 13)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.accent.opacity(0.14)))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
 
             ScrollView {
                 VStack(spacing: 6) {
@@ -42,7 +42,7 @@ struct ConversationList: View {
                     Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.textFaint)
                         .frame(width: 22, height: 22)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable)
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 11)
