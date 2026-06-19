@@ -285,6 +285,9 @@ final class AgentController: ObservableObject {
             tool("get_volume", "Get the current Mac output volume (0–100)."),
             tool("media_control", "Control media playback for any player: play/pause, next, or previous track.",
                  ["action": .init(type: .string, enum: ["play_pause", "next", "previous"])], required: ["action"]),
+            tool("now_playing", "Get the track currently playing in Spotify or Music."),
+            tool("open_app", "Open or focus a Mac application by name (e.g. Safari, Spotify, Notes).",
+                 ["name": .init(type: .string)], required: ["name"]),
         ]
     }
 
@@ -383,6 +386,29 @@ final class AgentController: ObservableObject {
             let a = (args["action"] as? String) ?? "play_pause"
             mediaKey(a == "next" ? 17 : (a == "previous" ? 18 : 16))
             return "Sent media \(a)."
+        case "now_playing":
+            let r = runOsa("""
+            if application "Spotify" is running then
+              tell application "Spotify"
+                if player state is playing then return (artist of current track) & " — " & (name of current track)
+              end tell
+            end if
+            if application "Music" is running then
+              tell application "Music"
+                if player state is playing then return (artist of current track) & " — " & (name of current track)
+              end tell
+            end if
+            return "Nothing playing"
+            """)
+            return r.isEmpty ? "Nothing playing." : r
+        case "open_app":
+            let name = (args["name"] as? String) ?? ""
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            p.arguments = ["-a", name]
+            guard (try? p.run()) != nil else { return "Couldn't open \(name)." }
+            p.waitUntilExit()
+            return p.terminationStatus == 0 ? "Opened \(name)." : "Couldn't find an app named \(name)."
         default:
             return "Unknown tool \(name)."
         }
@@ -632,6 +658,8 @@ final class AgentController: ObservableObject {
         case "set_volume": return ("Setting volume…", "Set volume to \(args["level"] as? Int ?? 0)")
         case "get_volume": return ("Checking volume…", "Checked volume")
         case "media_control": return ("Controlling playback…", "Media \(args["action"] as? String ?? "")")
+        case "now_playing": return ("Checking playback…", "Checked now playing")
+        case "open_app": return ("Opening app…", "Opened \(args["name"] as? String ?? "app")")
         default: return (name, name)
         }
     }
