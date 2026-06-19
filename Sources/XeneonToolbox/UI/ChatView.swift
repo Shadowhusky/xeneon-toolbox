@@ -100,12 +100,46 @@ struct ChatView: View {
         }
     }
 
+    private struct Suggestion { let icon: String; let label: String; let prompt: String }
+    private let suggestions: [Suggestion] = [
+        .init(icon: "gauge.with.dots.needle.67percent", label: "How's my system?",
+              prompt: "How's my system doing right now? Summarize CPU, memory and disk."),
+        .init(icon: "list.bullet.rectangle.fill", label: "Top processes", prompt: "Show my top processes"),
+        .init(icon: "tablecells.fill", label: "Compare GPUs",
+              prompt: "Make a table comparing the RTX 4090, RTX 4080 Super, and RX 7900 XTX by VRAM, TDP, and price"),
+        .init(icon: "magnifyingglass", label: "Latest AI news",
+              prompt: "Search the web for the latest AI news and summarize the top items"),
+        .init(icon: "gamecontroller.fill", label: "Open the card game", prompt: "Open the card game"),
+        .init(icon: "music.note", label: "What's playing?", prompt: "What's playing right now?"),
+    ]
+
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Ask anything — or tell me to drive the app").font(.deck(20, .semibold)).foregroundStyle(Theme.textSecondary)
-            Text("e.g. “open the card game”, “turn touch on”, “how's my CPU?”, or attach an image.")
-                .font(.deck(14)).foregroundStyle(Theme.textFaint)
-        }.padding(.vertical, 20)
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Ask anything — or tell me to drive the app").font(.deck(20, .semibold)).foregroundStyle(Theme.textSecondary)
+                Text("Tap a suggestion to start, or attach an image.").font(.deck(14)).foregroundStyle(Theme.textFaint)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 10)], alignment: .leading, spacing: 10) {
+                ForEach(suggestions, id: \.prompt) { s in suggestionChip(s) }
+            }
+        }
+        .padding(.vertical, 20)
+        .frame(maxWidth: 1100, alignment: .leading)
+    }
+
+    private func suggestionChip(_ s: Suggestion) -> some View {
+        Button { sendPrompt(s.prompt) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: s.icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.accent).frame(width: 22)
+                Text(s.label).font(.deck(15, .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.accent.opacity(0.18), lineWidth: 1))
+        }
+        .buttonStyle(.pressable)
+        .disabled(agent.busy || config == nil)
     }
 
     @ViewBuilder private func bubble(_ t: Turn) -> some View {
@@ -211,6 +245,11 @@ struct ChatView: View {
         (!input.trimmingCharacters(in: .whitespaces).isEmpty || pendingImageURL != nil) && !agent.busy && config != nil
     }
     private func host(_ c: ChatConfig) -> String { URL(string: c.baseURL)?.host ?? "local" }
+
+    private func sendPrompt(_ text: String) {
+        guard !agent.busy, config != nil else { return }
+        agent.send(text: text, imageDataURL: nil)
+    }
 
     private func send() {
         var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
