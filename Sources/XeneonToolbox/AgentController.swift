@@ -5,32 +5,35 @@ import ToolboxKit
 
 /// An agentic assistant: streams replies, accepts images, and can drive the
 /// toolbox via tools (it knows the app's tabs, stats, and controls).
-struct ProcRow: Identifiable {
-    let id = UUID()
+struct ProcRow: Identifiable, Codable {
+    var id = UUID()
     let name: String
     let cpu: Double   // percent
     let mem: Double   // percent
 }
 
-struct CardRow: Identifiable {
-    let id = UUID()
+struct CardRow: Identifiable, Codable {
+    var id = UUID()
     let label: String
     let value: String
 }
 
-struct ChartPoint: Identifiable {
-    let id = UUID()
+struct ChartPoint: Identifiable, Codable {
+    var id = UUID()
     let label: String
     let value: Double
 }
 
 /// A visual artifact the agent can render into the transcript (generative UI).
-enum AgentCard {
+enum AgentCard: Codable {
     case processes([ProcRow])
     case generic(title: String, rows: [CardRow])
     case chart(title: String, points: [ChartPoint], line: Bool)
     case table(title: String, headers: [String], rows: [[String]])
     case image(Data)
+
+    /// Images are large; they're kept in-session only, not persisted to disk.
+    var isImage: Bool { if case .image = self { return true }; return false }
 }
 
 /// One step in the agent's tool activity — shown live (working) then completed.
@@ -50,8 +53,9 @@ struct StoredConversation: Codable, Identifiable {
 }
 
 struct StoredMessage: Codable {
-    let role: String   // "user" | "assistant"
+    let role: String   // "user" | "assistant" | "card"
     let text: String
+    var card: AgentCard? = nil
 }
 
 @MainActor
@@ -171,14 +175,25 @@ final class AgentController: ObservableObject {
 
     private func loadActiveTurns() {
         guard let c = conversations.first(where: { $0.id == activeID }) else { turns = []; history = []; return }
-        turns = c.messages.map { Turn(role: $0.role, text: $0.text) }
-        history = c.messages.map { .init(role: $0.role == "user" ? .user : .assistant, content: .text($0.text)) }
+        turns = c.messages.map { m in
+            m.role == "card" ? Turn(role: "card", text: "", card: m.card) : Turn(role: m.role, text: m.text)
+        }
+        history = c.messages.compactMap { m in
+            (m.role == "user" || m.role == "assistant")
+                ? .init(role: m.role == "user" ? .user : .assistant, content: .text(m.text)) : nil
+        }
     }
 
     private func saveActive() {
         guard let i = conversations.firstIndex(where: { $0.id == activeID }) else { return }
-        conversations[i].messages = turns.compactMap {
-            ($0.role == "user" || $0.role == "assistant") && !$0.text.isEmpty ? StoredMessage(role: $0.role, text: $0.text) : nil
+        conversations[i].messages = turns.compactMap { t -> StoredMessage? in
+            if (t.role == "user" || t.role == "assistant") && !t.text.isEmpty {
+                return StoredMessage(role: t.role, text: t.text)
+            }
+            if t.role == "card", let card = t.card, !card.isImage {
+                return StoredMessage(role: "card", text: "", card: card)
+            }
+            return nil
         }
         if let firstUser = turns.first(where: { $0.role == "user" })?.text, conversations[i].title == "New chat" {
             conversations[i].title = String(firstUser.prefix(42))
@@ -194,7 +209,9 @@ final class AgentController: ObservableObject {
               conversations[i].messages.contains(where: { $0.role == "user" }) else { return }
         conversations[i].autoTitled = true
         let convID = activeID
-        let context = conversations[i].messages.prefix(4).map { "\($0.role): \($0.text)" }.joined(separator: "\n")
+        let context = conversations[i].messages
+            .filter { $0.role == "user" || $0.role == "assistant" }
+            .prefix(4).map { "\($0.role): \($0.text)" }.joined(separator: "\n")
         Task {
             let title = await generateTitle(context)
             guard !title.isEmpty, let j = conversations.firstIndex(where: { $0.id == convID }) else { return }
