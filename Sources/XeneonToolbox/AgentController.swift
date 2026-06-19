@@ -18,10 +18,18 @@ struct CardRow: Identifiable {
     let value: String
 }
 
+struct ChartPoint: Identifiable {
+    let id = UUID()
+    let label: String
+    let value: Double
+}
+
 /// A visual artifact the agent can render into the transcript (generative UI).
 enum AgentCard {
     case processes([ProcRow])
     case generic(title: String, rows: [CardRow])
+    case chart(title: String, points: [ChartPoint], line: Bool)
+    case image(Data)
 }
 
 /// One step in the agent's tool activity — shown live (working) then completed.
@@ -204,6 +212,12 @@ final class AgentController: ObservableObject {
             tool("show_card", "Display any data as a touch-friendly card on screen. Give a title and items as \"Label: value\" strings.",
                  ["title": .init(type: .string), "items": .init(type: .array, items: .init(type: .string))],
                  required: ["title", "items"]),
+            tool("show_chart", "Visualize numeric data as a bar or line chart. Items are \"label: number\" strings; type is 'bar' or 'line'.",
+                 ["title": .init(type: .string), "items": .init(type: .array, items: .init(type: .string)),
+                  "type": .init(type: .string, enum: ["bar", "line"])],
+                 required: ["title", "items"]),
+            tool("generate_image", "Generate an image from a text prompt and show it (requires an OpenAI API key in settings).",
+                 ["prompt": .init(type: .string)], required: ["prompt"]),
             // Web
             tool("web_search", "Search the web and return top results (titles, snippets, links).",
                  ["query": .init(type: .string)], required: ["query"]),
@@ -272,6 +286,22 @@ final class AgentController: ObservableObject {
             }
             turns.append(Turn(role: "card", text: "", card: .generic(title: title, rows: rows)))
             return "Displayed a card titled \(title) with \(rows.count) items."
+        case "show_chart":
+            let title = (args["title"] as? String) ?? "Chart"
+            let isLine = (args["type"] as? String) == "line"
+            let items = (args["items"] as? [Any])?.compactMap { $0 as? String } ?? []
+            let points: [ChartPoint] = items.compactMap { s in
+                guard let r = s.range(of: ":") else { return nil }
+                let label = String(s[..<r.lowerBound]).trimmingCharacters(in: .whitespaces)
+                let num = String(s[r.upperBound...]).filter { "0123456789.-".contains($0) }
+                guard let v = Double(num) else { return nil }
+                return ChartPoint(label: label, value: v)
+            }
+            guard !points.isEmpty else { return "No numeric data to chart." }
+            turns.append(Turn(role: "card", text: "", card: .chart(title: title, points: points, line: isLine)))
+            return "Displayed a \(isLine ? "line" : "bar") chart titled \(title) with \(points.count) points."
+        case "generate_image":
+            return await generateImage((args["prompt"] as? String) ?? "")
         case "web_search":
             return await webSearch((args["query"] as? String) ?? "")
         case "fetch_url":
@@ -315,6 +345,33 @@ final class AgentController: ObservableObject {
         default:
             return "Unknown tool \(name)."
         }
+    }
+
+    private func generateImage(_ prompt: String) async -> String {
+        guard let key = config.apiKey, !key.isEmpty else {
+            return "Image generation needs an OpenAI API key — add one in Assistant settings."
+        }
+        guard !prompt.isEmpty, let url = URL(string: config.baseURL.appending("/images/generations")) else { return "Invalid prompt." }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"; req.timeoutInterval = 120
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["model": "gpt-image-1", "prompt": prompt, "size": "1024x1024", "n": 1])
+        guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return "Image request failed." }
+        if let http = resp as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            return "Image generation failed (HTTP \(http.statusCode))."
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let first = (json["data"] as? [[String: Any]])?.first else { return "No image returned." }
+        if let b64 = first["b64_json"] as? String, let imgData = Data(base64Encoded: b64) {
+            turns.append(Turn(role: "card", text: "", card: .image(imgData)))
+            return "Generated and displayed the image."
+        }
+        if let s = first["url"] as? String, let iurl = URL(string: s), let (imgData, _) = try? await URLSession.shared.data(from: iurl) {
+            turns.append(Turn(role: "card", text: "", card: .image(imgData)))
+            return "Generated and displayed the image."
+        }
+        return "No image data in response."
     }
 
     private func mediaKey(_ key: Int32) {
@@ -519,6 +576,8 @@ final class AgentController: ObservableObject {
         case "get_app_state": return ("Checking system…", "Checked system stats")
         case "show_top_processes": return nil
         case "show_card": return nil
+        case "show_chart": return nil
+        case "generate_image": return ("Generating image…", "Generated an image")
         case "web_search": let q = args["query"] as? String ?? ""; return ("Searching “\(q)”…", "Searched “\(q)”")
         case "fetch_url": let h = host(args["url"]); return ("Reading \(h)…", "Read \(h)")
         case "list_dir": let p = args["path"] as? String ?? ""; return ("Listing \(p)…", "Listed \(p)")

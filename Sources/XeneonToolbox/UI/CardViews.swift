@@ -1,4 +1,6 @@
 import SwiftUI
+import Charts
+import AppKit
 
 /// Shows the agent's tool activity live (spinner on the running step), then
 /// collapses to a minimal chip once everything's done.
@@ -67,6 +69,61 @@ struct AgentCardView: View {
         switch card {
         case .processes(let rows): ProcessCard(rows: rows)
         case .generic(let title, let rows): GenericCard(title: title, rows: rows)
+        case .chart(let title, let points, let line): ChartCard(title: title, points: points, line: line)
+        case .image(let data): ImageCard(data: data)
+        }
+    }
+}
+
+struct ChartCard: View {
+    let title: String
+    let points: [ChartPoint]
+    let line: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: line ? "chart.xyaxis.line" : "chart.bar.fill").foregroundStyle(Theme.accent)
+                Text(title).font(.deck(17, .bold)).foregroundStyle(Theme.textPrimary)
+            }
+            Chart(points) { p in
+                if line {
+                    LineMark(x: .value("x", p.label), y: .value("y", p.value))
+                        .foregroundStyle(Theme.accent).interpolationMethod(.catmullRom)
+                    PointMark(x: .value("x", p.label), y: .value("y", p.value)).foregroundStyle(Theme.accent)
+                } else {
+                    BarMark(x: .value("x", p.label), y: .value("y", p.value))
+                        .foregroundStyle(LinearGradient(colors: [Theme.accent, Theme.memory], startPoint: .bottom, endPoint: .top))
+                        .cornerRadius(5)
+                }
+            }
+            .chartXAxis { AxisMarks { _ in AxisValueLabel().foregroundStyle(Theme.textSecondary) } }
+            .chartYAxis { AxisMarks { _ in AxisGridLine().foregroundStyle(Theme.stroke); AxisValueLabel().foregroundStyle(Theme.textSecondary) } }
+            .frame(height: 240)
+        }
+        .padding(20)
+        .frame(maxWidth: 900, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.accent.opacity(0.25), lineWidth: 1))
+        .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+    }
+}
+
+struct ImageCard: View {
+    let data: Data
+
+    var body: some View {
+        Group {
+            if let img = NSImage(data: data) {
+                Image(nsImage: img).resizable().scaledToFit()
+                    .frame(maxWidth: 520, maxHeight: 520)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                    .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
+            } else {
+                Text("Couldn't load image").font(.deck(14)).foregroundStyle(Theme.textFaint)
+            }
         }
     }
 }
