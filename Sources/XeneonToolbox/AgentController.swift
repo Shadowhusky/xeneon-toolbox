@@ -341,8 +341,9 @@ final class AgentController: ObservableObject {
             tool("forget", "Remove remembered facts that contain the given text.",
                  ["fact": .init(type: .string)], required: ["fact"]),
             // To-dos & reminders (shown in the Tasks tab)
-            tool("add_todo", "Add a to-do or reminder to the user's Tasks list. Set 'due' (ISO 8601 local datetime, e.g. 2026-06-19T18:30) to make it a reminder that notifies at that time — compute it from the current local time given above.",
-                 ["title": .init(type: .string), "due": .init(type: .string)], required: ["title"]),
+            tool("add_todo", "Add a to-do or reminder to the user's Tasks list. Set 'due' (ISO 8601 local datetime, e.g. 2026-06-19T18:30) to make it a reminder that notifies — compute it from the current local time above. Set 'repeat' to daily or weekly for a recurring reminder.",
+                 ["title": .init(type: .string), "due": .init(type: .string),
+                  "repeat": .init(type: .string, enum: ["daily", "weekly"])], required: ["title"]),
             tool("list_todos", "List the user's current to-dos and reminders (numbered, with done status and due times)."),
             tool("complete_todo", "Toggle a to-do done/undone. Identify it by its number from list_todos or a word from its title.",
                  ["task": .init(type: .string)], required: ["task"]),
@@ -434,8 +435,10 @@ final class AgentController: ObservableObject {
             let title = (args["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else { return "No task title given." }
             let due = (args["due"] as? String).flatMap { parseDate($0) }
-            app.todos.add(title, dueAt: due)
-            return due != nil ? "Added reminder “\(title)” for \(formatDue(due!))." : "Added to-do “\(title)”."
+            let rec = Recurrence(rawValue: (args["repeat"] as? String) ?? "none") ?? .none
+            app.todos.add(title, dueAt: due, recurrence: rec)
+            let suffix = rec != .none ? " (\(rec.rawValue))" : ""
+            return due != nil ? "Added reminder “\(title)” for \(formatDue(due!))\(suffix)." : "Added to-do “\(title)”\(suffix)."
         case "list_todos":
             guard let app else { return "App unavailable." }
             let items = app.todos.sorted
@@ -444,6 +447,7 @@ final class AgentController: ObservableObject {
             for (i, t) in items.enumerated() {
                 var line = "\(i + 1). [\(t.done ? "x" : " ")] \(t.title)"
                 if let d = t.dueAt { line += " (due \(formatDue(d))\(t.isOverdue ? " — OVERDUE" : ""))" }
+                if t.recurrence != .none { line += " [repeats \(t.recurrence.rawValue)]" }
                 out += line + "\n"
             }
             return out

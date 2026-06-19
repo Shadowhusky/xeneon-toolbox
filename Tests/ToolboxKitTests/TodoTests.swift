@@ -31,6 +31,34 @@ final class TodoTests: XCTestCase {
         XCTAssertNil(TodoMatch.resolve("", in: items))
     }
 
+    func testAdvanceDailyFromFutureGoesOneDayLater() {
+        let due = Date(timeIntervalSinceNow: 3600)   // 1h from now
+        let item = TodoItem(title: "standup", dueAt: due, recurrence: .daily)
+        let next = item.advanced()
+        XCTAssertEqual(next.dueAt!.timeIntervalSince(due), 86_400, accuracy: 3600)  // ~+1 day
+        XCTAssertFalse(next.done)
+        XCTAssertTrue(next.dueAt! > Date())
+    }
+
+    func testAdvanceWeeklyFromOverdueLandsInFuture() {
+        let due = Date(timeIntervalSinceNow: -10 * 86_400)   // 10 days ago, weekly
+        let item = TodoItem(title: "review", dueAt: due, recurrence: .weekly)
+        let next = item.advanced()
+        XCTAssertTrue(next.dueAt! > Date(), "advanced recurring due must be in the future")
+    }
+
+    func testAdvanceNonRecurringIsNoOp() {
+        let item = TodoItem(title: "once", dueAt: Date(), recurrence: .none)
+        XCTAssertEqual(item.advanced(), item)
+    }
+
+    func testRecurrenceDecodesMissingFieldAsNone() throws {
+        // Old saved JSON without a recurrence field must still decode.
+        let json = #"{"id":"\#(UUID().uuidString)","title":"old","done":false,"createdAt":0}"#
+        let item = try JSONDecoder().decode(TodoItem.self, from: Data(json.utf8))
+        XCTAssertEqual(item.recurrence, .none)
+    }
+
     func testOverdue() {
         let past = TodoItem(title: "late", dueAt: Date(timeIntervalSinceNow: -3600))
         let future = TodoItem(title: "soon", dueAt: Date(timeIntervalSinceNow: 3600))

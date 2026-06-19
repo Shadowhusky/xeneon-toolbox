@@ -41,8 +41,8 @@ final class TodoStore: ObservableObject {
     }
 
     @discardableResult
-    func add(_ title: String, dueAt: Date? = nil) -> TodoItem {
-        let item = TodoItem(title: title.trimmingCharacters(in: .whitespacesAndNewlines), dueAt: dueAt)
+    func add(_ title: String, dueAt: Date? = nil, recurrence: Recurrence = .none) -> TodoItem {
+        let item = TodoItem(title: title.trimmingCharacters(in: .whitespacesAndNewlines), dueAt: dueAt, recurrence: recurrence)
         items.append(item)
         save()
         if dueAt != nil { schedule(item) }
@@ -51,6 +51,14 @@ final class TodoStore: ObservableObject {
 
     func toggle(_ id: UUID) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        // Completing a recurring reminder rolls it forward instead of marking done.
+        if !items[i].done, items[i].recurrence != .none, items[i].dueAt != nil {
+            cancel(id)
+            items[i] = items[i].advanced()
+            save()
+            schedule(items[i])
+            return
+        }
         items[i].done.toggle()
         save()
         if items[i].done { cancel(id) }
@@ -63,10 +71,11 @@ final class TodoStore: ObservableObject {
         cancel(id)
     }
 
-    func update(_ id: UUID, title: String? = nil, dueAt: Date?? = nil) {
+    func update(_ id: UUID, title: String? = nil, dueAt: Date?? = nil, recurrence: Recurrence? = nil) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         if let t = title { items[i].title = t }
         if let d = dueAt { items[i].dueAt = d }
+        if let r = recurrence { items[i].recurrence = r }
         save()
         cancel(id)
         if !items[i].done, items[i].dueAt != nil { schedule(items[i]) }

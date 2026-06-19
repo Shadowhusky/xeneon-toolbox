@@ -59,7 +59,8 @@ struct TasksView: View {
                     TaskRow(item: item,
                             onToggle: { todos.toggle(item.id) },
                             onDelete: { todos.remove(item.id) },
-                            onSetDue: { todos.update(item.id, dueAt: .some($0)) })
+                            onSetDue: { todos.update(item.id, dueAt: .some($0)) },
+                            onSetRecurrence: { todos.update(item.id, recurrence: $0) })
                         .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
             }
@@ -91,6 +92,7 @@ private struct TaskRow: View {
     var onToggle: () -> Void
     var onDelete: () -> Void
     var onSetDue: (Date?) -> Void
+    var onSetRecurrence: (Recurrence) -> Void
 
     var body: some View {
         HStack(spacing: 14) {
@@ -133,8 +135,13 @@ private struct TaskRow: View {
             Button("This evening · 6 PM") { onSetDue(Self.at(18)) }
             Button("Tomorrow · 9 AM") { onSetDue(Self.at(9, tomorrow: true)) }
             if item.dueAt != nil {
+                Menu("Repeat") {
+                    Button("Daily") { onSetRecurrence(.daily) }
+                    Button("Weekly") { onSetRecurrence(.weekly) }
+                    if item.recurrence != .none { Button("Don't repeat") { onSetRecurrence(.none) } }
+                }
                 Divider()
-                Button("Clear reminder", role: .destructive) { onSetDue(nil) }
+                Button("Clear reminder", role: .destructive) { onSetDue(nil); onSetRecurrence(.none) }
             }
         } label: {
             Image(systemName: item.dueAt != nil ? "bell.fill" : "bell")
@@ -155,9 +162,10 @@ private struct TaskRow: View {
     private func dueChip(_ due: Date) -> some View {
         let overdue = item.isOverdue
         let color = item.done ? Theme.textFaint : (overdue ? Theme.batteryLow : Theme.netUp)
+        let rec = item.recurrence != .none ? " · ↻ \(item.recurrence.rawValue)" : ""
         return HStack(spacing: 5) {
             Image(systemName: overdue ? "exclamationmark.circle.fill" : "bell.fill").font(.system(size: 11))
-            Text((overdue ? "Overdue · " : "") + Self.fmt(due)).font(.deck(12, .semibold))
+            Text((overdue ? "Overdue · " : "") + Self.fmt(due) + rec).font(.deck(12, .semibold))
         }
         .foregroundStyle(color)
     }
