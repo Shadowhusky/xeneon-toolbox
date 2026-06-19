@@ -302,7 +302,9 @@ final class AgentController: ObservableObject {
     private func runTool(_ name: String, _ args: [String: Any]) async -> String {
         switch name {
         case "navigate":
-            guard let app, let t = args["tab"] as? String, let r = AppRoute(rawValue: t) else { return "Unknown tab." }
+            // The tab is called "Assistant" in the UI but its route value is "chat".
+            guard let app, let t = args["tab"] as? String else { return "Unknown tab." }
+            guard let r = (t == "assistant") ? .chat : AppRoute(rawValue: t) else { return "Unknown tab." }
             app.route = r; return "Opened \(r.title)."
         case "set_touch":
             guard let app else { return "App unavailable." }
@@ -733,7 +735,7 @@ final class AgentController: ObservableObject {
     }
 
     private func runLoop() async {
-        defer { busy = false; writeStore(); maybeAutoTitle() }
+        defer { busy = false; task = nil; writeStore(); maybeAutoTitle() }
         var assistantTurnID: UUID?
         toolsTurnID = nil
 
