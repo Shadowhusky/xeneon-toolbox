@@ -69,7 +69,7 @@ def screen_mat(img):
     tex = m.node_tree.nodes.new("ShaderNodeTexImage")
     tex.image = bpy.data.images.load(img); tex.interpolation = "Cubic"
     m.node_tree.links.new(tex.outputs["Color"], bb.inputs["Emission Color"])
-    bb.inputs["Emission Strength"].default_value = 1.35
+    bb.inputs["Emission Strength"].default_value = 1.7
     bb.inputs["Base Color"].default_value = (0, 0, 0, 1); bb.inputs["Roughness"].default_value = 1.0
     return m
 
@@ -80,23 +80,23 @@ ui.rotation_euler = (math.radians(90), 0, 0); bpy.ops.object.transform_apply(rot
 ui.location = (center.x + SX, frontY - PUSH, center.z + SZ)
 ui.data.materials.clear(); ui.data.materials.append(screen_mat(UI))
 
-# studio
-bpy.ops.mesh.primitive_plane_add(size=diag * 12, location=(center.x, center.y, mn.z))
+# cinematic studio: dark reflective floor, near-black world, soft key + rim
+bpy.ops.mesh.primitive_plane_add(size=diag * 14, location=(center.x, center.y, mn.z))
 fm = bpy.data.materials.new("f"); fm.use_nodes = True
 fb = fm.node_tree.nodes["Principled BSDF"]
-fb.inputs["Base Color"].default_value = (0.05, 0.05, 0.06, 1); fb.inputs["Roughness"].default_value = 0.35
+fb.inputs["Base Color"].default_value = (0.018, 0.018, 0.022, 1); fb.inputs["Roughness"].default_value = 0.22
 bpy.context.object.data.materials.append(fm)
 
 w = bpy.data.worlds.new("w"); scene.world = w; w.use_nodes = True
 wbg = w.node_tree.nodes["Background"]
-wbg.inputs["Color"].default_value = (0.05, 0.05, 0.07, 1); wbg.inputs["Strength"].default_value = 1.0
+wbg.inputs["Color"].default_value = (0.02, 0.02, 0.028, 1); wbg.inputs["Strength"].default_value = 1.0
 
 def sun(rot, e):
-    ld = bpy.data.lights.new("s", "SUN"); ld.energy = e
+    ld = bpy.data.lights.new("s", "SUN"); ld.energy = e; ld.angle = math.radians(3)
     o = bpy.data.objects.new("s", ld); o.rotation_euler = rot; scene.collection.objects.link(o)
 
-sun((math.radians(55), 0, math.radians(-40)), 3.0)
-sun((math.radians(120), 0, math.radians(25)), 3.5)
+sun((math.radians(58), 0, math.radians(-42)), 1.4)    # soft key
+sun((math.radians(118), 0, math.radians(28)), 3.0)    # rim / edge light
 
 azr, elr = math.radians(AZ), math.radians(EL)
 R = diag * 1.7

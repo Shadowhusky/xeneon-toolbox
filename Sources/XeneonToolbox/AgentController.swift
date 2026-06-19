@@ -109,6 +109,7 @@ final class AgentController: ObservableObject {
     private var config: ChatConfig
     private weak var app: ToolboxModel?
     private var history: [SwiftOpenAI.ChatCompletionParameters.Message] = []
+    private var toolsUnsupported = false   // set if the endpoint rejects tool params
 
     private struct StoredFile: Codable { var conversations: [StoredConversation]; var activeID: UUID }
     private static var storeURL: URL {
@@ -116,13 +117,28 @@ final class AgentController: ObservableObject {
             .appendingPathComponent(".config/xeneon-toolbox/conversations.json")
     }
 
+    /// Durable facts the user asks the assistant to remember (persists across
+    /// conversations and restarts; injected into the system prompt).
+    private var memories: [String] = []
+    private static var memoryURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/xeneon-toolbox/memory.json")
+    }
+
     init(config: ChatConfig, app: ToolboxModel?) {
         self.config = config
         self.app = app
         loadStore()
+        if let d = try? Data(contentsOf: Self.memoryURL),
+           let m = try? JSONDecoder().decode([String].self, from: d) { memories = m }
     }
 
-    func update(config: ChatConfig) { self.config = config }
+    private func saveMemories() {
+        try? FileManager.default.createDirectory(at: Self.memoryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let d = try? JSONEncoder().encode(memories) { try? d.write(to: Self.memoryURL) }
+    }
+
+    func update(config: ChatConfig) { self.config = config; toolsUnsupported = false }
 
     // MARK: - Conversations
 
@@ -187,7 +203,7 @@ final class AgentController: ObservableObject {
     private func saveActive() {
         guard let i = conversations.firstIndex(where: { $0.id == activeID }) else { return }
         conversations[i].messages = turns.compactMap { t -> StoredMessage? in
-            if (t.role == "user" || t.role == "assistant") && !t.text.isEmpty {
+            if (t.role == "user" || t.role == "assistant") && !t.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return StoredMessage(role: t.role, text: t.text)
             }
             if t.role == "card", let card = t.card, !card.isImage {
@@ -282,7 +298,7 @@ final class AgentController: ObservableObject {
                   "headers": .init(type: .array, items: .init(type: .string)),
                   "rows": .init(type: .array, items: .init(type: .array, items: .init(type: .string)))],
                  required: ["headers", "rows"]),
-            tool("generate_image", "Generate an image from a text prompt and show it (requires an OpenAI API key in settings).",
+            tool("generate_image", "Generate an image from a text prompt and show it on screen. Needs an image-capable endpoint with an API key configured in Assistant settings.",
                  ["prompt": .init(type: .string)], required: ["prompt"]),
             // Web
             tool("web_search", "Search the web and return top results (titles, snippets, links).",
@@ -313,6 +329,13 @@ final class AgentController: ObservableObject {
             tool("now_playing", "Get the track currently playing in Spotify or Music."),
             tool("open_app", "Open or focus a Mac application by name (e.g. Safari, Spotify, Notes).",
                  ["name": .init(type: .string)], required: ["name"]),
+            tool("get_weather", "Get current weather (temperature + conditions) for any city or place by name.",
+                 ["location": .init(type: .string)], required: ["location"]),
+            // Long-term memory
+            tool("remember", "Save a durable fact about the user or their preferences to long-term memory — e.g. their name, their rig/setup, units they prefer, recurring tasks. Use whenever the user shares something worth remembering for later conversations.",
+                 ["fact": .init(type: .string)], required: ["fact"]),
+            tool("forget", "Remove remembered facts that contain the given text.",
+                 ["fact": .init(type: .string)], required: ["fact"]),
         ]
     }
 
@@ -344,7 +367,8 @@ final class AgentController: ObservableObject {
         case "get_app_state":
             guard let app else { return "App unavailable." }
             let s = app.metrics.snap
-            var out = "tab=\(app.route.rawValue); touch=\(app.touchStatus == .active ? "active" : app.touchOn ? "searching" : "off"); cpu=\(Int(s.cpu*100))%; mem=\(Fmt.gb(s.memUsed))/\(Fmt.gb(s.memTotal))GB; diskFree=\(Fmt.gb(s.diskFree))GB; uptime=\(Fmt.uptime(s.uptime))"
+            let tabName = app.route == .chat ? "assistant" : app.route.rawValue
+            var out = "tab=\(tabName); touch=\(app.touchStatus == .active ? "active" : app.touchOn ? "searching" : "off"); cpu=\(Int(s.cpu*100))%; mem=\(Fmt.gb(s.memUsed))/\(Fmt.gb(s.memTotal))GB; diskFree=\(Fmt.gb(s.diskFree))GB; uptime=\(Fmt.uptime(s.uptime))"
             if let b = s.battery { out += "; battery=\(Int(b.level*100))%\(b.charging ? " (charging)" : "")" }
             if let w = app.weather.weather { out += "; weather=\(w.displayTemp) in \(w.city)" }
             return out
@@ -446,6 +470,22 @@ final class AgentController: ObservableObject {
             guard (try? p.run()) != nil else { return "Couldn't open \(name)." }
             p.waitUntilExit()
             return p.terminationStatus == 0 ? "Opened \(name)." : "Couldn't find an app named \(name)."
+        case "get_weather":
+            return await fetchWeather((args["location"] as? String) ?? "")
+        case "remember":
+            let f = (args["fact"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !f.isEmpty else { return "Nothing to remember." }
+            if !memories.contains(where: { $0.caseInsensitiveCompare(f) == .orderedSame }) {
+                memories.append(f); saveMemories()
+            }
+            return "Saved to memory: \(f)"
+        case "forget":
+            let q = (args["fact"] as? String ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !q.isEmpty else { return "Nothing specified to forget." }
+            let before = memories.count
+            memories.removeAll { $0.lowercased().contains(q) }
+            saveMemories()
+            return before == memories.count ? "No matching memory found." : "Forgotten (\(before - memories.count) item(s))."
         default:
             return "Unknown tool \(name)."
         }
@@ -593,6 +633,44 @@ final class AgentController: ObservableObject {
         catch { return "Write failed: \(error.localizedDescription)" }
     }
 
+    private func fetchWeather(_ location: String) async -> String {
+        guard !location.isEmpty,
+              let q = location.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let gurl = URL(string: "https://geocoding-api.open-meteo.com/v1/search?name=\(q)&count=1") else { return "Invalid location." }
+        guard let (gd, _) = try? await URLSession.shared.data(from: gurl),
+              let gj = try? JSONSerialization.jsonObject(with: gd) as? [String: Any],
+              let res = (gj["results"] as? [[String: Any]])?.first,
+              let lat = res["latitude"] as? Double, let lon = res["longitude"] as? Double else { return "Couldn't find a place called \(location)." }
+        let name = (res["name"] as? String) ?? location
+        let admin = (res["country"] as? String) ?? ""
+        guard let wurl = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m"),
+              let (wd, _) = try? await URLSession.shared.data(from: wurl),
+              let wj = try? JSONSerialization.jsonObject(with: wd) as? [String: Any],
+              let cur = wj["current"] as? [String: Any],
+              let tempC = cur["temperature_2m"] as? Double else { return "Couldn't get weather for \(name)." }
+        let code = (cur["weather_code"] as? Int) ?? -1
+        let tempF = tempC * 9 / 5 + 32
+        var out = "\(name)\(admin.isEmpty ? "" : ", \(admin)"): \(Int(tempC.rounded()))°C / \(Int(tempF.rounded()))°F, \(weatherText(code))"
+        if let h = cur["relative_humidity_2m"] as? Double { out += ", humidity \(Int(h))%" }
+        if let w = cur["wind_speed_10m"] as? Double { out += ", wind \(Int(w)) km/h" }
+        return out + "."
+    }
+
+    private func weatherText(_ c: Int) -> String {
+        switch c {
+        case 0: return "clear sky"
+        case 1, 2, 3: return "partly cloudy"
+        case 45, 48: return "foggy"
+        case 51...57: return "drizzle"
+        case 61...67: return "rain"
+        case 71...77: return "snow"
+        case 80...82: return "rain showers"
+        case 85, 86: return "snow showers"
+        case 95...99: return "thunderstorms"
+        default: return "cloudy"
+        }
+    }
+
     private func matches(in text: String, pattern: String) -> [String] {
         guard let re = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators, .caseInsensitive]) else { return [] }
         let ns = text as NSString
@@ -611,15 +689,21 @@ final class AgentController: ObservableObject {
     // MARK: - Send
 
     private var systemPrompt: String {
-        """
+        var p = """
         You are the built-in assistant inside Xeneon Toolbox, a macOS app on a Corsair Xeneon Edge — a 2560x720 ultrawide touchscreen. Tabs: Dashboard (live system telemetry), Clock (world clocks + focus timer), Games (embeds the 山海残卷 card roguelike and Rhythm Plus), and Assistant (you). "Touch" is the embedded driver that lets the user tap the Edge.
 
         Guidelines:
-        - Answer questions directly here in the Assistant. Use web_search/fetch_url for current facts. Pick the clearest output: show_card for key/value stats or lists, show_table for multi-column comparisons, show_chart for numeric trends, generate_image for pictures. Don't force everything into one format.
+        - Answer questions directly here in the Assistant. Use web_search/fetch_url for current facts and get_weather for weather anywhere. Pick the clearest output: show_card for key/value stats or lists, show_table for multi-column comparisons, show_chart for numeric trends, generate_image for pictures. Don't force everything into one format.
         - When you render a card, table, or chart, DON'T also repeat the same data as a text table or list — the card already shows it. Add only a short sentence of insight, if anything.
         - Only use navigate or open_game when the user explicitly asks to switch tabs or open something — never navigate away just to answer a question.
         - Use get_app_state for live system info. Keep answers concise; the screen is small and wide.
+        - When the user shares something durable about themselves or their setup (name, preferences, units, recurring needs), quietly call remember so you can use it later. Don't announce it unless asked.
         """
+        p += "\n\nCurrent local time: " + DateFormatter.localizedString(from: Date(), dateStyle: .full, timeStyle: .short) + "."
+        if !memories.isEmpty {
+            p += "\n\nThings you remember about this user:\n" + memories.map { "- \($0)" }.joined(separator: "\n")
+        }
+        return p
     }
 
     func send(text: String, imageDataURL: URL?) {
@@ -700,6 +784,9 @@ final class AgentController: ObservableObject {
         case "media_control": return ("Controlling playback…", "Media \(args["action"] as? String ?? "")")
         case "now_playing": return ("Checking playback…", "Checked now playing")
         case "open_app": return ("Opening app…", "Opened \(args["name"] as? String ?? "app")")
+        case "get_weather": let l = args["location"] as? String ?? ""; return ("Checking weather in \(l)…", "Checked weather in \(l)")
+        case "remember": return ("Saving to memory…", "Remembered")
+        case "forget": return ("Updating memory…", "Updated memory")
         default: return (name, name)
         }
     }
@@ -712,10 +799,13 @@ final class AgentController: ObservableObject {
         let maxRounds = 10
         for round in 0..<maxRounds {
             let messages = [ChatCompletionParameters.Message(role: .system, content: .text(systemPrompt))] + history
-            let params = ChatCompletionParameters(messages: messages, model: .custom(config.model), tools: tools())
+            let params = ChatCompletionParameters(messages: messages, model: .custom(config.model),
+                                                  tools: toolsUnsupported ? nil : tools())
 
             var liveText = ""
             var toolAcc: [Int: (id: String, name: String, args: String)] = [:]
+            var idForKey: [String: Int] = [:]
+            var lastKey = -1
             var lastEmit = Date.distantPast
             // Throttle markdown re-renders so fast token streams don't flicker.
             func emit(force: Bool) {
@@ -723,7 +813,7 @@ final class AgentController: ObservableObject {
                 lastEmit = Date()
                 if let id = assistantTurnID, let i = turns.firstIndex(where: { $0.id == id }) {
                     turns[i].text = liveText
-                } else if !liveText.isEmpty {
+                } else if !liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     let t = Turn(role: "assistant", text: liveText)
                     assistantTurnID = t.id
                     turns.append(t)
@@ -738,12 +828,16 @@ final class AgentController: ObservableObject {
                         emit(force: false)
                     }
                     for tc in choice.delta?.toolCalls ?? [] {
-                        // Some servers omit `index` while streaming; a chunk with a
-                        // new id starts a new call, otherwise it continues the last.
+                        // Route deltas to the right call. Servers vary: some send
+                        // `index`, some only an `id` on the first chunk, some neither
+                        // on continuations — key by id and fall back to the last call.
                         let idx: Int
                         if let i = tc.index { idx = i }
+                        else if let sid = tc.id, let e = idForKey[sid] { idx = e }
                         else if tc.id != nil { idx = toolAcc.count }
-                        else { idx = max(0, toolAcc.count - 1) }
+                        else { idx = lastKey >= 0 ? lastKey : 0 }
+                        lastKey = idx
+                        if let sid = tc.id { idForKey[sid] = idx }
                         var e = toolAcc[idx] ?? ("", "", "")
                         if let id = tc.id { e.id = id }
                         if let n = tc.function.name { e.name = n }
@@ -753,6 +847,12 @@ final class AgentController: ObservableObject {
                 }
                 emit(force: true)   // flush final tokens
             } catch {
+                // Many local endpoints reject tool params; retry once without tools.
+                let msg = error.localizedDescription.lowercased()
+                if !toolsUnsupported, msg.contains("tool") || msg.contains("function") {
+                    toolsUnsupported = true
+                    continue
+                }
                 if !(error is CancellationError) && !Task.isCancelled {
                     turns.append(Turn(role: "error", text: "⚠️ \(error.localizedDescription)"))
                 }
@@ -760,22 +860,40 @@ final class AgentController: ObservableObject {
             }
             if Task.isCancelled { return }
 
-            guard !toolAcc.isEmpty else { return }   // final answer streamed; done
+            guard !toolAcc.isEmpty else {
+                // No tools — this was the final answer. Record it so multi-turn
+                // follow-ups ("explain that more") have the assistant's own reply.
+                if !liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    history.append(.init(role: .assistant, content: .text(liveText)))
+                }
+                return
+            }
 
-            // Record the assistant's tool-call message, run the tools, feed results back.
-            let calls = toolAcc.sorted { $0.key < $1.key }.map { $0.value }
+            // Record the assistant's tool-call message, run the tools, feed results
+            // back. Backfill missing ids so every tool_call has a unique, non-empty id
+            // (some local servers omit them, which breaks the next request).
+            let calls = toolAcc.sorted { $0.key < $1.key }.map { (key: $0.key, v: $0.value) }
+            func cid(_ key: Int, _ id: String) -> String { id.isEmpty ? "call_\(key)" : id }
             let toolCalls: [ToolCall] = calls.map {
-                ToolCall(id: $0.id, function: .init(arguments: $0.args, name: $0.name))
+                ToolCall(id: cid($0.key, $0.v.id), function: .init(arguments: $0.v.args, name: $0.v.name))
             }
             history.append(.init(role: .assistant, content: .text(liveText), toolCalls: toolCalls))
             for c in calls {
-                let args = (try? JSONSerialization.jsonObject(with: Data(c.args.utf8))) as? [String: Any] ?? [:]
-                let labels = toolLabels(c.name, args)
+                let id = cid(c.key, c.v.id)
+                // If the user hit Stop mid-round, still answer every tool_call so the
+                // assistant tool_calls message stays balanced (servers require it).
+                if Task.isCancelled {
+                    history.append(.init(role: .tool, content: .text("Cancelled."), toolCallID: id))
+                    continue
+                }
+                let args = (try? JSONSerialization.jsonObject(with: Data(c.v.args.utf8))) as? [String: Any] ?? [:]
+                let labels = toolLabels(c.v.name, args)
                 if let l = labels { startStep(l.0) }
-                let result = await runTool(c.name, args)
+                let result = await runTool(c.v.name, args)
                 if let l = labels { endStep(l.1) }
-                history.append(.init(role: .tool, content: .text(result), toolCallID: c.id))
+                history.append(.init(role: .tool, content: .text(result), toolCallID: id))
             }
+            if Task.isCancelled { return }
             assistantTurnID = nil   // next streamed text is a fresh turn
 
             if round == maxRounds - 1 {
