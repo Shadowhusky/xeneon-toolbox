@@ -247,6 +247,8 @@ final class AgentController: ObservableObject {
                  ["tab": .init(type: .string, enum: ["dashboard", "clock", "games", "assistant"])], required: ["tab"]),
             tool("set_touch", "Turn the Edge touchscreen driver on or off.",
                  ["enabled": .init(type: .boolean)], required: ["enabled"]),
+            tool("set_display_mode", "Change the screen mode: full (normal UI), minimal (clock + basics on black), or sleep (black screen, pauses monitoring). Tapping the screen wakes it.",
+                 ["mode": .init(type: .string, enum: ["full", "minimal", "sleep"])], required: ["mode"]),
             tool("open_game", "Open the Games tab and select a game.",
                  ["game": .init(type: .string, enum: ["shanhai", "rhythm"])], required: ["game"]),
             tool("show_top_processes", "Show the top CPU-using processes as a visual card on screen.",
@@ -306,6 +308,14 @@ final class AgentController: ObservableObject {
             let on = args["enabled"] as? Bool ?? false
             on ? app.startTouch() : app.stopTouch()
             return "Touch \(on ? "enabled" : "disabled")."
+        case "set_display_mode":
+            guard let app, let m = args["mode"] as? String else { return "App unavailable." }
+            switch m {
+            case "minimal": app.setDisplay(.minimal)
+            case "sleep": app.setDisplay(.sleep)
+            default: app.setDisplay(.full)
+            }
+            return "Display set to \(m)."
         case "open_game":
             guard let app else { return "App unavailable." }
             let g = (args["game"] as? String) == "rhythm" ? "rhythm" : "shanhai"
@@ -652,6 +662,7 @@ final class AgentController: ObservableObject {
         switch name {
         case "navigate": let t = (args["tab"] as? String ?? "").capitalized; return ("Opening \(t)…", "Opened \(t)")
         case "set_touch": let on = (args["enabled"] as? Bool ?? false); return ("Setting touch…", "Touch \(on ? "on" : "off")")
+        case "set_display_mode": let m = args["mode"] as? String ?? ""; return ("Setting display…", "Display → \(m)")
         case "open_game": let g = (args["game"] as? String) == "rhythm" ? "Rhythm Plus" : "山海残卷"; return ("Opening \(g)…", "Opened \(g)")
         case "get_app_state": return ("Checking system…", "Checked system stats")
         case "show_top_processes": return nil
