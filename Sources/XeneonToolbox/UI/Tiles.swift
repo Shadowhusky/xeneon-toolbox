@@ -100,8 +100,10 @@ struct GPUTile: View {
 
 struct MemoryTile: View {
     var snap: MetricsSnapshot
+    private var warn: Bool { snap.memFraction > 0.9 }
     var body: some View {
-        GaugeTile(title: "Memory", icon: "memorychip.fill", accent: Theme.memory, value: snap.memFraction, caption: "USED") {
+        GaugeTile(title: "Memory", icon: "memorychip.fill", accent: warn ? Theme.batteryLow : Theme.memory,
+                  value: snap.memFraction, caption: warn ? "PRESSURE" : "USED") {
             AnyView(
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(Fmt.gb(snap.memUsed)).font(.readout(26, .bold)).foregroundStyle(Theme.textPrimary)
@@ -146,20 +148,23 @@ struct NetworkTile: View {
 
 struct StorageTile: View {
     var snap: MetricsSnapshot
+    private var warn: Bool { snap.diskUsedFraction > 0.9 }
+    private var tint: Color { warn ? Theme.batteryLow : Theme.disk }
     var body: some View {
-        TileSurface(accent: Theme.disk) {
+        TileSurface(accent: tint) {
             VStack(alignment: .leading, spacing: 0) {
-                TileHeader(title: "Storage", systemImage: "internaldrive.fill", accent: Theme.disk)
+                TileHeader(title: "Storage", systemImage: "internaldrive.fill", accent: tint)
                 Spacer()
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(Fmt.gb(snap.diskFree)).font(.readout(58, .bold)).foregroundStyle(Theme.textPrimary)
                     Text("GB free").font(.deck(18)).foregroundStyle(Theme.textSecondary)
                 }
                 Spacer()
-                CapacityBar(fraction: snap.diskUsedFraction, color: Theme.disk)
+                CapacityBar(fraction: snap.diskUsedFraction, color: tint)
                 Spacer().frame(height: 12)
                 HStack {
-                    Text("\(Fmt.percent(snap.diskUsedFraction)) used").font(.deck(13)).foregroundStyle(Theme.textFaint)
+                    Text(warn ? "Low space" : "\(Fmt.percent(snap.diskUsedFraction)) used")
+                        .font(.deck(13)).foregroundStyle(warn ? Theme.batteryLow : Theme.textFaint)
                     Spacer()
                     Text("\(Fmt.gb(snap.diskTotal)) GB total").font(.deck(13)).foregroundStyle(Theme.textFaint)
                 }
