@@ -750,6 +750,15 @@ final class AgentController: ObservableObject {
         busy = false
     }
 
+    /// Re-run the last turn after an error — the user message is already in
+    /// `history`, so just drop the error bubble and resume the loop (no dupe).
+    func retryLast() {
+        guard !busy, !history.isEmpty else { return }
+        if turns.last?.role == "error" { turns.removeLast() }
+        busy = true
+        task = Task { await runLoop() }
+    }
+
     private var toolsTurnID: UUID?
 
     /// Append a live "working" step and return whether one was added.
