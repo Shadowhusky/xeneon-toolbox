@@ -96,6 +96,7 @@ struct Sparkline: View {
     var values: [Double]
     var color: Color
     var fillOpacity: Double = 0.18
+    var ceiling: Double? = nil   // fixed top of scale; nil = normalize to data peak
 
     var body: some View {
         GeometryReader { geo in
@@ -115,7 +116,7 @@ struct Sparkline: View {
 
     private func points(in size: CGSize) -> [CGPoint] {
         guard !values.isEmpty else { return [] }
-        let maxV = max(values.max() ?? 1, 0.0001)
+        let maxV = max(ceiling ?? (values.max() ?? 1), 0.0001)
         let n = values.count
         return values.enumerated().map { i, v in
             let x = n == 1 ? size.width : size.width * CGFloat(i) / CGFloat(n - 1)
