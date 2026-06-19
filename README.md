@@ -8,36 +8,47 @@ The touch driver is **embedded in the app** — while Xeneon Toolbox runs, touch
 works. No LaunchAgent, no kernel extension, no sudo. It opens in native
 fullscreen on the Edge and hides the system menu bar.
 
-![Dashboard](docs/panel-expanded.png)
-![Sever](docs/sever.png)
+![Dashboard](docs/dashboard-gpu.png)
+![Metric detail](docs/metric-detail.png)
+![Assistant](docs/agent-table-live.png)
 
 ## Apps
 
-- **Dashboard** — live telemetry deck: CPU, memory, network, storage, power,
-  clock/uptime and **current weather** (Open-Meteo + IP geolocation, no key),
-  with hue-coded ring gauges and sparklines, plus a touch on/off control.
-- **Clock** — local time, world clocks, and a focus (Pomodoro) timer.
-- **Games** — full web games embedded for the Edge, switchable in-app:
+- **Dashboard** — live telemetry deck: CPU, **GPU**, memory, network, storage,
+  power, clock/uptime and **current weather** (Open-Meteo + IP geolocation, no
+  key), with hue-coded ring gauges and sparklines, plus a touch on/off control.
+  **Tap a CPU/GPU/Network tile** to expand a detail view (history graph +
+  now/avg/peak).
+- **Clock** — local time, world clocks, and a focus (Pomodoro) timer with
+  tappable **15 / 25 / 45 min** presets (no keyboard needed).
+- **Games** — full web games embedded for the Edge, switchable in-app, with a
+  loading spinner and an offline **retry** state:
   - **山海残卷 (Shanhai)** — the card roguelike at shanhai-yi.com.
   - **Rhythm Plus** — the rhythm game at v2.rhythm-plus.com.
 - **Assistant** — an agentic chat (SwiftOpenAI) backed by any OpenAI-compatible
   endpoint. It **streams** responses, **renders markdown** (swift-markdown-ui)
   with a pop-in highlight, accepts **images** (vision), and runs **tools**:
   - **Controls the app** — knows the current tab + live stats; can navigate,
-    toggle touch, and open games.
-  - **Generative UI** — e.g. renders a touch-friendly card of top processes.
+    toggle touch, switch display mode, and open games.
+  - **Generative UI** — renders results as the clearest format: a key/value
+    **card**, a multi-column **table**, a bar/line **chart**, a top-processes
+    card, or a **generated image**.
   - **Web** — `web_search`, `fetch_url`. **Files** — list / read / write.
-  - **System** — run shell commands, clipboard, open URLs, date/time, volume.
+  - **System** — shell commands, clipboard, open URLs/apps, date/time, volume,
+    media controls, and now-playing.
 
-  **Conversations persist** (across tab switches and app restarts) with a sidebar
-  to switch / new / delete. Tool steps show **live** then collapse to a chip; a
+  **Conversations persist** (across tab switches and app restarts) — including
+  rendered cards/tables/charts — with a sidebar to switch / new / delete and
+  model-generated titles. Tool steps show **live** then collapse to a chip; a
   **stop** button cancels a running reply. Sensitive actions ask for
   **Approve / Always allow / Deny** (dangerous ones always ask). Set it up in-app:
   pick OpenAI or a local model (Ollama / LM Studio); models auto-detect into a
   dropdown.
 - **Display modes** — **Minimal** (OLED clock + vitals on black) and **Sleep**
-  (black, monitoring stopped, drifting clock to save battery / avoid burn-in),
-  from the nav rail. Smooth tab + modal transitions throughout.
+  (black, monitoring + weather stopped, drifting clock to save battery / avoid
+  burn-in), from the nav rail. A **Settings** overlay (gear) holds touch
+  calibration, display modes, and conversation management. Smooth tab + modal
+  transitions throughout.
 
 ## Touch driver
 
@@ -54,7 +65,7 @@ pointer events so taps and drags land where you touch.
 
 ```bash
 swift build -c release
-swift test                  # unit tests: coordinate mapping, touch state, HID decode, 2048
+swift test                  # unit tests: coordinate mapping, touch state, HID decode
 
 ./scripts/make-app.sh       # build XeneonToolbox.app (with icon)
 open XeneonToolbox.app
@@ -71,7 +82,7 @@ digitizer.
 | --- | --- | --- |
 | `XeneonTouchCore` | library | Pure, tested logic: coordinate mapping, tap/drag state machine, HID decode |
 | `XeneonTouchDriver` | library | IOKit HID capture + CoreGraphics injection; `TouchService` |
-| `ToolboxKit` | library | Pure app logic: 2048 engine, chat client |
+| `ToolboxKit` | library | Pure app logic: chat client + config |
 | `XeneonToolbox` | app | SwiftUI apps + embedded touch driver |
 | `xeneon-touch` | CLI | Diagnostics (`diagnose`, `list-displays`) and headless `run` |
 
