@@ -644,6 +644,7 @@ final class AgentController: ObservableObject {
 
         Guidelines:
         - Answer questions directly here in the Assistant. Use web_search/fetch_url for current facts. Pick the clearest output: show_card for key/value stats or lists, show_table for multi-column comparisons, show_chart for numeric trends, generate_image for pictures. Don't force everything into one format.
+        - When you render a card, table, or chart, DON'T also repeat the same data as a text table or list — the card already shows it. Add only a short sentence of insight, if anything.
         - Only use navigate or open_game when the user explicitly asks to switch tabs or open something — never navigate away just to answer a question.
         - Use get_app_state for live system info. Keep answers concise; the screen is small and wide.
         """
