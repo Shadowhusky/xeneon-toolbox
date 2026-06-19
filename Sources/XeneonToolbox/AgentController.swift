@@ -355,26 +355,21 @@ final class AgentController: ObservableObject {
             return "Displayed a card with the top \(rows.count) processes: " + rows.map { "\($0.name) \(Int($0.cpu))%" }.joined(separator: ", ")
         case "show_card":
             let title = (args["title"] as? String) ?? "Info"
-            let items = (args["items"] as? [Any])?.compactMap { $0 as? String } ?? []
-            let rows = items.map { line -> CardRow in
-                if let r = line.range(of: ":") {
-                    return CardRow(label: String(line[..<r.lowerBound]).trimmingCharacters(in: .whitespaces),
-                                   value: String(line[r.upperBound...]).trimmingCharacters(in: .whitespaces))
-                }
-                return CardRow(label: line, value: "")
+            let rows: [CardRow] = (args["items"] as? [Any] ?? []).compactMap { item in
+                let (l, v) = labelValue(item)
+                return l.isEmpty && v.isEmpty ? nil : CardRow(label: l, value: v)
             }
+            guard !rows.isEmpty else { return "No items to show." }
             turns.append(Turn(role: "card", text: "", card: .generic(title: title, rows: rows)))
             return "Displayed a card titled \(title) with \(rows.count) items."
         case "show_chart":
             let title = (args["title"] as? String) ?? "Chart"
             let isLine = (args["type"] as? String) == "line"
-            let items = (args["items"] as? [Any])?.compactMap { $0 as? String } ?? []
-            let points: [ChartPoint] = items.compactMap { s in
-                guard let r = s.range(of: ":") else { return nil }
-                let label = String(s[..<r.lowerBound]).trimmingCharacters(in: .whitespaces)
-                let num = String(s[r.upperBound...]).filter { "0123456789.-".contains($0) }
-                guard let v = Double(num) else { return nil }
-                return ChartPoint(label: label, value: v)
+            let points: [ChartPoint] = (args["items"] as? [Any] ?? []).compactMap { item in
+                let (l, v) = labelValue(item)
+                let num = v.filter { "0123456789.-".contains($0) }
+                guard let d = Double(num) else { return nil }
+                return ChartPoint(label: l, value: d)
             }
             guard !points.isEmpty else { return "No numeric data to chart." }
             turns.append(Turn(role: "card", text: "", card: .chart(title: title, points: points, line: isLine)))
@@ -490,6 +485,24 @@ final class AgentController: ObservableObject {
             return s.split(whereSeparator: \.isNewline).map { coerceCells(String($0)) }.filter { !$0.isEmpty }
         }
         return []
+    }
+
+    /// Extract a (label, value) pair from one card/chart item, whether the model
+    /// emitted a "Label: value" string or a {label/name, value} object.
+    private func labelValue(_ item: Any) -> (String, String) {
+        if let s = item as? String {
+            if let r = s.range(of: ":") {
+                return (String(s[..<r.lowerBound]).trimmingCharacters(in: .whitespaces),
+                        String(s[r.upperBound...]).trimmingCharacters(in: .whitespaces))
+            }
+            return (s.trimmingCharacters(in: .whitespaces), "")
+        }
+        if let d = item as? [String: Any] {
+            let label = d["label"] ?? d["name"] ?? d["key"] ?? d["title"]
+            let value = d["value"] ?? d["val"] ?? d["count"] ?? d["amount"] ?? d["y"]
+            return (label.map(stringify) ?? "", value.map(stringify) ?? "")
+        }
+        return (stringify(item), "")
     }
 
     private func stringify(_ v: Any) -> String {
