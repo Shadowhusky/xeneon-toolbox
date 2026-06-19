@@ -29,6 +29,7 @@ enum AgentCard {
     case processes([ProcRow])
     case generic(title: String, rows: [CardRow])
     case chart(title: String, points: [ChartPoint], line: Bool)
+    case table(title: String, headers: [String], rows: [[String]])
     case image(Data)
 }
 
@@ -257,6 +258,10 @@ final class AgentController: ObservableObject {
                  ["title": .init(type: .string), "items": .init(type: .array, items: .init(type: .string)),
                   "type": .init(type: .string, enum: ["bar", "line"])],
                  required: ["title", "items"]),
+            tool("show_table", "Display tabular data as a touch-friendly table (good for comparisons with multiple columns). Provide column headers, and rows where each row string separates cells with ' | '.",
+                 ["title": .init(type: .string), "headers": .init(type: .array, items: .init(type: .string)),
+                  "rows": .init(type: .array, items: .init(type: .string))],
+                 required: ["headers", "rows"]),
             tool("generate_image", "Generate an image from a text prompt and show it (requires an OpenAI API key in settings).",
                  ["prompt": .init(type: .string)], required: ["prompt"]),
             // Web
@@ -344,6 +349,14 @@ final class AgentController: ObservableObject {
             guard !points.isEmpty else { return "No numeric data to chart." }
             turns.append(Turn(role: "card", text: "", card: .chart(title: title, points: points, line: isLine)))
             return "Displayed a \(isLine ? "line" : "bar") chart titled \(title) with \(points.count) points."
+        case "show_table":
+            let title = (args["title"] as? String) ?? "Table"
+            let headers = (args["headers"] as? [Any])?.compactMap { $0 as? String } ?? []
+            let rawRows = (args["rows"] as? [Any])?.compactMap { $0 as? String } ?? []
+            let rows = rawRows.map { $0.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) } }
+            guard !headers.isEmpty, !rows.isEmpty else { return "No table data to show." }
+            turns.append(Turn(role: "card", text: "", card: .table(title: title, headers: headers, rows: rows)))
+            return "Displayed a table titled \(title) with \(rows.count) rows and \(headers.count) columns."
         case "generate_image":
             return await generateImage((args["prompt"] as? String) ?? "")
         case "web_search":
@@ -578,7 +591,7 @@ final class AgentController: ObservableObject {
         You are the built-in assistant inside Xeneon Toolbox, a macOS app on a Corsair Xeneon Edge — a 2560x720 ultrawide touchscreen. Tabs: Dashboard (live system telemetry), Clock (world clocks + focus timer), Games (embeds the 山海残卷 card roguelike and Rhythm Plus), and Assistant (you). "Touch" is the embedded driver that lets the user tap the Edge.
 
         Guidelines:
-        - Answer questions directly here in the Assistant. Use web_search/fetch_url for current facts, and show_card to present comparisons, lists, or stats as a visual card.
+        - Answer questions directly here in the Assistant. Use web_search/fetch_url for current facts. Pick the clearest output: show_card for key/value stats or lists, show_table for multi-column comparisons, show_chart for numeric trends, generate_image for pictures. Don't force everything into one format.
         - Only use navigate or open_game when the user explicitly asks to switch tabs or open something — never navigate away just to answer a question.
         - Use get_app_state for live system info. Keep answers concise; the screen is small and wide.
         """
@@ -644,6 +657,7 @@ final class AgentController: ObservableObject {
         case "show_top_processes": return nil
         case "show_card": return nil
         case "show_chart": return nil
+        case "show_table": return nil
         case "generate_image": return ("Generating image…", "Generated an image")
         case "web_search": let q = args["query"] as? String ?? ""; return ("Searching “\(q)”…", "Searched “\(q)”")
         case "fetch_url": let h = host(args["url"]); return ("Reading \(h)…", "Read \(h)")

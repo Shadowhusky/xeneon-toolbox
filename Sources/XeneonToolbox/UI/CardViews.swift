@@ -70,6 +70,7 @@ struct AgentCardView: View {
         case .processes(let rows): ProcessCard(rows: rows)
         case .generic(let title, let rows): GenericCard(title: title, rows: rows)
         case .chart(let title, let points, let line): ChartCard(title: title, points: points, line: line)
+        case .table(let title, let headers, let rows): TableCard(title: title, headers: headers, rows: rows)
         case .image(let data): ImageCard(data: data)
         }
     }
@@ -107,6 +108,56 @@ struct ChartCard: View {
             .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.accent.opacity(0.25), lineWidth: 1))
         .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+    }
+}
+
+struct TableCard: View {
+    let title: String
+    let headers: [String]
+    let rows: [[String]]
+
+    private var columnCount: Int { max(headers.count, rows.map(\.count).max() ?? 0) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "tablecells.fill").foregroundStyle(Theme.accent)
+                Text(title).font(.deck(17, .bold)).foregroundStyle(Theme.textPrimary)
+            }
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    ForEach(0..<columnCount, id: \.self) { c in
+                        cell(c < headers.count ? headers[c] : "", header: true)
+                    }
+                }
+                .background(Color.white.opacity(0.05))
+                ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
+                    HStack(spacing: 0) {
+                        ForEach(0..<columnCount, id: \.self) { c in
+                            cell(c < row.count ? row[c] : "", header: false)
+                        }
+                    }
+                    .background(idx % 2 == 1 ? Color.white.opacity(0.02) : Color.clear)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+        }
+        .padding(20)
+        .frame(maxWidth: 900, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.accent.opacity(0.25), lineWidth: 1))
+        .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+    }
+
+    private func cell(_ text: String, header: Bool) -> some View {
+        Text(text)
+            .font(header ? .deck(13, .bold) : .deck(14))
+            .foregroundStyle(header ? Theme.accent : Theme.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .overlay(alignment: .trailing) { Rectangle().fill(Theme.stroke).frame(width: 1) }
     }
 }
 
