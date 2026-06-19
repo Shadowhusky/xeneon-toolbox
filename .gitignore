@@ -18,3 +18,5 @@ blender/meshy-raw*.glb
 blender/meshy*view*.png
 blender/meshy-refined.png
 blender/gltf-preview.png
+blender/meshy-multi.glb
+blender/multi-view.png
