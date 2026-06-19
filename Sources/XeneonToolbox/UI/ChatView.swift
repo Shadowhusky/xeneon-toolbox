@@ -43,6 +43,9 @@ struct ChatView: View {
                 } cancel: {
                     if config != nil { showSettings = false }
                 }
+            } else if model.exportMode {
+                exportTranscript
+                inputBar
             } else {
                 transcript
                 if let p = agent.pending {
@@ -72,6 +75,16 @@ struct ChatView: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    // ImageRenderer doesn't lay out ScrollView content off-screen; a plain stack does.
+    private var exportTranscript: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(agent.turns) { t in bubble(t) }
+            Spacer(minLength: 0)
+        }
+        .padding(4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var transcript: some View {
@@ -199,11 +212,21 @@ struct ChatView: View {
                         .foregroundStyle(Theme.textSecondary).frame(width: 52, height: 52)
                         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)))
                 }.buttonStyle(.plain)
-                TextField("Message the assistant…", text: $input)
-                    .textFieldStyle(.plain).font(.deck(17))
-                    .padding(.horizontal, 18).padding(.vertical, 14)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
-                    .onSubmit(send)
+                Group {
+                    if model.exportMode {
+                        // ImageRenderer renders live TextFields poorly; use a static pill for mockups.
+                        HStack { Text("Message the assistant…").foregroundStyle(Theme.textFaint); Spacer() }
+                            .font(.deck(17))
+                            .padding(.horizontal, 18).padding(.vertical, 14)
+                            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
+                    } else {
+                        TextField("Message the assistant…", text: $input)
+                            .textFieldStyle(.plain).font(.deck(17))
+                            .padding(.horizontal, 18).padding(.vertical, 14)
+                            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
+                            .onSubmit(send)
+                    }
+                }
                 Button(action: agent.busy ? agent.cancel : send) {
                     Image(systemName: agent.busy ? "stop.circle.fill" : "arrow.up.circle.fill")
                         .font(.system(size: 36))

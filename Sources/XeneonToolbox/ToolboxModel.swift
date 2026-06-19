@@ -36,6 +36,7 @@ final class ToolboxModel: ObservableObject {
     @Published var route: AppRoute = .dashboard
     @Published var displayMode: DisplayMode = .full
     @Published var showSettings = false
+    var exportMode = false   // static input bar etc. for off-screen mockup renders
     @Published var touchOn = false
     @Published var edgeDetected = false
     @Published var gamePref = "shanhai"   // "shanhai" | "rhythm"

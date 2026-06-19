@@ -7,3 +7,9 @@ XeneonToolbox.app/
 *.pem
 .env
 secrets*
+
+# Blender working files (regenerable; large)
+blender/textures/
+blender/ref/
+blender/render*.png
+blender/_tmp*.png
