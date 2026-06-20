@@ -25,16 +25,25 @@ struct RootView: View {
     private var fullUI: some View {
         HStack(spacing: 0) {
             NavRail(route: $model.route, touchActive: model.touchStatus == .active, todos: model.todos,
+                    exportMode: model.exportMode,
                     onMinimal: { model.setDisplay(.minimal) }, onSleep: { model.setDisplay(.sleep) },
                     onSettings: { model.showSettings = true })
-            ZStack {
+            ZStack(alignment: .top) {
                 DeckBackground()
-                content
-                    .id(model.route)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .offset(x: 26)),
-                        removal: .opacity.combined(with: .offset(x: -26))))
-                    .padding(20)
+                // VStack lays out strictly top-down, so oversized content (e.g. a
+                // long Tasks list in the off-screen renderer) anchors at the top and
+                // overflows/clips at the bottom — .frame(alignment:.top) centers it.
+                VStack(spacing: 0) {
+                    content
+                        .id(model.route)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .offset(x: 26)),
+                            removal: .opacity.combined(with: .offset(x: -26))))
+                        .padding(20)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .clipped()
             }
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: model.route)
         }
@@ -67,12 +76,26 @@ struct NavRail: View {
     @Binding var route: AppRoute
     var touchActive: Bool
     @ObservedObject var todos: TodoStore
+    var exportMode = false
     var onMinimal: () -> Void = {}
     var onSleep: () -> Void = {}
     var onSettings: () -> Void = {}
 
     private var openTasks: Int { todos.items.filter { !$0.done }.count }
     private var hasOverdue: Bool { todos.items.contains { $0.isOverdue } }
+
+    @ViewBuilder private var navButtons: some View {
+        VStack(spacing: 12) {
+            ForEach(AppRoute.allCases) { r in
+                NavButton(route: r, selected: route == r,
+                          badge: r == .tasks ? openTasks : 0,
+                          badgeUrgent: r == .tasks && hasOverdue) {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { route = r }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,17 +105,11 @@ struct NavRail: View {
                 .padding(.top, 22).padding(.bottom, 12)
 
             // App buttons scroll if the rail is shorter than their total height.
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 12) {
-                    ForEach(AppRoute.allCases) { r in
-                        NavButton(route: r, selected: route == r,
-                                  badge: r == .tasks ? openTasks : 0,
-                                  badgeUrgent: r == .tasks && hasOverdue) {
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { route = r }
-                        }
-                    }
-                }
-                .padding(.vertical, 4)
+            // (ScrollView content doesn't lay out in the off-screen renderer, so
+            // use a plain stack when exporting.)
+            Group {
+                if exportMode { navButtons }
+                else { ScrollView(.vertical, showsIndicators: false) { navButtons } }
             }
             .frame(maxHeight: .infinity)
 

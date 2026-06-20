@@ -15,8 +15,10 @@ struct TasksView: View {
             addBar
             if todos.items.isEmpty { emptyState } else { list }
         }
-        .frame(maxWidth: 1200, maxHeight: .infinity, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .center)
+        // In export the content is taller than the panel; size to content + let the
+        // host top-anchor & clip, so the header stays visible (not centered/clipped).
+        .frame(maxWidth: 1200, maxHeight: exportMode ? nil : .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: exportMode ? .top : .center)
     }
 
     private var header: some View {
