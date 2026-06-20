@@ -3,6 +3,7 @@ import ToolboxKit
 
 struct TasksView: View {
     @ObservedObject var todos: TodoStore
+    var exportMode = false   // off-screen render: static add bar + non-scrolling list
     @State private var newTitle = ""
     @FocusState private var inputFocused: Bool
 
@@ -35,16 +36,23 @@ struct TasksView: View {
     private var addBar: some View {
         HStack(spacing: 12) {
             Image(systemName: "plus.circle.fill").font(.system(size: 24)).foregroundStyle(Theme.accent)
-            TextField("Add a task… (or ask the assistant to remind you)", text: $newTitle)
-                .textFieldStyle(.plain).font(.deck(17)).foregroundStyle(Theme.textPrimary)
-                .focused($inputFocused)
-                .onSubmit(add)
-            if !newTitle.trimmingCharacters(in: .whitespaces).isEmpty {
-                Button(action: add) {
-                    Text("Add").font(.deck(15, .semibold)).foregroundStyle(Theme.background)
-                        .padding(.horizontal, 18).padding(.vertical, 9)
-                        .background(Capsule().fill(Theme.accent))
-                }.buttonStyle(.pressable)
+            if exportMode {
+                // ImageRenderer renders live TextFields poorly; use a static label.
+                Text("Add a task… (or ask the assistant to remind you)")
+                    .font(.deck(17)).foregroundStyle(Theme.textFaint)
+                Spacer()
+            } else {
+                TextField("Add a task… (or ask the assistant to remind you)", text: $newTitle)
+                    .textFieldStyle(.plain).font(.deck(17)).foregroundStyle(Theme.textPrimary)
+                    .focused($inputFocused)
+                    .onSubmit(add)
+                if !newTitle.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Button(action: add) {
+                        Text("Add").font(.deck(15, .semibold)).foregroundStyle(Theme.background)
+                            .padding(.horizontal, 18).padding(.vertical, 9)
+                            .background(Capsule().fill(Theme.accent))
+                    }.buttonStyle(.pressable)
+                }
             }
         }
         .padding(.horizontal, 18).padding(.vertical, 14)
@@ -73,27 +81,30 @@ struct TasksView: View {
         return out
     }
 
-    private var list: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(grouped, id: \.title) { group in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 7) {
-                            Text(group.title.uppercased()).font(.deck(12, .bold)).tracking(1.4).foregroundStyle(group.color)
-                            Text("\(group.items.count)").font(.deck(12, .bold)).foregroundStyle(group.color.opacity(0.55))
-                        }
-                        .padding(.leading, 4)
-                        ForEach(group.items) { item in row(item) }
+    @ViewBuilder private var groups: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(grouped, id: \.title) { group in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 7) {
+                        Text(group.title.uppercased()).font(.deck(12, .bold)).tracking(1.4).foregroundStyle(group.color)
+                        Text("\(group.items.count)").font(.deck(12, .bold)).foregroundStyle(group.color.opacity(0.55))
                     }
+                    .padding(.leading, 4)
+                    ForEach(group.items) { item in row(item) }
                 }
             }
-            .padding(.vertical, 2)
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: todos.sorted)
         }
+        .padding(.vertical, 2)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: todos.sorted)
+    }
+
+    @ViewBuilder private var list: some View {
+        // ImageRenderer doesn't lay out ScrollView content off-screen.
+        if exportMode { groups } else { ScrollView { groups } }
     }
 
     private func row(_ item: TodoItem) -> some View {
-        TaskRow(item: item,
+        TaskRow(item: item, exportMode: exportMode,
                 onToggle: { todos.toggle(item.id) },
                 onDelete: { todos.remove(item.id) },
                 onSetDue: { todos.update(item.id, dueAt: .some($0)) },
@@ -121,6 +132,7 @@ struct TasksView: View {
 
 private struct TaskRow: View {
     let item: TodoItem
+    var exportMode = false
     var onToggle: () -> Void
     var onDelete: () -> Void
     var onSetDue: (Date?) -> Void
@@ -160,8 +172,15 @@ private struct TaskRow: View {
         .opacity(item.done ? 0.65 : 1)
     }
 
-    private var reminderMenu: some View {
-        Menu {
+    @ViewBuilder private var reminderMenu: some View {
+        if exportMode {
+            Image(systemName: item.dueAt != nil ? "bell.fill" : "bell")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(item.dueAt != nil ? Theme.netUp : Theme.textFaint)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Color.white.opacity(0.05)))
+        } else {
+            Menu {
             Button("In 1 hour") { onSetDue(Date().addingTimeInterval(3600)) }
             Button("In 3 hours") { onSetDue(Date().addingTimeInterval(3 * 3600)) }
             Button("This evening · 6 PM") { onSetDue(Self.at(18)) }
@@ -181,8 +200,9 @@ private struct TaskRow: View {
                 .foregroundStyle(item.dueAt != nil ? Theme.netUp : Theme.textFaint)
                 .frame(width: 34, height: 34)
                 .background(Circle().fill(Color.white.opacity(0.05)))
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
-        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     }
 
     private static func at(_ hour: Int, tomorrow: Bool = false) -> Date {

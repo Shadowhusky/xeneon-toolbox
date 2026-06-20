@@ -72,9 +72,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let route = parts[0], outPath = parts[3]
         if let r = AppRoute(rawValue: route == "assistant" ? "chat" : route) { model.route = r }
         if route == "minimal" { model.displayMode = .minimal }
-        if route == "sleep" { model.displayMode = .sleep }
+        else if route == "sleep" { model.displayMode = .sleep }
+        else { model.displayMode = .full }   // render the actual page, not the minimal overlay
+        model.exportMode = true   // static add bars / non-scroll lists for off-screen render
         if route == "assistant" {
-            model.exportMode = true
             model.agent.turns = [
                 .init(role: "user", text: "Compare the RTX 4090, RTX 4080 Super, and RX 7900 XTX"),
                 .init(role: "card", text: "", card: .table(title: "GPU Comparison",
