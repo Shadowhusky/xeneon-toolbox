@@ -52,21 +52,53 @@ struct TasksView: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
     }
 
+    /// Group the already-sorted items into time buckets for clearer scanning.
+    private var grouped: [(title: String, color: Color, items: [TodoItem])] {
+        let cal = Calendar.current
+        var overdue: [TodoItem] = [], today: [TodoItem] = [], upcoming: [TodoItem] = [], anytime: [TodoItem] = [], done: [TodoItem] = []
+        for t in todos.sorted {
+            if t.done { done.append(t) }
+            else if let d = t.dueAt {
+                if d < Date() { overdue.append(t) }
+                else if cal.isDateInToday(d) { today.append(t) }
+                else { upcoming.append(t) }
+            } else { anytime.append(t) }
+        }
+        var out: [(String, Color, [TodoItem])] = []
+        if !overdue.isEmpty { out.append(("Overdue", Theme.batteryLow, overdue)) }
+        if !today.isEmpty { out.append(("Today", Theme.netUp, today)) }
+        if !upcoming.isEmpty { out.append(("Upcoming", Theme.accent, upcoming)) }
+        if !anytime.isEmpty { out.append(("Anytime", Theme.textSecondary, anytime)) }
+        if !done.isEmpty { out.append(("Done", Theme.textFaint, done)) }
+        return out
+    }
+
     private var list: some View {
         ScrollView {
-            VStack(spacing: 10) {
-                ForEach(todos.sorted) { item in
-                    TaskRow(item: item,
-                            onToggle: { todos.toggle(item.id) },
-                            onDelete: { todos.remove(item.id) },
-                            onSetDue: { todos.update(item.id, dueAt: .some($0)) },
-                            onSetRecurrence: { todos.update(item.id, recurrence: $0) })
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(grouped, id: \.title) { group in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 7) {
+                            Text(group.title.uppercased()).font(.deck(12, .bold)).tracking(1.4).foregroundStyle(group.color)
+                            Text("\(group.items.count)").font(.deck(12, .bold)).foregroundStyle(group.color.opacity(0.55))
+                        }
+                        .padding(.leading, 4)
+                        ForEach(group.items) { item in row(item) }
+                    }
                 }
             }
             .padding(.vertical, 2)
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: todos.sorted)
         }
+    }
+
+    private func row(_ item: TodoItem) -> some View {
+        TaskRow(item: item,
+                onToggle: { todos.toggle(item.id) },
+                onDelete: { todos.remove(item.id) },
+                onSetDue: { todos.update(item.id, dueAt: .some($0)) },
+                onSetRecurrence: { todos.update(item.id, recurrence: $0) })
+            .transition(.opacity.combined(with: .move(edge: .leading)))
     }
 
     private var emptyState: some View {
