@@ -4,6 +4,7 @@ struct SettingsView: View {
     @ObservedObject var model: ToolboxModel
     var onClose: () -> Void = {}
     @State private var confirmClear = false
+    @State private var sliderValue: Double = 90
 
     private func dismiss() { onClose() }
 
@@ -30,6 +31,30 @@ struct SettingsView: View {
                             modeButton("Minimal", "rectangle.compress.vertical") { model.setDisplay(.minimal); dismiss() }
                             modeButton("Sleep", "moon.fill") { model.setDisplay(.sleep); dismiss() }
                         }
+                    }
+                    section("Backlight", "The Edge is an LCD — its backlight is always on, so a black screen saves no power. Turn the backlight down (or off) to actually save power and spare the panel.") {
+                        if model.canControlBacklight {
+                            HStack(spacing: 12) {
+                                Image(systemName: "sun.min.fill").foregroundStyle(Theme.textFaint)
+                                Slider(value: $sliderValue, in: 0...100) { editing in
+                                    if !editing { model.applyBrightness(Int(sliderValue)) }
+                                }
+                                Image(systemName: "sun.max.fill").foregroundStyle(Theme.textSecondary)
+                                Text("\(Int(sliderValue))%").font(.readout(14, .semibold)).foregroundStyle(Theme.textSecondary).frame(width: 46, alignment: .trailing)
+                            }
+                            .onAppear { sliderValue = Double(model.brightness) }
+                        } else {
+                            Text("Install m1ddc to control the backlight:  brew install m1ddc")
+                                .font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.textFaint)
+                        }
+                        Button { model.turnScreenOff(); dismiss() } label: {
+                            Label("Turn screen off", systemImage: "power.circle.fill")
+                                .font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary)
+                                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
+                        }.buttonStyle(.pressable)
+                        Text(model.canControlBacklight ? "Cuts the backlight to its minimum. Tap the screen to wake." : "Shows a black screen and pauses monitoring. Tap to wake. (Backlight stays on without m1ddc.)")
+                            .font(.deck(12)).foregroundStyle(Theme.textFaint)
                     }
                     section("Assistant", "Conversations are stored on this Mac.") {
                         Button { confirmClear = true } label: {

@@ -35,6 +35,9 @@ final class ToolboxModel: ObservableObject {
     let metrics = SystemMetrics()
     let weather = WeatherService()
     let todos = TodoStore()
+    let canControlBacklight = Backlight.isAvailable
+    @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
+    private var preDimBrightness = 90             // restored when waking from sleep
     lazy var agent = AgentController(config: ChatConfig.loadSaved() ?? ChatConfig.presets[0].config, app: self)
     @Published var route: AppRoute = .dashboard
     @Published var displayMode: DisplayMode = .minimal   // ambient default; tap to wake to full
@@ -52,8 +55,48 @@ final class ToolboxModel: ObservableObject {
     /// Sleep stops monitoring (saves battery, avoids burn-in); minimal keeps
     /// light stats; full is the normal UI.
     func setDisplay(_ mode: DisplayMode) {
-        if mode == .sleep { metrics.stop(); weather.stop() } else { metrics.start(); weather.start() }
+        let wasSleep = (displayMode == .sleep)
+        if mode == .sleep {
+            metrics.stop(); weather.stop()
+            dimBacklightForSleep()              // LCD: actually cut the backlight to save power
+        } else {
+            metrics.start(); weather.start()
+            if wasSleep { restoreBacklight() }
+        }
         displayMode = mode
+    }
+
+    /// Move the screen to sleep with the backlight off (the real power-saving "off").
+    func turnScreenOff() { setDisplay(.sleep) }
+
+    func applyBrightness(_ value: Int) {
+        let v = max(0, min(100, value))
+        brightness = v
+        preDimBrightness = v
+        guard canControlBacklight else { return }
+        DispatchQueue.global(qos: .utility).async { Backlight.setBrightness(v) }
+    }
+
+    private func dimBacklightForSleep() {
+        guard canControlBacklight else { return }
+        let keep = brightness
+        DispatchQueue.global(qos: .utility).async {
+            let cur = Backlight.getBrightness() ?? keep
+            DispatchQueue.main.async { self.preDimBrightness = cur }
+            Backlight.setBrightness(0)
+        }
+    }
+
+    private func restoreBacklight() {
+        guard canControlBacklight else { return }
+        let target = preDimBrightness > 0 ? preDimBrightness : 90
+        DispatchQueue.global(qos: .utility).async { Backlight.setBrightness(target) }
+    }
+
+    /// Don't leave the panel dark if the app quits while asleep.
+    func restoreBacklightOnQuit() {
+        guard canControlBacklight, displayMode == .sleep else { return }
+        Backlight.setBrightness(preDimBrightness > 0 ? preDimBrightness : 90)
     }
 
     private lazy var touch: TouchService = makeTouch()
@@ -100,6 +143,13 @@ final class ToolboxModel: ObservableObject {
         weather.start()
         todos.start()
         startTouch()
+        if canControlBacklight {
+            DispatchQueue.global(qos: .utility).async {
+                if let b = Backlight.getBrightness() {
+                    DispatchQueue.main.async { self.brightness = b; self.preDimBrightness = b }
+                }
+            }
+        }
     }
 
     func startTouch() {

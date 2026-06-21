@@ -64,6 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        model.restoreBacklightOnQuit()   // don't leave the Edge dark if we quit while asleep
+    }
+
     private func renderOffscreenThenExit(_ spec: String) {
         let parts = spec.components(separatedBy: "@")
         guard parts.count == 4, let scale = Double(parts[1]), let warmup = Double(parts[2]) else {

@@ -282,8 +282,10 @@ final class AgentController: ObservableObject {
                  ["tab": .init(type: .string, enum: ["dashboard", "clock", "games", "assistant"])], required: ["tab"]),
             tool("set_touch", "Turn the Edge touchscreen driver on or off.",
                  ["enabled": .init(type: .boolean)], required: ["enabled"]),
-            tool("set_display_mode", "Change the screen mode: full (normal UI), minimal (clock + basics on black), or sleep (black screen, pauses monitoring). Tapping the screen wakes it.",
+            tool("set_display_mode", "Change the screen mode: full (normal UI), minimal (clock + basics on black), or sleep (black screen, pauses monitoring AND turns the LCD backlight off to save power). Tapping the screen wakes it.",
                  ["mode": .init(type: .string, enum: ["full", "minimal", "sleep"])], required: ["mode"]),
+            tool("set_brightness", "Set the Edge screen backlight from 0 (off) to 100 (full). Use for 'dim the screen' / 'brighten'. To fully turn the screen off, prefer set_display_mode sleep.",
+                 ["level": .init(type: .integer)], required: ["level"]),
             tool("open_game", "Open the Games tab and select a game.",
                  ["game": .init(type: .string, enum: ["shanhai", "rhythm"])], required: ["game"]),
             tool("show_top_processes", "Show the top CPU-using processes as a visual card on screen.",
@@ -372,6 +374,12 @@ final class AgentController: ObservableObject {
             default: app.setDisplay(.full)
             }
             return "Display set to \(m)."
+        case "set_brightness":
+            guard let app else { return "App unavailable." }
+            let lvl = max(0, min(100, (args["level"] as? Int) ?? 50))
+            guard app.canControlBacklight else { return "Backlight control unavailable (m1ddc not found)." }
+            app.applyBrightness(lvl)
+            return "Backlight set to \(lvl)%."
         case "open_game":
             guard let app else { return "App unavailable." }
             let g = (args["game"] as? String) == "rhythm" ? "rhythm" : "shanhai"
@@ -874,6 +882,7 @@ final class AgentController: ObservableObject {
         case "navigate": let t = (args["tab"] as? String ?? "").capitalized; return ("Opening \(t)…", "Opened \(t)")
         case "set_touch": let on = (args["enabled"] as? Bool ?? false); return ("Setting touch…", "Touch \(on ? "on" : "off")")
         case "set_display_mode": let m = args["mode"] as? String ?? ""; return ("Setting display…", "Display → \(m)")
+        case "set_brightness": return ("Setting brightness…", "Brightness → \(args["level"] as? Int ?? 0)%")
         case "open_game": let g = (args["game"] as? String) == "rhythm" ? "Rhythm Plus" : "山海残卷"; return ("Opening \(g)…", "Opened \(g)")
         case "get_app_state": return ("Checking system…", "Checked system stats")
         case "show_top_processes": return nil
