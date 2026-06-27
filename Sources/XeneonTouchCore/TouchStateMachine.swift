@@ -66,15 +66,17 @@ public struct TouchStateMachine: Sendable {
                 return [.move(p)]
             }
             let prev = last ?? s
-            if abs(dy) >= abs(dx) {
+            // Bias toward scrolling — only a clearly-horizontal drag grabs a
+            // control (e.g. the brightness slider); everything else scrolls.
+            if abs(dx) > abs(dy) * 1.4 {
+                phase = .dragging
+                last = p
+                return [.press(s), .drag(p)]
+            } else {
                 phase = .scrolling
                 last = p
                 return [.scroll(dx: 0, dy: 0, phase: .began),
                         .scroll(dx: p.x - prev.x, dy: p.y - prev.y, phase: .changed)]
-            } else {
-                phase = .dragging
-                last = p
-                return [.press(s), .drag(p)]
             }
 
         case .scrolling:

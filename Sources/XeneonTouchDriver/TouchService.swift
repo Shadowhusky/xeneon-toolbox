@@ -17,6 +17,7 @@ final class TouchDriver {
     private var machine = TouchStateMachine()
     private var decoder = HIDTouchDecoder()
     private var announcedActive = false
+    private var lastPoint: ScreenPoint?   // newest finger position, for scroll-event routing
     var onPresenceChanged: ((Bool) -> Void)?
 
     init(verbose: Bool, flipX: Bool, flipY: Bool, swapXY: Bool, preferredDisplayID: CGDirectDisplayID?) {
@@ -62,6 +63,7 @@ final class TouchDriver {
 
         if !announcedActive { announcedActive = true; onPresenceChanged?(true) }
         let point = CoordinateMapper.mapToScreen(rawX: x, rawY: y, calibration: cal, display: disp)
+        lastPoint = point
         for action in machine.update(contact: decoder.contact, point: point) {
             post(action)
         }
@@ -96,12 +98,16 @@ final class TouchDriver {
     /// ended sequence. wheel1 == dy makes the content track the finger (natural
     /// touch scrolling): a finger swipe up moves the content up.
     private func postScroll(dx: Double, dy: Double, phase: ScrollPhase) {
+        // Keep the cursor under the finger — scroll-wheel events route to the view
+        // at the pointer, so without this the content under the finger never scrolls.
+        if let p = lastPoint { postMouse(.mouseMoved, p) }
         guard let ev = CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
                                wheelCount: 2, wheel1: Int32(dy.rounded()),
                                wheel2: Int32(dx.rounded()), wheel3: 0) else { return }
         ev.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         let cgPhase: Int64 = phase == .began ? 1 : (phase == .changed ? 2 : 4)
         ev.setIntegerValueField(.scrollWheelEventScrollPhase, value: cgPhase)
+        if let p = lastPoint { ev.location = CGPoint(x: p.x, y: p.y) }   // explicit hit-test point
         ev.post(tap: .cgSessionEventTap)
     }
 }

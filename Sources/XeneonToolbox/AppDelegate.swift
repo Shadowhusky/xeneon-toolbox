@@ -74,6 +74,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    // Re-seize the digitizer whenever the app regains focus, so tapping back into
+    // it from another screen re-engages touch immediately.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        model.reacquireTouch()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         model.restoreBacklightOnQuit()   // don't leave the Edge dark if we quit while asleep
     }

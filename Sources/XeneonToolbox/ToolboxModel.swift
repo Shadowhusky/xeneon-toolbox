@@ -56,7 +56,7 @@ final class ToolboxModel: ObservableObject {
     var exportMode = false   // static input bar etc. for off-screen mockup renders
     @Published var touchOn = false
     @Published var edgeDetected = false
-    @Published var gamePref = "shanhai"   // "shanhai" | "rhythm"
+    @Published var gamePref = "rhythm"
 
     // Touch calibration — flips persist and rebuild the driver when changed.
     @Published var flipX = UserDefaults.standard.bool(forKey: "touch.flipX") { didSet { applyCalibration() } }
@@ -165,22 +165,35 @@ final class ToolboxModel: ObservableObject {
 
     func startTouch() {
         touchOn = true
-        attemptAcquire()
+        _ = touch.start()
+        startHeartbeat()
     }
 
-    /// Try to open the digitizer; if it's held (e.g. by the xeneon-touch CLI) or
-    /// not yet ready, keep retrying so touch comes alive once it's free.
-    private func attemptAcquire() {
-        guard touchOn else { return }
-        if touch.start() {
-            retryTimer?.invalidate(); retryTimer = nil
-        } else if retryTimer == nil {
-            let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.attemptAcquire() }
-            }
-            RunLoop.main.add(t, forMode: .common)
-            retryTimer = t
+    /// A timer that never stops while touch is on: as long as we aren't actually
+    /// driving the panel it keeps re-seizing the digitizer, so touch always comes
+    /// back on its own once the device is free (the "always searching" behaviour).
+    private func startHeartbeat() {
+        guard retryTimer == nil else { return }
+        let t = Timer(timeInterval: 2.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.touchHeartbeat() }
         }
+        RunLoop.main.add(t, forMode: .common)
+        retryTimer = t
+    }
+
+    private func touchHeartbeat() {
+        guard touchOn, !edgeDetected else { return }
+        touch.stop()
+        _ = touch.start()
+    }
+
+    /// Force a fresh seize of the digitizer — called when the app regains focus so
+    /// tapping back into it re-engages touch immediately instead of letting the
+    /// panel fall back to acting as a system trackpad.
+    func reacquireTouch() {
+        guard touchOn else { return }
+        touch.stop()
+        _ = touch.start()
     }
 
     func stopTouch() {

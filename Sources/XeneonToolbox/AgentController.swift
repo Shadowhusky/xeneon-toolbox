@@ -286,8 +286,7 @@ final class AgentController: ObservableObject {
                  ["mode": .init(type: .string, enum: ["full", "minimal", "sleep"])], required: ["mode"]),
             tool("set_brightness", "Set the Edge screen backlight from 0 (off) to 100 (full). Use for 'dim the screen' / 'brighten'. To fully turn the screen off, prefer set_display_mode sleep.",
                  ["level": .init(type: .integer)], required: ["level"]),
-            tool("open_game", "Open the Games tab and select a game.",
-                 ["game": .init(type: .string, enum: ["shanhai", "rhythm"])], required: ["game"]),
+            tool("open_game", "Open the Games tab (Rhythm Plus).", [:]),
             tool("show_top_processes", "Show the top CPU-using processes as a visual card on screen.",
                  ["count": .init(type: .integer)]),
             tool("show_card", "Display any data as a touch-friendly card on screen. Give a title and items as \"Label: value\" strings.",
@@ -382,9 +381,8 @@ final class AgentController: ObservableObject {
             return "Backlight set to \(lvl)%."
         case "open_game":
             guard let app else { return "App unavailable." }
-            let g = (args["game"] as? String) == "rhythm" ? "rhythm" : "shanhai"
-            app.gamePref = g; app.route = .games
-            return "Opened \(g == "rhythm" ? "Rhythm Plus" : "山海残卷")."
+            app.gamePref = "rhythm"; app.route = .games
+            return "Opened Rhythm Plus."
         case "get_app_state":
             guard let app else { return "App unavailable." }
             let s = app.metrics.snap
