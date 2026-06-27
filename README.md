@@ -14,6 +14,8 @@ your finger.
 &nbsp;![SwiftUI](https://img.shields.io/badge/SwiftUI-native-0a84ff)
 &nbsp;![License: MIT](https://img.shields.io/badge/License-MIT-44c767)
 
+### [⬇︎ Download for macOS](https://github.com/Shadowhusky/xeneon-toolbox/releases/latest)
+
 </div>
 
 ![Dashboard](docs/img/dashboard.png)
