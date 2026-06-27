@@ -4,25 +4,37 @@ struct ConversationList: View {
     @ObservedObject var agent: AgentController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.accent)
+                Text("CONVERSATIONS").font(.deck(12, .bold)).tracking(1.6).foregroundStyle(Theme.textSecondary)
+            }
+            .padding(.top, 2)
+
             Button { withAnimation { agent.newConversation() } } label: {
                 Label("New chat", systemImage: "plus.circle.fill")
                     .font(.deck(15, .semibold)).foregroundStyle(Theme.accent)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14).padding(.vertical, 13)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.accent.opacity(0.14)))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.accent.opacity(0.25), lineWidth: 1))
             }
             .buttonStyle(.pressable)
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(spacing: 6) {
                     ForEach(agent.conversations) { c in row(c) }
                 }
             }
             Spacer(minLength: 0)
         }
-        .frame(width: 240)
+        .frame(width: 250)
         .frame(maxHeight: .infinity)
+        .padding(.trailing, 18)
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(Theme.stroke).frame(width: 1)
+        }
         .disabled(agent.busy)
         .opacity(agent.busy ? 0.55 : 1)
     }
@@ -39,8 +51,8 @@ struct ConversationList: View {
             Spacer()
             if agent.conversations.count > 1 {
                 Button { withAnimation { agent.delete(c.id) } } label: {
-                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.textFaint)
-                        .frame(width: 22, height: 22)
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.textFaint)
+                        .frame(width: 40, height: 40).contentShape(Rectangle())
                 }
                 .buttonStyle(.pressable)
             }

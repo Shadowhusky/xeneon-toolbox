@@ -166,6 +166,25 @@ struct DeckSpinner: View {
     }
 }
 
+/// Branded "assistant is typing" indicator — three accent dots that pulse in
+/// sequence, instead of a system spinner.
+struct TypingDots: View {
+    var color: Color = Theme.accent
+    @State private var phase = 0
+    private let timer = Timer.publish(every: 0.28, on: .main, in: .common).autoconnect()
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle().fill(color).frame(width: 8, height: 8)
+                    .opacity(phase == i ? 1 : 0.28)
+                    .scaleEffect(phase == i ? 1.2 : 0.85)
+            }
+        }
+        .animation(.easeInOut(duration: 0.28), value: phase)
+        .onReceive(timer) { _ in phase = (phase + 1) % 3 }
+    }
+}
+
 /// Thin horizontal capacity bar.
 struct CapacityBar: View {
     var fraction: Double

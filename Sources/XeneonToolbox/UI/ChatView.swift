@@ -195,9 +195,11 @@ struct ChatView: View {
     }
 
     private var dots: some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
-            Text("…").font(.deck(14)).foregroundStyle(Theme.textFaint)
+        HStack {
+            TypingDots()
+                .padding(.horizontal, 18).padding(.vertical, 15)
+                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
+            Spacer(minLength: 80)
         }
     }
 
@@ -209,6 +211,7 @@ struct ChatView: View {
                     Text(name).font(.deck(13)).foregroundStyle(Theme.textSecondary).lineLimit(1)
                     Button { pendingImageURL = nil; pendingImageName = nil } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.textFaint)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
                     }.buttonStyle(.plain)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
