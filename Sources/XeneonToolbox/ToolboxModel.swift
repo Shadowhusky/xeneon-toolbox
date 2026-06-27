@@ -165,35 +165,34 @@ final class ToolboxModel: ObservableObject {
 
     func startTouch() {
         touchOn = true
-        _ = touch.start()
-        startHeartbeat()
+        attemptAcquire()
     }
 
-    /// A timer that never stops while touch is on: as long as we aren't actually
-    /// driving the panel it keeps re-seizing the digitizer, so touch always comes
-    /// back on its own once the device is free (the "always searching" behaviour).
-    private func startHeartbeat() {
-        guard retryTimer == nil else { return }
-        let t = Timer(timeInterval: 2.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.touchHeartbeat() }
+    /// Open + seize the digitizer once. If the manager can't open yet (e.g. the
+    /// `xeneon-touch` CLI holds it), retry every few seconds until it can. Once
+    /// open, the IOHIDManager matches the panel on its own and re-matches if it's
+    /// reconnected — no need to keep tearing it down (that thrash kept touch stuck
+    /// "searching" and let macOS grab the panel as a trackpad in the gaps).
+    private func attemptAcquire() {
+        guard touchOn else { return }
+        if touch.start() {
+            retryTimer?.invalidate(); retryTimer = nil
+        } else if retryTimer == nil {
+            let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.attemptAcquire() }
+            }
+            RunLoop.main.add(t, forMode: .common)
+            retryTimer = t
         }
-        RunLoop.main.add(t, forMode: .common)
-        retryTimer = t
     }
 
-    private func touchHeartbeat() {
+    /// Re-seize when the app regains focus — but only if we're not already driving
+    /// the panel, so a working session is never interrupted. This restores touch
+    /// after macOS has reclaimed the digitizer (as a trackpad) while backgrounded.
+    func reacquireTouch() {
         guard touchOn, !edgeDetected else { return }
         touch.stop()
-        _ = touch.start()
-    }
-
-    /// Force a fresh seize of the digitizer — called when the app regains focus so
-    /// tapping back into it re-engages touch immediately instead of letting the
-    /// panel fall back to acting as a system trackpad.
-    func reacquireTouch() {
-        guard touchOn else { return }
-        touch.stop()
-        _ = touch.start()
+        attemptAcquire()
     }
 
     func stopTouch() {
