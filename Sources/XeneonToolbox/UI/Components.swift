@@ -10,13 +10,18 @@ struct TileSurface<Content: View>: View {
             .padding(22)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(
-                ZStack {
-                    RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
-                        .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom],
-                                             startPoint: .top, endPoint: .bottom))
-                    RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
-                        .fill(RadialGradient(colors: [accent.opacity(0.16), .clear],
-                                             center: .top, startRadius: 0, endRadius: 260))
+                GeometryReader { geo in
+                    ZStack {
+                        RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
+                            .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom],
+                                                 startPoint: .top, endPoint: .bottom))
+                        // Lit-from-top sheen scales with the tile so wide and narrow
+                        // tiles catch light proportionally.
+                        RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
+                            .fill(RadialGradient(colors: [accent.opacity(0.16), .clear],
+                                                 center: .top, startRadius: 0,
+                                                 endRadius: max(180, geo.size.width * 0.6)))
+                    }
                 }
             )
             .overlay(
@@ -52,8 +57,8 @@ struct TileHeader: View {
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(accent)
                 Text(title.uppercased())
-                    .font(.deck(13, .bold))
-                    .tracking(1.8)
+                    .font(.deckLabel)
+                    .tracking(Theme.labelTracking)
                     .foregroundStyle(Theme.textSecondary)
                 Spacer(minLength: 0)
             }
