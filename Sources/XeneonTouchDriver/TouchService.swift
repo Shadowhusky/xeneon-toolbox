@@ -32,13 +32,20 @@ final class TouchDriver {
         guard calibration == nil,
               let elements = IOHIDDeviceCopyMatchingElements(device, nil, 0) as? [IOHIDElement],
               let xr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageX),
-              let yr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageY) else { return }
+              let yr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageY) else {
+            if debug { warn("TOUCH: device matched but no X/Y range found\n") }
+            return
+        }
         calibration = AxisCalibration(minX: xr.0, maxX: xr.1, minY: yr.0, maxY: yr.1,
                                       flipX: flipX, flipY: flipY, swapXY: swapXY)
         display = findEdgeDisplay(preferred: preferredDisplayID)
         decoder = HIDTouchDecoder()
+        if debug { warn("TOUCH: connected, X[\(xr.0),\(xr.1)] Y[\(yr.0),\(yr.1)] display=\(display != nil)\n") }
         onPresenceChanged?(display != nil)
     }
+
+    private let debug = ProcessInfo.processInfo.environment["XENEON_TOUCH_DEBUG"] != nil
+    private var dbgCount = 0
 
     func deviceRemoved() {
         guard calibration != nil else { return }
@@ -76,6 +83,10 @@ final class TouchDriver {
     }
 
     private func post(_ action: PointerAction) {
+        if debug {
+            dbgCount += 1
+            if dbgCount <= 400 { warn("TOUCH act: \(action)\n") }
+        }
         switch action {
         case .move(let p):    postMouse(.mouseMoved, p)
         case .press(let p):   postMouse(.leftMouseDown, p)
@@ -166,7 +177,10 @@ public final class TouchService {
     @discardableResult
     public func start() -> Bool {
         guard !isRunning else { return true }
-        guard let (manager, _) = openManager(preferSeize: config.preferSeize) else { return false }
+        guard let (manager, seized) = openManager(preferSeize: config.preferSeize) else { return false }
+        if config.verbose || ProcessInfo.processInfo.environment["XENEON_TOUCH_DEBUG"] != nil {
+            warn("TOUCH: HID manager opened, seized=\(seized)\n")
+        }
 
         let driver = TouchDriver(verbose: config.verbose,
                                  flipX: config.flipX, flipY: config.flipY, swapXY: config.swapXY,

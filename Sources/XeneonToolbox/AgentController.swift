@@ -915,11 +915,42 @@ final class AgentController: ObservableObject {
         }
     }
 
+    /// Turn any error into a readable message (SwiftOpenAI's APIError otherwise
+    /// surfaces as the useless "(SwiftOpenAI.APIError error 1.)"), plus whether
+    /// it's worth retrying and an optional tip.
+    private func describe(_ error: Error) -> (message: String, retriable: Bool, tip: String?) {
+        func trim(_ s: String) -> String {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.count > 280 ? String(t.prefix(280)) + "…" : t
+        }
+        if let api = error as? APIError {
+            switch api {
+            case .responseUnsuccessful(let desc, let code):
+                let retri = code >= 500 || code == 429 || code == 408
+                var tip: String?
+                if code == 404 { tip = "The model name may be wrong — pick it again in Assistant settings." }
+                else if code == 400 { tip = "The server rejected the request — the conversation may be too long for this model's context." }
+                return ("Model server error \(code): \(trim(desc))", retri, tip)
+            case .timeOutError:
+                return ("The model timed out — it may still be loading, or the prompt is large.", true, nil)
+            case .invalidData, .bothDecodingStrategiesFailed:
+                return ("The server sent a response the app couldn't read.", true, nil)
+            case .jsonDecodingFailure(let d):
+                return ("Couldn't parse the model's response: \(trim(d))", true, nil)
+            case .requestFailed(let d), .dataCouldNotBeReadMissingData(let d):
+                return (trim(d), false, nil)
+            }
+        }
+        let ns = error as NSError
+        return (error.localizedDescription, ns.domain == NSURLErrorDomain, nil)
+    }
+
     private func runLoop() async {
         defer { busy = false; task = nil; writeStore(); maybeAutoTitle() }
         var assistantTurnID: UUID?
         toolsTurnID = nil
 
+        var transientRetries = 0
         let maxRounds = 10
         for round in 0..<maxRounds {
             let messages = [ChatCompletionParameters.Message(role: .system, content: .text(systemPrompt))] + history
@@ -974,22 +1005,32 @@ final class AgentController: ObservableObject {
                 }
                 emit(force: true)   // flush final tokens
             } catch {
-                // Many local endpoints reject tool params; retry once without tools.
-                let msg = error.localizedDescription.lowercased()
-                if !toolsUnsupported, msg.contains("tool") || msg.contains("function") {
+                if error is CancellationError || Task.isCancelled { return }
+                let info = describe(error)
+                let m = info.message.lowercased()
+                // Many local endpoints reject tool params with a 400 — retry once
+                // without tools. (Check the real server message, not the opaque
+                // APIError localizedDescription, which never contains "tool".)
+                if !toolsUnsupported, m.contains("tool") || m.contains("function") {
                     toolsUnsupported = true
                     continue
                 }
-                if !(error is CancellationError) && !Task.isCancelled {
-                    var text = "⚠️ \(error.localizedDescription)"
-                    let m = msg
-                    if m.contains("tls") || m.contains("ssl") || m.contains("secure connection") {
-                        text += "\n\nTip: local model servers use plain HTTP — set your endpoint to http:// (not https://)."
-                    } else if m.contains("connection") || m.contains("could not connect") || m.contains("offline") {
-                        text += "\n\nTip: check the endpoint host/port, and that the model server allows connections from this machine."
-                    }
-                    turns.append(Turn(role: "error", text: text))
+                // Transient failures (5xx/429/timeout/decoding/network) — retry a
+                // couple times before giving up, as long as nothing streamed yet.
+                if info.retriable, liveText.isEmpty, transientRetries < 2 {
+                    transientRetries += 1
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                    continue
                 }
+                var text = "⚠️ \(info.message)"
+                if let tip = info.tip {
+                    text += "\n\n\(tip)"
+                } else if m.contains("tls") || m.contains("ssl") || m.contains("secure connection") {
+                    text += "\n\nTip: local model servers use plain HTTP — set your endpoint to http:// (not https://)."
+                } else if m.contains("connect") || m.contains("offline") || m.contains("network") {
+                    text += "\n\nTip: check the endpoint host/port, and that the model server is running and reachable."
+                }
+                turns.append(Turn(role: "error", text: text))
                 return
             }
             if Task.isCancelled { return }
