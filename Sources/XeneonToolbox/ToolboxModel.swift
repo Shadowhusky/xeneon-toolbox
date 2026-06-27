@@ -35,6 +35,7 @@ final class ToolboxModel: ObservableObject {
     let metrics = SystemMetrics()
     let weather = WeatherService()
     let todos = TodoStore()
+    let worldClocks = WorldClockStore()
     let canControlBacklight = Backlight.isAvailable
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
     private var preDimBrightness = 90             // restored when waking from sleep
