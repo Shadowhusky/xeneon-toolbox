@@ -140,7 +140,7 @@ struct NetworkTile: View {
         let r = Fmt.rate(rate)
         return HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: icon).font(.system(size: 17, weight: .bold)).foregroundStyle(color)
-            Text(r.value).font(.readout(34, .bold)).foregroundStyle(Theme.textPrimary)
+            Text(r.value).font(.readout(44, .bold)).foregroundStyle(Theme.textPrimary)
             Text(r.unit).font(.deck(15)).foregroundStyle(Theme.textSecondary)
         }
     }
@@ -159,6 +159,7 @@ struct StorageTile: View {
                     Text(Fmt.gb(snap.diskFree)).font(.readout(58, .bold)).foregroundStyle(Theme.textPrimary)
                     Text("GB free").font(.deck(18)).foregroundStyle(Theme.textSecondary)
                 }
+                .lineLimit(1).minimumScaleFactor(0.6)
                 Spacer()
                 CapacityBar(fraction: snap.diskUsedFraction, color: tint)
                 Spacer().frame(height: 12)
@@ -271,7 +272,7 @@ struct ControlsTile: View {
                 Button { showCalibrate.toggle() } label: {
                     Label("Calibrate", systemImage: "slider.horizontal.3")
                         .font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
-                        .frame(maxWidth: .infinity).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.05)))
                 }
                 .buttonStyle(.plain)
