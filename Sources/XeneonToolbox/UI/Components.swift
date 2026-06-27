@@ -75,7 +75,7 @@ struct RingGauge<Center: View>: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Color.white.opacity(0.06), lineWidth: lineWidth)
+                .stroke(Theme.trackFill, lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: max(0.001, min(1, value)))
                 .stroke(
@@ -102,13 +102,20 @@ struct Sparkline: View {
         GeometryReader { geo in
             let pts = points(in: geo.size)
             ZStack {
-                if pts.count > 1 {
+                // Resting state: a faint baseline so the tile never reads as an
+                // empty void before history accumulates.
+                if pts.count <= 1 {
+                    Capsule()
+                        .fill(Theme.trackFill)
+                        .frame(height: 2)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                } else {
                     area(pts, in: geo.size)
                         .fill(LinearGradient(colors: [color.opacity(fillOpacity), color.opacity(0)],
                                              startPoint: .top, endPoint: .bottom))
                     line(pts)
                         .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-                        .shadow(color: color.opacity(0.6), radius: 4)
+                        .deckGlow(color, strength: 0.6)
                 }
             }
         }
@@ -149,11 +156,11 @@ struct CapacityBar: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.07))
+                Capsule().fill(Theme.trackFill)
                 Capsule()
                     .fill(LinearGradient(colors: [color.opacity(0.7), color], startPoint: .leading, endPoint: .trailing))
                     .frame(width: max(4, geo.size.width * CGFloat(max(0, min(1, fraction)))))
-                    .shadow(color: color.opacity(0.5), radius: 5)
+                    .deckGlow(color, strength: 0.8)
             }
         }
         .frame(height: 10)

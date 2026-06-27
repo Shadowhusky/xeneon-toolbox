@@ -129,7 +129,7 @@ struct ChatView: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Ask anything — or tell me to drive the app").font(.deck(20, .semibold)).foregroundStyle(Theme.textSecondary)
+                Text("Ask anything — or tell me to drive the app").font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
                 Text("Tap a suggestion to start, or attach an image.").font(.deck(14)).foregroundStyle(Theme.textFaint)
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 10)], alignment: .leading, spacing: 10) {
@@ -188,7 +188,7 @@ struct ChatView: View {
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(isUser ? Theme.accent.opacity(0.22) : Color.white.opacity(0.06)))
-                .frame(maxWidth: 1500, alignment: isUser ? .trailing : .leading)
+                .frame(maxWidth: 860, alignment: isUser ? .trailing : .leading)
                 if !isUser { Spacer(minLength: 80) }
             }
         }

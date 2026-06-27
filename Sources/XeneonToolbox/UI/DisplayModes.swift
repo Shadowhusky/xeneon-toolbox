@@ -1,13 +1,13 @@
 import SwiftUI
 import ToolboxKit
 
-/// Minimal mode — mostly-black, just the time, a few vitals, and the next
-/// reminder (OLED/battery friendly). Tap anywhere to return to full.
+/// Minimal mode — mostly-black ambient screen composed for the Edge's ultrawide
+/// format: the clock reads as the hero on the left, vitals and the next reminder
+/// sit in a quiet right-hand column. Tap anywhere to return to full.
 struct MinimalView: View {
     @ObservedObject var metrics: SystemMetrics
     @ObservedObject var todos: TodoStore
 
-    /// Soonest-due open reminder (overdue ones sort first, being earliest).
     private var nextReminder: TodoItem? {
         todos.items.filter { !$0.done && $0.dueAt != nil }
             .min { ($0.dueAt ?? .distantFuture) < ($1.dueAt ?? .distantFuture) }
@@ -17,53 +17,91 @@ struct MinimalView: View {
     var body: some View {
         ZStack {
             Color.black
-            VStack(spacing: 26) {
-                TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                    VStack(spacing: 6) {
-                        Text(ctx.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-                            .font(.system(size: 140, weight: .bold, design: .rounded)).monospacedDigit()
-                            .foregroundStyle(.white.opacity(0.9))
-                        Text(ctx.date, format: .dateTime.weekday(.wide).month(.abbreviated).day())
-                            .font(.deck(22, .medium)).foregroundStyle(.white.opacity(0.4))
-                    }
-                }
-                HStack(spacing: 46) {
-                    stat("cpu.fill", Fmt.percent(metrics.snap.cpu), Theme.cpu)
-                    stat("memorychip.fill", Fmt.percent(metrics.snap.memFraction), Theme.memory)
-                    if let b = metrics.snap.battery {
-                        stat(b.charging ? "bolt.fill" : "battery.100", Fmt.percent(b.level), Theme.battery)
-                    }
-                }
-                taskLine
+            HStack(spacing: 0) {
+                clockBlock
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 110)
+
+                Rectangle()
+                    .fill(LinearGradient(colors: [.clear, Theme.stroke, Theme.stroke, .clear],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: 1).padding(.vertical, 96)
+
+                rightColumn
+                    .frame(width: 540)
+                    .padding(.horizontal, 64)
             }
             VStack {
                 Spacer()
-                Text("Tap anywhere to exit").font(.deck(13)).foregroundStyle(.white.opacity(0.22)).padding(.bottom, 26)
+                Text("Tap anywhere to exit")
+                    .font(.deck(13)).foregroundStyle(.white.opacity(0.22)).padding(.bottom, 26)
             }
         }
     }
 
-    @ViewBuilder private var taskLine: some View {
+    private var clockBlock: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            VStack(alignment: .leading, spacing: 6) {
+                Text(ctx.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+                    .font(.readout(176, .medium)).tracking(-3)
+                    .foregroundStyle(.white.opacity(0.88))
+                Text(ctx.date, format: .dateTime.weekday(.wide).month(.abbreviated).day())
+                    .font(.deck(27, .medium)).foregroundStyle(.white.opacity(0.42))
+                    .padding(.leading, 4)
+            }
+        }
+    }
+
+    private var rightColumn: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            vital("cpu.fill", Fmt.percent(metrics.snap.cpu), "CPU", Theme.cpu)
+            vital("memorychip.fill", Fmt.percent(metrics.snap.memFraction), "MEM", Theme.memory)
+            if let b = metrics.snap.battery {
+                let low = b.level < 0.2 && !b.charging
+                vital(b.charging ? "bolt.fill" : (low ? "battery.25" : "battery.100"),
+                      Fmt.percent(b.level), "BATT", low ? Theme.batteryLow : Theme.battery)
+            }
+            Rectangle().fill(Theme.stroke).frame(height: 1).padding(.vertical, 4)
+            reminderLine
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func vital(_ icon: String, _ value: String, _ label: String, _ color: Color) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: icon).font(.system(size: 26, weight: .bold))
+                .foregroundStyle(color.opacity(0.6)).frame(width: 34)
+            Text(value).font(.readout(42, .semibold)).foregroundStyle(color.opacity(0.92))
+                .frame(width: 132, alignment: .leading)
+            Text(label).font(.deck(13, .bold)).tracking(1.8).foregroundStyle(.white.opacity(0.30))
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder private var reminderLine: some View {
         if let r = nextReminder, let due = r.dueAt {
             let overdue = r.isOverdue
-            HStack(spacing: 9) {
-                Image(systemName: overdue ? "exclamationmark.circle.fill" : "bell.fill").font(.system(size: 15))
+            let color = overdue ? Theme.batteryLow : Theme.netUp
+            HStack(spacing: 11) {
+                Image(systemName: overdue ? "exclamationmark.circle.fill" : "bell.fill").font(.system(size: 16))
                 Text("\(r.title) · \(Self.time(due))").font(.deck(18, .medium)).lineLimit(1)
+                Spacer(minLength: 0)
             }
-            .foregroundStyle((overdue ? Theme.batteryLow : Color.white).opacity(overdue ? 0.75 : 0.45))
+            .foregroundStyle(color.opacity(overdue ? 0.95 : 0.8))
         } else if openCount > 0 {
-            HStack(spacing: 9) {
-                Image(systemName: "checklist").font(.system(size: 15))
-                Text("\(openCount) task\(openCount == 1 ? "" : "s")").font(.deck(18, .medium))
+            HStack(spacing: 11) {
+                Image(systemName: "checklist").font(.system(size: 16))
+                Text("\(openCount) task\(openCount == 1 ? "" : "s") open").font(.deck(18, .medium))
+                Spacer(minLength: 0)
             }
-            .foregroundStyle(.white.opacity(0.34))
-        }
-    }
-
-    private func stat(_ icon: String, _ value: String, _ color: Color) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon).font(.system(size: 20, weight: .bold)).foregroundStyle(color.opacity(0.85))
-            Text(value).font(.readout(28, .semibold)).foregroundStyle(.white.opacity(0.7))
+            .foregroundStyle(.white.opacity(0.4))
+        } else {
+            HStack(spacing: 11) {
+                Image(systemName: "sparkles").font(.system(size: 16))
+                Text("All clear").font(.deck(18, .medium))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.white.opacity(0.30))
         }
     }
 
@@ -77,21 +115,22 @@ struct MinimalView: View {
     }
 }
 
-/// Sleep mode — pure black with a very dim clock that drifts slowly to avoid
-/// burn-in. Monitoring is stopped while here. Tap anywhere to wake.
+/// Sleep mode — pure black with a very dim clock that drifts slowly and smoothly
+/// to avoid burn-in. Monitoring is stopped while here. Tap anywhere to wake.
 struct SleepView: View {
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+        TimelineView(.periodic(from: .now, by: 12)) { ctx in
             GeometryReader { geo in
-                let m = Calendar.current.component(.minute, from: ctx.date)
-                let dx = CGFloat((m % 7) - 3) * 26
-                let dy = CGFloat((m % 5) - 2) * 26
+                let t = ctx.date.timeIntervalSinceReferenceDate
+                let dx = CGFloat(sin(t / 47)) * geo.size.width * 0.17
+                let dy = CGFloat(cos(t / 61)) * geo.size.height * 0.22
                 ZStack {
                     Color.black
                     Text(ctx.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-                        .font(.system(size: 58, weight: .light, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.13))
+                        .font(.system(size: 60, weight: .light, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.12))
                         .position(x: geo.size.width / 2 + dx, y: geo.size.height / 2 + dy)
+                        .animation(.easeInOut(duration: 11), value: ctx.date)
                 }
             }
         }
