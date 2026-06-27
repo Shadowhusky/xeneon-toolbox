@@ -376,7 +376,7 @@ final class AgentController: ObservableObject {
         case "set_brightness":
             guard let app else { return "App unavailable." }
             let lvl = max(0, min(100, (args["level"] as? Int) ?? 50))
-            guard app.canControlBacklight else { return "Backlight control unavailable (m1ddc not found)." }
+            guard app.canControlBacklight else { return "I can't adjust the brightness on this Mac." }
             app.applyBrightness(lvl)
             return "Backlight set to \(lvl)%."
         case "open_game":
@@ -561,9 +561,11 @@ final class AgentController: ObservableObject {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["model": "gpt-image-1", "prompt": prompt, "size": "1024x1024", "n": 1])
-        guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return "Image request failed." }
+        guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return "Couldn't create the image — please try again." }
         if let http = resp as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            return "Image generation failed (HTTP \(http.statusCode))."
+            return http.statusCode == 401 || http.statusCode == 403
+                ? "Couldn't create the image — the API key looks invalid. Check it in Assistant settings."
+                : "Couldn't create the image — please try again."
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let first = (json["data"] as? [[String: Any]])?.first else { return "No image returned." }
@@ -915,34 +917,35 @@ final class AgentController: ObservableObject {
         }
     }
 
-    /// Turn any error into a readable message (SwiftOpenAI's APIError otherwise
-    /// surfaces as the useless "(SwiftOpenAI.APIError error 1.)"), plus whether
-    /// it's worth retrying and an optional tip.
+    /// Plain-language version of any error for the user (no status codes or
+    /// jargon), plus whether it's worth retrying and an optional next step.
     private func describe(_ error: Error) -> (message: String, retriable: Bool, tip: String?) {
-        func trim(_ s: String) -> String {
-            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            return t.count > 280 ? String(t.prefix(280)) + "…" : t
-        }
         if let api = error as? APIError {
             switch api {
-            case .responseUnsuccessful(let desc, let code):
-                let retri = code >= 500 || code == 429 || code == 408
-                var tip: String?
-                if code == 404 { tip = "The model name may be wrong — pick it again in Assistant settings." }
-                else if code == 400 { tip = "The server rejected the request — the conversation may be too long for this model's context." }
-                return ("Model server error \(code): \(trim(desc))", retri, tip)
+            case .responseUnsuccessful(_, let code):
+                switch code {
+                case 401, 403: return ("The assistant needs a valid key.", false, "Add or update it in Assistant settings.")
+                case 404:      return ("That assistant isn't available.", false, "Choose a model in Assistant settings.")
+                case 400, 413: return ("That was a bit too much for the assistant to handle.", false, "Try a shorter message, or start a new chat.")
+                case 429:      return ("The assistant is busy right now.", true, "Give it a moment and try again.")
+                default:       return ("The assistant ran into a problem.", code >= 500, nil)
+                }
             case .timeOutError:
-                return ("The model timed out — it may still be loading, or the prompt is large.", true, nil)
-            case .invalidData, .bothDecodingStrategiesFailed:
-                return ("The server sent a response the app couldn't read.", true, nil)
-            case .jsonDecodingFailure(let d):
-                return ("Couldn't parse the model's response: \(trim(d))", true, nil)
-            case .requestFailed(let d), .dataCouldNotBeReadMissingData(let d):
-                return (trim(d), false, nil)
+                return ("The assistant took too long to respond.", true, "It may still be starting up — try again in a moment.")
+            case .invalidData, .bothDecodingStrategiesFailed, .jsonDecodingFailure:
+                return ("The assistant's reply got garbled.", true, nil)
+            case .requestFailed, .dataCouldNotBeReadMissingData:
+                return ("Couldn't reach the assistant.", true, "Make sure it's running and connected.")
             }
         }
         let ns = error as NSError
-        return (error.localizedDescription, ns.domain == NSURLErrorDomain, nil)
+        if ns.domain == NSURLErrorDomain {
+            if ns.code == NSURLErrorSecureConnectionFailed || error.localizedDescription.lowercased().contains("secure connection") {
+                return ("Couldn't connect securely to the assistant.", false, "In Assistant settings, make the address start with http://")
+            }
+            return ("Couldn't reach the assistant.", true, "Make sure it's running and connected.")
+        }
+        return ("Something went wrong with the assistant.", false, nil)
     }
 
     private func runLoop() async {
@@ -1006,30 +1009,24 @@ final class AgentController: ObservableObject {
                 emit(force: true)   // flush final tokens
             } catch {
                 if error is CancellationError || Task.isCancelled { return }
-                let info = describe(error)
-                let m = info.message.lowercased()
-                // Many local endpoints reject tool params with a 400 — retry once
-                // without tools. (Check the real server message, not the opaque
-                // APIError localizedDescription, which never contains "tool".)
-                if !toolsUnsupported, m.contains("tool") || m.contains("function") {
+                // Use the RAW detail (not the friendly message) to detect a tool
+                // rejection, so a server that rejects tool params retries without
+                // tools instead of surfacing an error.
+                let raw = (error as? APIError)?.displayDescription.lowercased() ?? error.localizedDescription.lowercased()
+                if !toolsUnsupported, raw.contains("tool") || raw.contains("function") {
                     toolsUnsupported = true
                     continue
                 }
-                // Transient failures (5xx/429/timeout/decoding/network) — retry a
-                // couple times before giving up, as long as nothing streamed yet.
+                let info = describe(error)
+                // Transient failures — retry a couple times before giving up, as
+                // long as nothing has streamed yet.
                 if info.retriable, liveText.isEmpty, transientRetries < 2 {
                     transientRetries += 1
                     try? await Task.sleep(nanoseconds: 700_000_000)
                     continue
                 }
                 var text = "⚠️ \(info.message)"
-                if let tip = info.tip {
-                    text += "\n\n\(tip)"
-                } else if m.contains("tls") || m.contains("ssl") || m.contains("secure connection") {
-                    text += "\n\nTip: local model servers use plain HTTP — set your endpoint to http:// (not https://)."
-                } else if m.contains("connect") || m.contains("offline") || m.contains("network") {
-                    text += "\n\nTip: check the endpoint host/port, and that the model server is running and reachable."
-                }
+                if let tip = info.tip { text += "\n\n\(tip)" }
                 turns.append(Turn(role: "error", text: text))
                 return
             }

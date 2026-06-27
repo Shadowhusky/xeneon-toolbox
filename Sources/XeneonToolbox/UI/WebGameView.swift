@@ -23,6 +23,8 @@ final class GameWebView: WKWebView {
     func grabFocus() {
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.window else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            if !window.isKeyWindow { window.makeKeyAndOrderFront(nil) }
             window.makeFirstResponder(self)
         }
     }

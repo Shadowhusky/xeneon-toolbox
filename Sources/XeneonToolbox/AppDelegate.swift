@@ -4,6 +4,11 @@ import SwiftUI
 final class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+    // A touchscreen deck has no keyboard chrome; if a keystroke reaches the window
+    // unhandled (no text field or game focused), swallow it instead of letting
+    // macOS sound the system alert beep. Menu shortcuts (⌘C etc.) use a separate
+    // key-equivalent path and are unaffected.
+    override func keyDown(with event: NSEvent) { /* swallow — no beep */ }
 }
 
 /// Lets a tap act immediately even when the window isn't focused, so injected

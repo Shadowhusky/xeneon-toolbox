@@ -34,7 +34,7 @@ struct SettingsView: View {
                             modeButton("Sleep", "moon.fill") { model.setDisplay(.sleep); dismiss() }
                         }
                     }
-                    section("Backlight", "The Edge is an LCD — a black screen saves no power. Turn the backlight down or off to actually save power.", "sun.max.fill", Theme.netUp) {
+                    section("Screen", "Dim the screen, or turn it off to save power.", "sun.max.fill", Theme.netUp) {
                         if model.canControlBacklight {
                             HStack(spacing: 12) {
                                 Image(systemName: "sun.min.fill").foregroundStyle(Theme.textFaint)
@@ -48,11 +48,8 @@ struct SettingsView: View {
                         } else {
                             HStack(spacing: 10) {
                                 Image(systemName: "info.circle.fill").foregroundStyle(Theme.netUp)
-                                Text("Install m1ddc to control the backlight").font(.deck(13)).foregroundStyle(Theme.textSecondary)
+                                Text("Brightness can't be adjusted on this Mac.").font(.deck(13)).foregroundStyle(Theme.textSecondary)
                                 Spacer(minLength: 0)
-                                Text("brew install m1ddc").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.textPrimary)
-                                    .padding(.horizontal, 8).padding(.vertical, 5)
-                                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
                             }
                         }
                         Button { model.turnScreenOff(); dismiss() } label: {
@@ -61,7 +58,7 @@ struct SettingsView: View {
                                 .frame(maxWidth: .infinity, minHeight: 44)
                                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
                         }.buttonStyle(.pressable)
-                        Text(model.canControlBacklight ? "Cuts the backlight to its minimum. Tap the screen to wake." : "Shows a black screen and pauses monitoring. Tap to wake. (Backlight stays on without m1ddc.)")
+                        Text("Tap the screen to turn it back on.")
                             .font(.deck(12)).foregroundStyle(Theme.textFaint)
                     }
                     section("Assistant", "Conversations are stored on this Mac.", "sparkles", Theme.batteryLow) {
