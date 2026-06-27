@@ -75,13 +75,11 @@ final class TouchDriver {
 
     private func post(_ action: PointerAction) {
         switch action {
-        case .moveAndPress(let p):
-            postMouse(.mouseMoved, p)
-            postMouse(.leftMouseDown, p)
-        case .drag(let p):
-            postMouse(.leftMouseDragged, p)
-        case .release(let p):
-            postMouse(.leftMouseUp, p)
+        case .move(let p):    postMouse(.mouseMoved, p)
+        case .press(let p):   postMouse(.leftMouseDown, p)
+        case .drag(let p):    postMouse(.leftMouseDragged, p)
+        case .release(let p): postMouse(.leftMouseUp, p)
+        case .scroll(let dx, let dy, let phase): postScroll(dx: dx, dy: dy, phase: phase)
         }
     }
 
@@ -90,6 +88,21 @@ final class TouchDriver {
         if let ev = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: pos, mouseButton: .left) {
             ev.post(tap: .cgSessionEventTap)
         }
+    }
+
+    /// Turn a finger drag into a *continuous* scroll-wheel event. macOS SwiftUI
+    /// scroll views ignore legacy (line/pixel) wheel events and only react to
+    /// continuous, phase-framed scrolls — so each gesture is a began…changed…
+    /// ended sequence. wheel1 == dy makes the content track the finger (natural
+    /// touch scrolling): a finger swipe up moves the content up.
+    private func postScroll(dx: Double, dy: Double, phase: ScrollPhase) {
+        guard let ev = CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                               wheelCount: 2, wheel1: Int32(dy.rounded()),
+                               wheel2: Int32(dx.rounded()), wheel3: 0) else { return }
+        ev.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        let cgPhase: Int64 = phase == .began ? 1 : (phase == .changed ? 2 : 4)
+        ev.setIntegerValueField(.scrollWheelEventScrollPhase, value: cgPhase)
+        ev.post(tap: .cgSessionEventTap)
     }
 }
 

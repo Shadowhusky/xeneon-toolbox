@@ -16,9 +16,19 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
     private let model = ToolboxModel()
+    private var noNapToken: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
+
+        // The touch driver reads the digitizer on the main run loop. When the app
+        // isn't frontmost (you're working on another screen), App Nap would
+        // throttle that loop and touch would freeze until you click back in.
+        // Holding a user-initiated, latency-critical activity disables App Nap so
+        // touch keeps working continuously.
+        noNapToken = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .latencyCritical],
+            reason: "Xeneon Edge touch input runs continuously, including while another app is focused")
 
         // Headless high-res export: render the UI off-screen at NxN scale (the UI
         // is vector, so this is far crisper than capturing the 2560x720 panel).
