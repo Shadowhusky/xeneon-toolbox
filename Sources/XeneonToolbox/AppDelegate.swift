@@ -47,7 +47,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 2560, height: 720)
         let devMode = ProcessInfo.processInfo.environment["XENEON_NO_FULLSCREEN"] != nil
 
-        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        // Kiosk by default: a borderless window covering the whole Edge, rather
+        // than macOS native fullscreen. Native fullscreen lets the system steal
+        // Esc (and ⌘ gestures) to exit — which interrupted in-game menus — whereas
+        // a borderless cover can't be "exited", so those keys reach the app/game.
+        // Dev mode keeps a normal titled window for off-screen capture.
+        let style: NSWindow.StyleMask = devMode
+            ? [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            : [.borderless]
         let win = KeyableWindow(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
         win.title = "Xeneon Toolbox"
         win.titlebarAppearsTransparent = true
@@ -55,26 +62,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         win.isOpaque = true
         win.backgroundColor = .black
         win.hasShadow = false
-
-        win.collectionBehavior = [.fullScreenPrimary]
         win.acceptsMouseMovedEvents = true
         win.contentView = FirstMouseHostingView(rootView: RootView(model: model, metrics: model.metrics))
         win.setFrame(frame, display: true)
+
+        if !devMode {
+            // Sit just above the menu bar so the panel fully covers the Edge (incl.
+            // any per-display menu bar) without native fullscreen.
+            win.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
+            win.collectionBehavior = [.canJoinAllSpaces, .stationary]
+            NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
+        }
+
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         fputs("WINDOW_ID=\(win.windowNumber)\n", stderr)
 
         self.window = win
         model.onAppear()
-
-        // Default to native fullscreen on the Edge — this hides the system menu
-        // bar and gives the panel the whole display. Skipped in dev for capture.
-        if !devMode {
-            NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                if !win.styleMask.contains(.fullScreen) { win.toggleFullScreen(nil) }
-            }
-        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
