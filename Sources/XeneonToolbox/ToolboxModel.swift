@@ -25,6 +25,16 @@ enum AppRoute: String, CaseIterable, Identifiable {
         case .chat: return "sparkles"
         }
     }
+    /// Per-destination accent so the active app lights up in its own hue.
+    var accent: Color {
+        switch self {
+        case .dashboard: return Theme.accent
+        case .clock: return Theme.time
+        case .tasks: return Theme.netUp
+        case .games: return Theme.gpu
+        case .chat: return Theme.memory
+        }
+    }
 }
 
 /// Owns the embedded touch driver, the metrics engine, and app navigation.

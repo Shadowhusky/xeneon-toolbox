@@ -24,6 +24,7 @@ enum Theme {
     static let battery = Color(red: 0.46, green: 0.89, blue: 0.58)  // green
     static let batteryLow = Color(red: 0.98, green: 0.45, blue: 0.42)
     static let accent = Color(red: 0.33, green: 0.84, blue: 0.92)
+    static let time = Color(red: 0.70, green: 0.78, blue: 0.88)     // ice — clock identity, distinct from cpu cyan
 
     static let tileCorner: CGFloat = 26
     static let tileGap: CGFloat = 16

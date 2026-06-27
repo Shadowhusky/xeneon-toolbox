@@ -26,19 +26,23 @@ struct GamesView: View {
                 Text("Games").font(.deck(28, .bold)).foregroundStyle(Theme.textPrimary)
                 Spacer()
                 ForEach(Game.allCases, id: \.self) { g in
+                    let on = selected == g
                     Button { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { model.gamePref = g.key } } label: {
                         Text(g.rawValue)
                             .font(.deck(18, .semibold))
-                            .foregroundStyle(selected == g ? Theme.accent : Theme.textSecondary)
+                            .foregroundStyle(on ? Theme.accent : Theme.textSecondary)
                             .padding(.horizontal, 22).padding(.vertical, 13)
-                            .background(Capsule().fill(selected == g ? Theme.accent.opacity(0.18) : Color.white.opacity(0.05)))
+                            .background(Capsule().fill(on ? Theme.accent.opacity(0.20) : Color.white.opacity(0.05)))
+                            .overlay(Capsule().strokeBorder(on ? Theme.accent.opacity(0.55) : Theme.strokeStrong, lineWidth: 1))
+                            .deckGlow(on ? Theme.accent : .clear, strength: 0.6)
                     }
                     .buttonStyle(.pressable)
                 }
                 Button { reload() } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Theme.textSecondary).frame(width: 46, height: 46)
+                        .foregroundStyle(Theme.textPrimary).frame(width: 46, height: 46)
                         .background(Circle().fill(Color.white.opacity(0.06)))
+                        .overlay(Circle().strokeBorder(Theme.strokeStrong, lineWidth: 1))
                 }
                 .buttonStyle(.pressable)
             }
@@ -48,7 +52,11 @@ struct GamesView: View {
                 if loadState == .loading { loadingOverlay }
                 if loadState == .failed { errorOverlay }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
+                .strokeBorder(LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.stroke],
+                                             startPoint: .top, endPoint: .bottom), lineWidth: 1))
+            .shadow(color: .black.opacity(0.45), radius: 18, x: 0, y: 12)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(.easeInOut(duration: 0.3), value: loadState)
         }
@@ -57,11 +65,15 @@ struct GamesView: View {
 
     private func reload() { loadState = .loading; reloadID = UUID() }
 
+    private var paneFill: some View {
+        LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)
+    }
+
     private var loadingOverlay: some View {
         ZStack {
-            Theme.background.opacity(0.9)
-            VStack(spacing: 16) {
-                ProgressView().controlSize(.large).tint(Theme.accent)
+            paneFill
+            VStack(spacing: 20) {
+                DeckSpinner()
                 Text("Loading \(selected.rawValue)…").font(.deck(16, .medium)).foregroundStyle(Theme.textSecondary)
             }
         }
@@ -69,9 +81,10 @@ struct GamesView: View {
 
     private var errorOverlay: some View {
         ZStack {
-            Theme.background.opacity(0.95)
+            paneFill
             VStack(spacing: 18) {
-                Image(systemName: "wifi.exclamationmark").font(.system(size: 44, weight: .semibold)).foregroundStyle(Theme.textFaint)
+                Image(systemName: "wifi.exclamationmark").font(.system(size: 46, weight: .semibold))
+                    .foregroundStyle(Theme.batteryLow).deckGlow(Theme.batteryLow, strength: 0.6)
                 Text("Couldn't load \(selected.rawValue)").font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
                 Text("Check your internet connection and try again.").font(.deck(14)).foregroundStyle(Theme.textFaint)
                 Button { reload() } label: {

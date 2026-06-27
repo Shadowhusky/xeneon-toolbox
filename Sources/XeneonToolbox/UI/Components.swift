@@ -148,6 +148,24 @@ struct Sparkline: View {
     }
 }
 
+/// Indeterminate branded spinner — an accent arc with the deck's glow, instead
+/// of the stock system ProgressView.
+struct DeckSpinner: View {
+    var color: Color = Theme.accent
+    var size: CGFloat = 58
+    @State private var spin = false
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.7)
+            .stroke(AngularGradient(colors: [color.opacity(0), color], center: .center),
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round))
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(spin ? 360 : 0))
+            .deckGlow(color, strength: 0.7)
+            .onAppear { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { spin = true } }
+    }
+}
+
 /// Thin horizontal capacity bar.
 struct CapacityBar: View {
     var fraction: Double

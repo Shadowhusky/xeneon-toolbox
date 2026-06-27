@@ -1,21 +1,21 @@
 import SwiftUI
 
-private let ringSize: CGFloat = 176
+private let ringSize: CGFloat = 210
 
 struct ClockTile: View {
     var uptime: TimeInterval
     var weather: Weather?
     var body: some View {
-        TileSurface(accent: Theme.accent) {
+        TileSurface(accent: Theme.time) {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let now = context.date
                 VStack(alignment: .leading, spacing: 0) {
                     HStack {
-                        TileHeader(title: "Local", systemImage: "clock.fill", accent: Theme.accent)
+                        TileHeader(title: "Local", systemImage: "clock.fill", accent: Theme.time)
                         if let w = weather {
                             Spacer()
                             HStack(spacing: 5) {
-                                Image(systemName: w.symbol).foregroundStyle(Theme.accent)
+                                Image(systemName: w.symbol).foregroundStyle(Theme.time)
                                 Text(w.displayTemp).font(.readout(16, .bold)).foregroundStyle(Theme.textPrimary)
                             }
                         }
@@ -32,7 +32,7 @@ struct ClockTile: View {
                         Text(now, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
                             .font(.readout(74, .bold)).foregroundStyle(Theme.textPrimary)
                         Text(now, format: .dateTime.second(.twoDigits))
-                            .font(.readout(26, .semibold)).foregroundStyle(Theme.accent)
+                            .font(.readout(26, .semibold)).foregroundStyle(Theme.time)
                     }
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
@@ -65,7 +65,7 @@ struct GaugeTile: View {
                 Spacer()
                 RingGauge(value: value, color: accent) {
                     VStack(spacing: 2) {
-                        Text(Fmt.percent(value)).font(.readout(42, .bold)).foregroundStyle(Theme.textPrimary)
+                        Text(Fmt.percent(value)).font(.readout(48, .bold)).foregroundStyle(Theme.textPrimary)
                         Text(caption).font(.deck(11, .bold)).tracking(1.6).foregroundStyle(Theme.textFaint)
                     }
                 }
@@ -184,7 +184,7 @@ struct PowerTile: View {
                 if let b = battery {
                     RingGauge(value: b.level, color: tint) {
                         VStack(spacing: 2) {
-                            Text(Fmt.percent(b.level)).font(.readout(40, .bold)).foregroundStyle(Theme.textPrimary)
+                            Text(Fmt.percent(b.level)).font(.readout(48, .bold)).foregroundStyle(Theme.textPrimary)
                             Image(systemName: b.charging ? "bolt.fill" : "battery.50")
                                 .font(.system(size: 14, weight: .bold)).foregroundStyle(tint)
                         }
@@ -246,9 +246,9 @@ struct ControlsTile: View {
     }
 
     var body: some View {
-        TileSurface(accent: on ? Theme.accent : Theme.textFaint) {
+        TileSurface(accent: on ? tint : Theme.textFaint) {
             VStack(alignment: .leading, spacing: 0) {
-                TileHeader(title: "Controls", systemImage: "slider.horizontal.3", accent: on ? Theme.accent : Theme.textFaint)
+                TileHeader(title: "Controls", systemImage: "slider.horizontal.3", accent: on ? tint : Theme.textFaint)
                 Spacer()
                 Button(action: toggleTouch) {
                     HStack(spacing: 14) {
