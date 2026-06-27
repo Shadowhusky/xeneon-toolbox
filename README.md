@@ -1,93 +1,172 @@
+<div align="center">
+
 # Xeneon Toolbox
 
-A macOS toolbox for the **Corsair Xeneon Edge** (14.5", 2560×720 touchscreen). It
-makes the panel genuinely useful on a Mac: an absolute touch driver plus a set of
-full-screen apps designed for the ultrawide strip.
+**Turn the Corsair Xeneon Edge into a Mac companion you actually use.**
 
-The touch driver is **embedded in the app** — while Xeneon Toolbox runs, touch
-works. No LaunchAgent, no kernel extension, no sudo. It opens in native
-fullscreen on the Edge and hides the system menu bar.
+A native macOS app for the Edge's 14.5″ · 2560×720 touchscreen — a live system
+dashboard, customizable world clocks, tasks & reminders, an AI assistant that can
+drive the app, and games. All designed for an ultrawide strip you operate with
+your finger.
 
-![Dashboard](docs/dashboard-gpu.png)
-![Metric detail](docs/metric-detail.png)
-![Assistant](docs/agent-table-live.png)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111?logo=apple&logoColor=white)
+&nbsp;![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
+&nbsp;![SwiftUI](https://img.shields.io/badge/SwiftUI-native-0a84ff)
+&nbsp;![License: MIT](https://img.shields.io/badge/License-MIT-44c767)
 
-## Apps
+</div>
 
-- **Dashboard** — live telemetry deck: CPU, **GPU**, memory, network, storage,
-  power, clock/uptime and **current weather** (Open-Meteo + IP geolocation, no
-  key), with hue-coded ring gauges and sparklines, plus a touch on/off control.
-  **Tap a CPU/GPU/Network tile** to expand a detail view (history graph +
-  now/avg/peak).
-- **Clock** — local time, world clocks, and a focus (Pomodoro) timer with
-  tappable **15 / 25 / 45 min** presets (no keyboard needed).
-- **Games** — full web games embedded for the Edge, switchable in-app, with a
-  loading spinner and an offline **retry** state:
-  - **山海残卷 (Shanhai)** — the card roguelike at shanhai-yi.com.
-  - **Rhythm Plus** — the rhythm game at v2.rhythm-plus.com.
-- **Assistant** — an agentic chat (SwiftOpenAI) backed by any OpenAI-compatible
-  endpoint. It **streams** responses, **renders markdown** (swift-markdown-ui)
-  with a pop-in highlight, accepts **images** (vision), and runs **tools**:
-  - **Controls the app** — knows the current tab + live stats; can navigate,
-    toggle touch, switch display mode, and open games.
-  - **Generative UI** — renders results as the clearest format: a key/value
-    **card**, a multi-column **table**, a bar/line **chart**, a top-processes
-    card, or a **generated image**.
-  - **Web** — `web_search`, `fetch_url`. **Files** — list / read / write.
-  - **System** — shell commands, clipboard, open URLs/apps, date/time, volume,
-    media controls, and now-playing.
+![Dashboard](docs/img/dashboard.png)
 
-  **Conversations persist** (across tab switches and app restarts) — including
-  rendered cards/tables/charts — with a sidebar to switch / new / delete and
-  model-generated titles. Tool steps show **live** then collapse to a chip; a
-  **stop** button cancels a running reply. Sensitive actions ask for
-  **Approve / Always allow / Deny** (dangerous ones always ask). Set it up in-app:
-  pick OpenAI or a local model (Ollama / LM Studio); models auto-detect into a
-  dropdown.
-- **Display modes** — **Minimal** (OLED clock + vitals on black) and **Sleep**
-  (black, monitoring + weather stopped, drifting clock to save battery / avoid
-  burn-in), from the nav rail. A **Settings** overlay (gear) holds touch
-  calibration, display modes, and conversation management. Smooth tab + modal
-  transitions throughout.
+---
 
-## Touch driver
+## Why
 
-macOS sees the Edge's WCH digitizer but only produces vague relative motion
-("touch board"). The toolbox reads its absolute coordinates and injects real
-pointer events so taps and drags land where you touch.
+Plugged into a Mac, the Edge shows up as a vague “touch board” — taps don't land
+where you touch. Xeneon Toolbox fixes that with an **embedded absolute touch
+driver** (no kernel extension, no `sudo`, no LaunchAgent) and a set of full-screen
+apps built for the strip. While the app runs, the panel just works:
+
+- **Tap** to click, **drag** to scroll, **swipe** to move sliders
+- Runs as a clean **kiosk** that fills the Edge and hides the menu bar
+- Everything you change — world clocks, tasks, conversations — **persists**
+
+---
+
+## Highlights
+
+- **Live telemetry dashboard** — CPU, GPU, memory, network, storage, power, clock
+  and current weather, with hue-coded ring gauges and sparklines. Tap a tile for a
+  detail view.
+- **Clock** — local time with a day-progress bar, **customizable world clocks**
+  (day/night + offset cues), and a focus timer.
+- **Tasks & reminders** — grouped by Overdue / Today / Upcoming, with recurring
+  reminders that fire as system notifications.
+- **Assistant** — an agentic chat over any OpenAI-compatible model that can read
+  your system, drive the app, search the web, manage tasks, and render results as
+  cards, tables, charts, or images.
+- **Games** — full web games embedded for the Edge.
+- **Ambient modes** — a minimal clock-and-vitals view and a power-saving sleep
+  mode; dim or switch the screen off entirely to save power.
+
+---
+
+## Screens
+
+### Ambient
+
+A calm, always-on view: the time as the hero, with key vitals and your next
+reminder. Tap anywhere to wake to the full UI.
+
+![Ambient mode](docs/img/minimal.png)
+
+### Clock
+
+Local time with a day-progress bar, plus world clocks you can add and remove from
+a searchable city list — each row shows whether it's day or night there and the
+offset from your time.
+
+![Clock and world clocks](docs/img/clock.png)
+
+### Tasks & Reminders
+
+A focused list grouped by urgency. Add a reminder time and it fires as a system
+notification — even from another app — and recurring reminders roll forward
+automatically.
+
+![Tasks and reminders](docs/img/tasks.png)
+
+### Assistant
+
+An agentic chat backed by any OpenAI-compatible endpoint (OpenAI, or local models
+via LM Studio / Ollama). It streams replies, renders markdown, accepts images, and
+turns answers into the clearest format — here, a comparison table.
+
+![Assistant](docs/img/assistant.png)
+
+### Games
+
+Full web games framed for the Edge, with a branded loading state and an offline
+retry. Keyboard-driven games receive your keypresses directly.
+
+![Games](docs/img/games.png)
+
+### Settings
+
+Touch calibration, display modes, screen brightness (and a true screen-off to save
+power), and conversation management — each in its own labeled panel.
+
+![Settings](docs/img/settings.png)
+
+---
+
+## The Assistant, in depth
+
+- **Drives the app** — knows the current tab and live stats; can navigate, toggle
+  touch, change display mode, set brightness, and open games.
+- **Generative UI** — renders results as a key/value card, a multi-column table, a
+  bar/line chart, a top-processes card, or a generated image.
+- **Tools** — web search and fetch; list / read / write files; tasks &
+  reminders; shell, clipboard, open URLs/apps, volume, media controls, now-playing.
+- **Trustworthy** — sensitive actions ask **Approve / Always allow / Deny**
+  (irreversible ones always ask). A **stop** button cancels a running reply.
+- **Persistent** — conversations (including rendered cards) are saved, with a
+  sidebar to switch, start, or delete chats, and model-generated titles.
+
+Set it up in-app: pick OpenAI or a local model; installed models auto-detect into
+a dropdown.
+
+---
+
+## How touch works
+
+macOS sees the Edge's WCH digitizer but only emits vague relative motion. The
+driver reads its **absolute** coordinates and injects real pointer events so taps
+and drags land exactly where you touch.
 
 - Reports as a mouse-style absolute device: X = GenericDesktop `0x30`,
-  Y = `0x31`, contact = Button page `0x09` / Button 1.
-- Coordinate ranges: X `0…16383`, Y `0…9599`.
-- macOS holds the digitizer exclusively, so the driver runs non-exclusively.
+  Y = `0x31`, contact = Button page `0x09` / Button 1; ranges X `0…16383`,
+  Y `0…9599`.
+- **Seizes** the digitizer so macOS doesn't also move the cursor, and re-seizes
+  when the app regains focus so touch is always live.
+- A finger gesture is classified as a **tap**, a **scroll** (translated to
+  continuous scroll-wheel events, since macOS scroll views ignore drags), or a
+  **control drag** for sliders.
+
+The logic that can be tested without hardware — coordinate mapping, the gesture
+state machine, HID decoding — is covered by unit tests.
+
+---
 
 ## Build & run
 
 ```bash
 swift build -c release
-swift test                  # unit tests: coordinate mapping, touch state, HID decode, agent data parsing
+swift test                 # coordinate mapping, gesture state machine, HID decode, agent + todo logic
 
-./scripts/make-app.sh       # build XeneonToolbox.app (with icon)
+./scripts/make-app.sh      # builds XeneonToolbox.app (icon + bundled m1ddc for brightness)
 open XeneonToolbox.app
 ```
 
 Grant **Xeneon Toolbox** both **Input Monitoring** (read touch) and
-**Accessibility** (inject clicks) in System Settings → Privacy & Security. If the
-`xeneon-touch` CLI is running, quit it first — only one process can hold the
-digitizer.
+**Accessibility** (inject events) in **System Settings → Privacy & Security**.
+If the `xeneon-touch` CLI is running, quit it first — only one process can hold
+the digitizer.
 
-## Layout
+---
+
+## Project layout
 
 | Target | Kind | Purpose |
 | --- | --- | --- |
-| `XeneonTouchCore` | library | Pure, tested logic: coordinate mapping, tap/drag state machine, HID decode |
-| `XeneonTouchDriver` | library | IOKit HID capture + CoreGraphics injection; `TouchService` |
-| `ToolboxKit` | library | Pure app logic: chat client + config |
+| `XeneonTouchCore` | library | Pure, tested logic: coordinate mapping, gesture state machine, HID decode |
+| `XeneonTouchDriver` | library | IOKit HID capture + CoreGraphics injection (`TouchService`) |
+| `ToolboxKit` | library | Pure app logic: chat client, config, tasks, world clocks |
 | `XeneonToolbox` | app | SwiftUI apps + embedded touch driver |
 | `xeneon-touch` | CLI | Diagnostics (`diagnose`, `list-displays`) and headless `run` |
 
-## Icon
+---
 
-`scripts/make-icon.swift` renders the app icon procedurally (neon ring gauge).
-`scripts/gen-asset.py` is a helper for generating art via OpenAI `gpt-image-2`
-(`OPENAI_API_KEY` read from the environment — never committed).
+## License
+
+MIT — see [LICENSE](LICENSE).
