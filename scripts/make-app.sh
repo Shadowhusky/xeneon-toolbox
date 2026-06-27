@@ -20,6 +20,11 @@ cp "$BUILD_DIR/$BIN_NAME" "$APP/Contents/MacOS/$BIN_NAME"
 # whole bundle is re-signed below.
 strip -rSTx "$APP/Contents/MacOS/$BIN_NAME" 2>/dev/null || true
 [ -f AppIcon.icns ] && cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Bundle the m1ddc helper (DDC backlight control) if available, so the
+# "turn screen off / dim backlight" feature works without a separate install.
+for M in /opt/homebrew/bin/m1ddc /usr/local/bin/m1ddc "$(command -v m1ddc 2>/dev/null)"; do
+  [ -x "$M" ] && { cp "$M" "$APP/Contents/Resources/m1ddc"; break; }
+done
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

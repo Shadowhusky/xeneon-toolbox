@@ -113,43 +113,49 @@ struct ChatView: View {
         }
     }
 
-    private struct Suggestion { let icon: String; let label: String; let prompt: String }
+    private struct Suggestion { let icon: String; let label: String; let prompt: String; var tint: Color = Theme.accent }
     private let suggestions: [Suggestion] = [
         .init(icon: "gauge.with.dots.needle.67percent", label: "How's my system?",
-              prompt: "How's my system doing right now? Summarize CPU, memory and disk."),
-        .init(icon: "list.bullet.rectangle.fill", label: "Top processes", prompt: "Show my top processes"),
+              prompt: "How's my system doing right now? Summarize CPU, memory and disk.", tint: Theme.accent),
+        .init(icon: "list.bullet.rectangle.fill", label: "Top processes", prompt: "Show my top processes", tint: Theme.netDown),
         .init(icon: "tablecells.fill", label: "Compare GPUs",
-              prompt: "Make a table comparing the RTX 4090, RTX 4080 Super, and RX 7900 XTX by VRAM, TDP, and price"),
+              prompt: "Make a table comparing the RTX 4090, RTX 4080 Super, and RX 7900 XTX by VRAM, TDP, and price", tint: Theme.gpu),
         .init(icon: "magnifyingglass", label: "Latest AI news",
-              prompt: "Search the web for the latest AI news and summarize the top items"),
-        .init(icon: "gamecontroller.fill", label: "Open the card game", prompt: "Open the card game"),
-        .init(icon: "music.note", label: "What's playing?", prompt: "What's playing right now?"),
+              prompt: "Search the web for the latest AI news and summarize the top items", tint: Theme.netUp),
+        .init(icon: "gamecontroller.fill", label: "Open the card game", prompt: "Open the card game", tint: Theme.battery),
+        .init(icon: "music.note", label: "What's playing?", prompt: "What's playing right now?", tint: Theme.memory),
     ]
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Ask anything — or tell me to drive the app").font(.deck(20, .semibold)).foregroundStyle(Theme.textSecondary)
-                Text("Tap a suggestion to start, or attach an image.").font(.deck(14)).foregroundStyle(Theme.textFaint)
+                Text("Ask anything — or tell me to drive the app").font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
+                Text("Tap a suggestion to start, or attach an image.").font(.deck(14)).foregroundStyle(Theme.textSecondary)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 10)], alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12)], alignment: .leading, spacing: 12) {
                 ForEach(suggestions, id: \.prompt) { s in suggestionChip(s) }
             }
         }
-        .padding(.vertical, 20)
-        .frame(maxWidth: 1100, alignment: .leading)
+        .padding(.top, 44).padding(.bottom, 20)
+        .frame(maxWidth: 1500, alignment: .leading)
     }
 
     private func suggestionChip(_ s: Suggestion) -> some View {
         Button { sendPrompt(s.prompt) } label: {
-            HStack(spacing: 10) {
-                Image(systemName: s.icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.accent).frame(width: 22)
+            HStack(spacing: 11) {
+                Image(systemName: s.icon).font(.system(size: 16, weight: .semibold)).foregroundStyle(s.tint).frame(width: 24)
                 Text(s.label).font(.deck(15, .medium)).foregroundStyle(Theme.textPrimary).lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 16).padding(.vertical, 14)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.accent.opacity(0.18), lineWidth: 1))
+            .padding(.horizontal, 16).frame(minHeight: 52)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05))
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(RadialGradient(colors: [s.tint.opacity(0.10), .clear], center: .leading, startRadius: 0, endRadius: 200))
+                }
+            )
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(s.tint.opacity(0.30), lineWidth: 1))
         }
         .buttonStyle(.pressable)
         .disabled(agent.busy || config == nil)
@@ -188,27 +194,32 @@ struct ChatView: View {
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(isUser ? Theme.accent.opacity(0.22) : Color.white.opacity(0.06)))
-                .frame(maxWidth: 1500, alignment: isUser ? .trailing : .leading)
+                .frame(maxWidth: 860, alignment: isUser ? .trailing : .leading)
                 if !isUser { Spacer(minLength: 80) }
             }
         }
     }
 
     private var dots: some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
-            Text("…").font(.deck(14)).foregroundStyle(Theme.textFaint)
+        HStack {
+            TypingDots()
+                .padding(.horizontal, 18).padding(.vertical, 15)
+                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
+            Spacer(minLength: 80)
         }
     }
 
     private var inputBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
+            Rectangle().fill(LinearGradient(colors: [Theme.stroke, .clear], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 1)
             if let name = pendingImageName {
                 HStack(spacing: 8) {
                     Image(systemName: "photo.fill").foregroundStyle(Theme.accent)
                     Text(name).font(.deck(13)).foregroundStyle(Theme.textSecondary).lineLimit(1)
                     Button { pendingImageURL = nil; pendingImageName = nil } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.textFaint)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
                     }.buttonStyle(.plain)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)

@@ -282,10 +282,11 @@ final class AgentController: ObservableObject {
                  ["tab": .init(type: .string, enum: ["dashboard", "clock", "games", "assistant"])], required: ["tab"]),
             tool("set_touch", "Turn the Edge touchscreen driver on or off.",
                  ["enabled": .init(type: .boolean)], required: ["enabled"]),
-            tool("set_display_mode", "Change the screen mode: full (normal UI), minimal (clock + basics on black), or sleep (black screen, pauses monitoring). Tapping the screen wakes it.",
+            tool("set_display_mode", "Change the screen mode: full (normal UI), minimal (clock + basics on black), or sleep (black screen, pauses monitoring AND turns the LCD backlight off to save power). Tapping the screen wakes it.",
                  ["mode": .init(type: .string, enum: ["full", "minimal", "sleep"])], required: ["mode"]),
-            tool("open_game", "Open the Games tab and select a game.",
-                 ["game": .init(type: .string, enum: ["shanhai", "rhythm"])], required: ["game"]),
+            tool("set_brightness", "Set the Edge screen backlight from 0 (off) to 100 (full). Use for 'dim the screen' / 'brighten'. To fully turn the screen off, prefer set_display_mode sleep.",
+                 ["level": .init(type: .integer)], required: ["level"]),
+            tool("open_game", "Open the Games tab (Rhythm Plus).", [:]),
             tool("show_top_processes", "Show the top CPU-using processes as a visual card on screen.",
                  ["count": .init(type: .integer)]),
             tool("show_card", "Display any data as a touch-friendly card on screen. Give a title and items as \"Label: value\" strings.",
@@ -341,8 +342,9 @@ final class AgentController: ObservableObject {
             tool("forget", "Remove remembered facts that contain the given text.",
                  ["fact": .init(type: .string)], required: ["fact"]),
             // To-dos & reminders (shown in the Tasks tab)
-            tool("add_todo", "Add a to-do or reminder to the user's Tasks list. Set 'due' (ISO 8601 local datetime, e.g. 2026-06-19T18:30) to make it a reminder that notifies at that time — compute it from the current local time given above.",
-                 ["title": .init(type: .string), "due": .init(type: .string)], required: ["title"]),
+            tool("add_todo", "Add a to-do or reminder to the user's Tasks list. Set 'due' (ISO 8601 local datetime, e.g. 2026-06-19T18:30) to make it a reminder that notifies — compute it from the current local time above. Set 'repeat' to daily or weekly for a recurring reminder.",
+                 ["title": .init(type: .string), "due": .init(type: .string),
+                  "repeat": .init(type: .string, enum: ["daily", "weekly"])], required: ["title"]),
             tool("list_todos", "List the user's current to-dos and reminders (numbered, with done status and due times)."),
             tool("complete_todo", "Toggle a to-do done/undone. Identify it by its number from list_todos or a word from its title.",
                  ["task": .init(type: .string)], required: ["task"]),
@@ -371,11 +373,16 @@ final class AgentController: ObservableObject {
             default: app.setDisplay(.full)
             }
             return "Display set to \(m)."
+        case "set_brightness":
+            guard let app else { return "App unavailable." }
+            let lvl = max(0, min(100, (args["level"] as? Int) ?? 50))
+            guard app.canControlBacklight else { return "I can't adjust the brightness on this Mac." }
+            app.applyBrightness(lvl)
+            return "Backlight set to \(lvl)%."
         case "open_game":
             guard let app else { return "App unavailable." }
-            let g = (args["game"] as? String) == "rhythm" ? "rhythm" : "shanhai"
-            app.gamePref = g; app.route = .games
-            return "Opened \(g == "rhythm" ? "Rhythm Plus" : "山海残卷")."
+            app.gamePref = "rhythm"; app.route = .games
+            return "Opened Rhythm Plus."
         case "get_app_state":
             guard let app else { return "App unavailable." }
             let s = app.metrics.snap
@@ -434,8 +441,14 @@ final class AgentController: ObservableObject {
             let title = (args["title"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else { return "No task title given." }
             let due = (args["due"] as? String).flatMap { parseDate($0) }
-            app.todos.add(title, dueAt: due)
-            return due != nil ? "Added reminder “\(title)” for \(formatDue(due!))." : "Added to-do “\(title)”."
+            let asked = Recurrence(rawValue: (args["repeat"] as? String) ?? "none") ?? .none
+            let rec = due == nil ? .none : asked   // recurrence needs a time to anchor + notify on
+            app.todos.add(title, dueAt: due, recurrence: rec)
+            if asked != .none, due == nil {
+                return "Added “\(title)”. A recurring reminder needs a time — tell me when (e.g. every day at 9 AM) and I'll set it to repeat."
+            }
+            let suffix = rec != .none ? " (\(rec.rawValue))" : ""
+            return due != nil ? "Added reminder “\(title)” for \(formatDue(due!))\(suffix)." : "Added to-do “\(title)”."
         case "list_todos":
             guard let app else { return "App unavailable." }
             let items = app.todos.sorted
@@ -444,15 +457,19 @@ final class AgentController: ObservableObject {
             for (i, t) in items.enumerated() {
                 var line = "\(i + 1). [\(t.done ? "x" : " ")] \(t.title)"
                 if let d = t.dueAt { line += " (due \(formatDue(d))\(t.isOverdue ? " — OVERDUE" : ""))" }
+                if t.recurrence != .none { line += " [repeats \(t.recurrence.rawValue)]" }
                 out += line + "\n"
             }
             return out
         case "complete_todo":
             guard let app else { return "App unavailable." }
             guard let item = TodoMatch.resolve((args["task"] as? String) ?? "", in: app.todos.sorted) else { return "No matching task found." }
-            app.todos.toggle(item.id)
-            let done = app.todos.items.first(where: { $0.id == item.id })?.done ?? true
-            return done ? "Marked done: “\(item.title)”." : "Reopened: “\(item.title)”."
+            switch app.todos.toggle(item.id) {
+            case .completed: return "Marked done: “\(item.title)”."
+            case .reopened: return "Reopened: “\(item.title)”."
+            case .rolledForward(let next): return "Completed “\(item.title)” — next occurrence \(formatDue(next))."
+            case .notFound: return "No matching task found."
+            }
         case "delete_todo":
             guard let app else { return "App unavailable." }
             guard let item = TodoMatch.resolve((args["task"] as? String) ?? "", in: app.todos.sorted) else { return "No matching task found." }
@@ -544,9 +561,11 @@ final class AgentController: ObservableObject {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["model": "gpt-image-1", "prompt": prompt, "size": "1024x1024", "n": 1])
-        guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return "Image request failed." }
+        guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return "Couldn't create the image — please try again." }
         if let http = resp as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            return "Image generation failed (HTTP \(http.statusCode))."
+            return http.statusCode == 401 || http.statusCode == 403
+                ? "Couldn't create the image — the API key looks invalid. Check it in Assistant settings."
+                : "Couldn't create the image — please try again."
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let first = (json["data"] as? [[String: Any]])?.first else { return "No image returned." }
@@ -863,6 +882,7 @@ final class AgentController: ObservableObject {
         case "navigate": let t = (args["tab"] as? String ?? "").capitalized; return ("Opening \(t)…", "Opened \(t)")
         case "set_touch": let on = (args["enabled"] as? Bool ?? false); return ("Setting touch…", "Touch \(on ? "on" : "off")")
         case "set_display_mode": let m = args["mode"] as? String ?? ""; return ("Setting display…", "Display → \(m)")
+        case "set_brightness": return ("Setting brightness…", "Brightness → \(args["level"] as? Int ?? 0)%")
         case "open_game": let g = (args["game"] as? String) == "rhythm" ? "Rhythm Plus" : "山海残卷"; return ("Opening \(g)…", "Opened \(g)")
         case "get_app_state": return ("Checking system…", "Checked system stats")
         case "show_top_processes": return nil
@@ -897,11 +917,43 @@ final class AgentController: ObservableObject {
         }
     }
 
+    /// Plain-language version of any error for the user (no status codes or
+    /// jargon), plus whether it's worth retrying and an optional next step.
+    private func describe(_ error: Error) -> (message: String, retriable: Bool, tip: String?) {
+        if let api = error as? APIError {
+            switch api {
+            case .responseUnsuccessful(_, let code):
+                switch code {
+                case 401, 403: return ("The assistant needs a valid key.", false, "Add or update it in Assistant settings.")
+                case 404:      return ("That assistant isn't available.", false, "Choose a model in Assistant settings.")
+                case 400, 413: return ("That was a bit too much for the assistant to handle.", false, "Try a shorter message, or start a new chat.")
+                case 429:      return ("The assistant is busy right now.", true, "Give it a moment and try again.")
+                default:       return ("The assistant ran into a problem.", code >= 500, nil)
+                }
+            case .timeOutError:
+                return ("The assistant took too long to respond.", true, "It may still be starting up — try again in a moment.")
+            case .invalidData, .bothDecodingStrategiesFailed, .jsonDecodingFailure:
+                return ("The assistant's reply got garbled.", true, nil)
+            case .requestFailed, .dataCouldNotBeReadMissingData:
+                return ("Couldn't reach the assistant.", true, "Make sure it's running and connected.")
+            }
+        }
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain {
+            if ns.code == NSURLErrorSecureConnectionFailed || error.localizedDescription.lowercased().contains("secure connection") {
+                return ("Couldn't connect securely to the assistant.", false, "In Assistant settings, make the address start with http://")
+            }
+            return ("Couldn't reach the assistant.", true, "Make sure it's running and connected.")
+        }
+        return ("Something went wrong with the assistant.", false, nil)
+    }
+
     private func runLoop() async {
         defer { busy = false; task = nil; writeStore(); maybeAutoTitle() }
         var assistantTurnID: UUID?
         toolsTurnID = nil
 
+        var transientRetries = 0
         let maxRounds = 10
         for round in 0..<maxRounds {
             let messages = [ChatCompletionParameters.Message(role: .system, content: .text(systemPrompt))] + history
@@ -956,22 +1008,26 @@ final class AgentController: ObservableObject {
                 }
                 emit(force: true)   // flush final tokens
             } catch {
-                // Many local endpoints reject tool params; retry once without tools.
-                let msg = error.localizedDescription.lowercased()
-                if !toolsUnsupported, msg.contains("tool") || msg.contains("function") {
+                if error is CancellationError || Task.isCancelled { return }
+                // Use the RAW detail (not the friendly message) to detect a tool
+                // rejection, so a server that rejects tool params retries without
+                // tools instead of surfacing an error.
+                let raw = (error as? APIError)?.displayDescription.lowercased() ?? error.localizedDescription.lowercased()
+                if !toolsUnsupported, raw.contains("tool") || raw.contains("function") {
                     toolsUnsupported = true
                     continue
                 }
-                if !(error is CancellationError) && !Task.isCancelled {
-                    var text = "⚠️ \(error.localizedDescription)"
-                    let m = msg
-                    if m.contains("tls") || m.contains("ssl") || m.contains("secure connection") {
-                        text += "\n\nTip: local model servers use plain HTTP — set your endpoint to http:// (not https://)."
-                    } else if m.contains("connection") || m.contains("could not connect") || m.contains("offline") {
-                        text += "\n\nTip: check the endpoint host/port, and that the model server allows connections from this machine."
-                    }
-                    turns.append(Turn(role: "error", text: text))
+                let info = describe(error)
+                // Transient failures — retry a couple times before giving up, as
+                // long as nothing has streamed yet.
+                if info.retriable, liveText.isEmpty, transientRetries < 2 {
+                    transientRetries += 1
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                    continue
                 }
+                var text = "⚠️ \(info.message)"
+                if let tip = info.tip { text += "\n\n\(tip)" }
+                turns.append(Turn(role: "error", text: text))
                 return
             }
             if Task.isCancelled { return }

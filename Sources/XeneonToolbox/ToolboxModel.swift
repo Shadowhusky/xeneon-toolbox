@@ -25,6 +25,16 @@ enum AppRoute: String, CaseIterable, Identifiable {
         case .chat: return "sparkles"
         }
     }
+    /// Per-destination accent so the active app lights up in its own hue.
+    var accent: Color {
+        switch self {
+        case .dashboard: return Theme.accent
+        case .clock: return Theme.time
+        case .tasks: return Theme.netUp
+        case .games: return Theme.gpu
+        case .chat: return Theme.memory
+        }
+    }
 }
 
 /// Owns the embedded touch driver, the metrics engine, and app navigation.
@@ -35,6 +45,10 @@ final class ToolboxModel: ObservableObject {
     let metrics = SystemMetrics()
     let weather = WeatherService()
     let todos = TodoStore()
+    let worldClocks = WorldClockStore()
+    let canControlBacklight = Backlight.isAvailable
+    @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
+    private var preDimBrightness = 90             // restored when waking from sleep
     lazy var agent = AgentController(config: ChatConfig.loadSaved() ?? ChatConfig.presets[0].config, app: self)
     @Published var route: AppRoute = .dashboard
     @Published var displayMode: DisplayMode = .minimal   // ambient default; tap to wake to full
@@ -42,7 +56,7 @@ final class ToolboxModel: ObservableObject {
     var exportMode = false   // static input bar etc. for off-screen mockup renders
     @Published var touchOn = false
     @Published var edgeDetected = false
-    @Published var gamePref = "shanhai"   // "shanhai" | "rhythm"
+    @Published var gamePref = "rhythm"
 
     // Touch calibration — flips persist and rebuild the driver when changed.
     @Published var flipX = UserDefaults.standard.bool(forKey: "touch.flipX") { didSet { applyCalibration() } }
@@ -52,8 +66,48 @@ final class ToolboxModel: ObservableObject {
     /// Sleep stops monitoring (saves battery, avoids burn-in); minimal keeps
     /// light stats; full is the normal UI.
     func setDisplay(_ mode: DisplayMode) {
-        if mode == .sleep { metrics.stop(); weather.stop() } else { metrics.start(); weather.start() }
+        let wasSleep = (displayMode == .sleep)
+        if mode == .sleep {
+            metrics.stop(); weather.stop()
+            dimBacklightForSleep()              // LCD: actually cut the backlight to save power
+        } else {
+            metrics.start(); weather.start()
+            if wasSleep { restoreBacklight() }
+        }
         displayMode = mode
+    }
+
+    /// Move the screen to sleep with the backlight off (the real power-saving "off").
+    func turnScreenOff() { setDisplay(.sleep) }
+
+    func applyBrightness(_ value: Int) {
+        let v = max(0, min(100, value))
+        brightness = v
+        preDimBrightness = v
+        guard canControlBacklight else { return }
+        DispatchQueue.global(qos: .utility).async { Backlight.setBrightness(v) }
+    }
+
+    private func dimBacklightForSleep() {
+        guard canControlBacklight else { return }
+        let keep = brightness
+        DispatchQueue.global(qos: .utility).async {
+            let cur = Backlight.getBrightness() ?? keep
+            DispatchQueue.main.async { self.preDimBrightness = cur }
+            Backlight.setBrightness(0)
+        }
+    }
+
+    private func restoreBacklight() {
+        guard canControlBacklight else { return }
+        let target = preDimBrightness > 0 ? preDimBrightness : 90
+        DispatchQueue.global(qos: .utility).async { Backlight.setBrightness(target) }
+    }
+
+    /// Don't leave the panel dark if the app quits while asleep.
+    func restoreBacklightOnQuit() {
+        guard canControlBacklight, displayMode == .sleep else { return }
+        Backlight.setBrightness(preDimBrightness > 0 ? preDimBrightness : 90)
     }
 
     private lazy var touch: TouchService = makeTouch()
@@ -100,26 +154,46 @@ final class ToolboxModel: ObservableObject {
         weather.start()
         todos.start()
         startTouch()
+        if canControlBacklight {
+            DispatchQueue.global(qos: .utility).async {
+                if let b = Backlight.getBrightness() {
+                    DispatchQueue.main.async { self.brightness = b; self.preDimBrightness = b }
+                }
+            }
+        }
     }
 
     func startTouch() {
         touchOn = true
-        attemptAcquire()
+        _ = touch.start()
+        startHeartbeat()
     }
 
-    /// Try to open the digitizer; if it's held (e.g. by the xeneon-touch CLI) or
-    /// not yet ready, keep retrying so touch comes alive once it's free.
-    private func attemptAcquire() {
-        guard touchOn else { return }
-        if touch.start() {
-            retryTimer?.invalidate(); retryTimer = nil
-        } else if retryTimer == nil {
-            let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.attemptAcquire() }
-            }
-            RunLoop.main.add(t, forMode: .common)
-            retryTimer = t
+    /// A timer that never stops while touch is on: as long as we aren't actually
+    /// driving the panel it keeps re-seizing the digitizer, so touch always comes
+    /// back on its own once the device is free (the "always searching" behaviour).
+    private func startHeartbeat() {
+        guard retryTimer == nil else { return }
+        let t = Timer(timeInterval: 2.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.touchHeartbeat() }
         }
+        RunLoop.main.add(t, forMode: .common)
+        retryTimer = t
+    }
+
+    private func touchHeartbeat() {
+        guard touchOn, !edgeDetected else { return }
+        touch.stop()
+        _ = touch.start()
+    }
+
+    /// Force a fresh seize of the digitizer — called when the app regains focus so
+    /// tapping back into it re-engages touch immediately instead of letting the
+    /// panel fall back to acting as a system trackpad.
+    func reacquireTouch() {
+        guard touchOn else { return }
+        touch.stop()
+        _ = touch.start()
     }
 
     func stopTouch() {

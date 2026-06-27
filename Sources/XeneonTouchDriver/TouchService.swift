@@ -17,6 +17,7 @@ final class TouchDriver {
     private var machine = TouchStateMachine()
     private var decoder = HIDTouchDecoder()
     private var announcedActive = false
+    private var lastPoint: ScreenPoint?   // newest finger position, for scroll-event routing
     var onPresenceChanged: ((Bool) -> Void)?
 
     init(verbose: Bool, flipX: Bool, flipY: Bool, swapXY: Bool, preferredDisplayID: CGDirectDisplayID?) {
@@ -31,13 +32,20 @@ final class TouchDriver {
         guard calibration == nil,
               let elements = IOHIDDeviceCopyMatchingElements(device, nil, 0) as? [IOHIDElement],
               let xr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageX),
-              let yr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageY) else { return }
+              let yr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageY) else {
+            if debug { warn("TOUCH: device matched but no X/Y range found\n") }
+            return
+        }
         calibration = AxisCalibration(minX: xr.0, maxX: xr.1, minY: yr.0, maxY: yr.1,
                                       flipX: flipX, flipY: flipY, swapXY: swapXY)
         display = findEdgeDisplay(preferred: preferredDisplayID)
         decoder = HIDTouchDecoder()
+        if debug { warn("TOUCH: connected, X[\(xr.0),\(xr.1)] Y[\(yr.0),\(yr.1)] display=\(display != nil)\n") }
         onPresenceChanged?(display != nil)
     }
+
+    private let debug = ProcessInfo.processInfo.environment["XENEON_TOUCH_DEBUG"] != nil
+    private var dbgCount = 0
 
     func deviceRemoved() {
         guard calibration != nil else { return }
@@ -62,6 +70,7 @@ final class TouchDriver {
 
         if !announcedActive { announcedActive = true; onPresenceChanged?(true) }
         let point = CoordinateMapper.mapToScreen(rawX: x, rawY: y, calibration: cal, display: disp)
+        lastPoint = point
         for action in machine.update(contact: decoder.contact, point: point) {
             post(action)
         }
@@ -74,14 +83,16 @@ final class TouchDriver {
     }
 
     private func post(_ action: PointerAction) {
+        if debug {
+            dbgCount += 1
+            if dbgCount <= 400 { warn("TOUCH act: \(action)\n") }
+        }
         switch action {
-        case .moveAndPress(let p):
-            postMouse(.mouseMoved, p)
-            postMouse(.leftMouseDown, p)
-        case .drag(let p):
-            postMouse(.leftMouseDragged, p)
-        case .release(let p):
-            postMouse(.leftMouseUp, p)
+        case .move(let p):    postMouse(.mouseMoved, p)
+        case .press(let p):   postMouse(.leftMouseDown, p)
+        case .drag(let p):    postMouse(.leftMouseDragged, p)
+        case .release(let p): postMouse(.leftMouseUp, p)
+        case .scroll(let dx, let dy, let phase): postScroll(dx: dx, dy: dy, phase: phase)
         }
     }
 
@@ -90,6 +101,25 @@ final class TouchDriver {
         if let ev = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: pos, mouseButton: .left) {
             ev.post(tap: .cgSessionEventTap)
         }
+    }
+
+    /// Turn a finger drag into a *continuous* scroll-wheel event. macOS SwiftUI
+    /// scroll views ignore legacy (line/pixel) wheel events and only react to
+    /// continuous, phase-framed scrolls — so each gesture is a began…changed…
+    /// ended sequence. wheel1 == dy makes the content track the finger (natural
+    /// touch scrolling): a finger swipe up moves the content up.
+    private func postScroll(dx: Double, dy: Double, phase: ScrollPhase) {
+        // Keep the cursor under the finger — scroll-wheel events route to the view
+        // at the pointer, so without this the content under the finger never scrolls.
+        if let p = lastPoint { postMouse(.mouseMoved, p) }
+        guard let ev = CGEvent(scrollWheelEvent2Source: nil, units: .pixel,
+                               wheelCount: 2, wheel1: Int32(dy.rounded()),
+                               wheel2: Int32(dx.rounded()), wheel3: 0) else { return }
+        ev.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        let cgPhase: Int64 = phase == .began ? 1 : (phase == .changed ? 2 : 4)
+        ev.setIntegerValueField(.scrollWheelEventScrollPhase, value: cgPhase)
+        if let p = lastPoint { ev.location = CGPoint(x: p.x, y: p.y) }   // explicit hit-test point
+        ev.post(tap: .cgSessionEventTap)
     }
 }
 
@@ -147,7 +177,10 @@ public final class TouchService {
     @discardableResult
     public func start() -> Bool {
         guard !isRunning else { return true }
-        guard let (manager, _) = openManager(preferSeize: config.preferSeize) else { return false }
+        guard let (manager, seized) = openManager(preferSeize: config.preferSeize) else { return false }
+        if config.verbose || ProcessInfo.processInfo.environment["XENEON_TOUCH_DEBUG"] != nil {
+            warn("TOUCH: HID manager opened, seized=\(seized)\n")
+        }
 
         let driver = TouchDriver(verbose: config.verbose,
                                  flipX: config.flipX, flipY: config.flipY, swapXY: config.swapXY,

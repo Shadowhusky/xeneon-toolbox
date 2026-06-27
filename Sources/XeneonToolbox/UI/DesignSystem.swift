@@ -24,9 +24,36 @@ enum Theme {
     static let battery = Color(red: 0.46, green: 0.89, blue: 0.58)  // green
     static let batteryLow = Color(red: 0.98, green: 0.45, blue: 0.42)
     static let accent = Color(red: 0.33, green: 0.84, blue: 0.92)
+    static let time = Color(red: 0.70, green: 0.78, blue: 0.88)     // ice — clock identity, distinct from cpu cyan
+
+    // Semantic state hues — one place to escalate any metric.
+    static let warning = netUp          // amber
+    static let critical = batteryLow    // red
+
+    static let labelTracking: CGFloat = 1.8
 
     static let tileCorner: CGFloat = 26
     static let tileGap: CGFloat = 16
+
+    // Modular spacing scale so interiors share one rhythm.
+    static let s1: CGFloat = 8
+    static let s2: CGFloat = 12
+    static let s3: CGFloat = 16
+    static let s4: CGFloat = 22
+
+    // The "empty" substrate behind any gauge/bar/track — one shared material.
+    static let trackFill = Color.white.opacity(0.07)
+
+    // The signature hue-coded bloom. One calibrated recipe for every accent.
+    static let glowOpacity: Double = 0.55
+    static let glowRadius: CGFloat = 7
+}
+
+extension View {
+    /// The deck's signature accent bloom, applied consistently.
+    func deckGlow(_ color: Color, strength: CGFloat = 1) -> some View {
+        shadow(color: color.opacity(Theme.glowOpacity), radius: Theme.glowRadius * strength)
+    }
 }
 
 /// Press feedback for touch — scales and dims slightly while held.
@@ -50,6 +77,11 @@ extension Font {
     static func readout(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
         .system(size: size, weight: weight, design: .rounded).monospacedDigit()
     }
+    // Named roles so hierarchy stays consistent across pages.
+    static var deckLabel: Font { deck(13, .bold) }   // uppercase tile/section header
+    static var deckCaption: Font { deck(12) }
+    static var readoutHero: Font { readout(58, .bold) }
+    static var readoutXL: Font { readout(48, .bold) }
 }
 
 enum Fmt {

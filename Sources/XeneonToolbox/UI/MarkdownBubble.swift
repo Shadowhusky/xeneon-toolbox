@@ -47,7 +47,7 @@ struct AssistantBubble: View {
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(Color.white.opacity(0.06)))
-                .frame(maxWidth: 1500, alignment: .leading)
+                .frame(maxWidth: 860, alignment: .leading)
                 .scaleEffect(scale, anchor: .leading)
             Spacer(minLength: 80)
         }

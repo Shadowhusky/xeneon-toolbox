@@ -4,53 +4,91 @@ struct SettingsView: View {
     @ObservedObject var model: ToolboxModel
     var onClose: () -> Void = {}
     @State private var confirmClear = false
+    @State private var sliderValue: Double = 90
 
     private func dismiss() { onClose() }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Settings").font(.deck(24, .bold)).foregroundStyle(Theme.textPrimary)
+                Text("Settings").font(.deck(26, .bold)).foregroundStyle(Theme.textPrimary)
                 Spacer()
                 Button { dismiss() } label: {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 26)).foregroundStyle(Theme.textFaint)
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
                 }.buttonStyle(.pressable)
             }
-            .padding(.bottom, 20)
+            Rectangle().fill(LinearGradient(colors: [Theme.accent.opacity(0.4), .clear], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 1.5).padding(.bottom, 18)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    section("Touch calibration", "Use these if taps land mirrored or rotated.") {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    section("Touch calibration", "Use these if taps land mirrored or rotated.", "hand.tap.fill", Theme.accent) {
                         Toggle("Flip horizontal", isOn: $model.flipX)
                         Toggle("Flip vertical", isOn: $model.flipY)
                         Toggle("Swap axes", isOn: $model.swapXY)
                     }
-                    section("Display", "Tap the screen to wake from these.") {
+                    section("Display", "Tap the screen to wake from these.", "rectangle.compress.vertical", Theme.accent) {
                         HStack(spacing: 12) {
                             modeButton("Minimal", "rectangle.compress.vertical") { model.setDisplay(.minimal); dismiss() }
                             modeButton("Sleep", "moon.fill") { model.setDisplay(.sleep); dismiss() }
                         }
                     }
-                    section("Assistant", "Conversations are stored on this Mac.") {
-                        Button { confirmClear = true } label: {
-                            Label("Clear all conversations", systemImage: "trash")
-                                .font(.deck(15, .semibold)).foregroundStyle(Theme.batteryLow)
-                                .padding(.horizontal, 16).padding(.vertical, 11)
-                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.batteryLow.opacity(0.12)))
+                    section("Screen", "Dim the screen, or turn it off to save power.", "sun.max.fill", Theme.netUp) {
+                        if model.canControlBacklight {
+                            HStack(spacing: 12) {
+                                Image(systemName: "sun.min.fill").foregroundStyle(Theme.textFaint)
+                                Slider(value: $sliderValue, in: 0...100) { editing in
+                                    if !editing { model.applyBrightness(Int(sliderValue)) }
+                                }
+                                Image(systemName: "sun.max.fill").foregroundStyle(Theme.textSecondary)
+                                Text("\(Int(sliderValue))%").font(.readout(14, .semibold)).foregroundStyle(Theme.textSecondary).frame(width: 46, alignment: .trailing)
+                            }
+                            .onAppear { sliderValue = Double(model.brightness) }
+                        } else {
+                            HStack(spacing: 10) {
+                                Image(systemName: "info.circle.fill").foregroundStyle(Theme.netUp)
+                                Text("Brightness can't be adjusted on this Mac.").font(.deck(13)).foregroundStyle(Theme.textSecondary)
+                                Spacer(minLength: 0)
+                            }
+                        }
+                        Button { model.turnScreenOff(); dismiss() } label: {
+                            Label("Turn screen off", systemImage: "power.circle.fill")
+                                .font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary)
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
                         }.buttonStyle(.pressable)
+                        Text("Tap the screen to turn it back on.")
+                            .font(.deck(12)).foregroundStyle(Theme.textFaint)
+                    }
+                    section("Assistant", "Conversations are stored on this Mac.", "sparkles", Theme.batteryLow) {
                         if confirmClear {
                             HStack(spacing: 10) {
                                 Text("Delete every conversation?").font(.deck(14)).foregroundStyle(Theme.textSecondary)
-                                Button("Delete") { model.agent.clearAll(); confirmClear = false }
-                                    .font(.deck(14, .bold)).foregroundStyle(Theme.batteryLow).buttonStyle(.pressable)
-                                Button("Cancel") { confirmClear = false }
-                                    .font(.deck(14)).foregroundStyle(Theme.textFaint).buttonStyle(.pressable)
+                                Spacer(minLength: 0)
+                                Button { model.agent.clearAll(); confirmClear = false } label: {
+                                    Text("Delete").font(.deck(14, .bold)).foregroundStyle(Theme.batteryLow)
+                                        .padding(.horizontal, 18).frame(height: 44)
+                                        .background(Capsule().fill(Theme.batteryLow.opacity(0.16)))
+                                }.buttonStyle(.pressable)
+                                Button { confirmClear = false } label: {
+                                    Text("Cancel").font(.deck(14, .semibold)).foregroundStyle(Theme.textSecondary)
+                                        .padding(.horizontal, 18).frame(height: 44)
+                                        .background(Capsule().fill(Color.white.opacity(0.06)))
+                                }.buttonStyle(.pressable)
                             }
+                        } else {
+                            Button { confirmClear = true } label: {
+                                Label("Clear all conversations", systemImage: "trash")
+                                    .font(.deck(15, .semibold)).foregroundStyle(Theme.batteryLow)
+                                    .padding(.horizontal, 16).frame(height: 44)
+                                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.batteryLow.opacity(0.12)))
+                            }.buttonStyle(.pressable)
                         }
                     }
-                    section("About", nil) {
+                    section("About", nil, "info.circle.fill", Theme.time) {
                         labelRow("Xeneon Toolbox", "for the Corsair Xeneon Edge")
-                        labelRow("Touch", model.touchStatus == .active ? "Active" : "Inactive")
+                        touchStatusRow
                         labelRow("Repo", "github.com/Shadowhusky/xeneon-toolbox")
                     }
                 }
@@ -58,28 +96,45 @@ struct SettingsView: View {
         }
         .padding(28)
         .frame(width: 560, height: 560)
-        .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Theme.background))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous).fill(Theme.background))
+        .overlay(RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
         .shadow(color: .black.opacity(0.5), radius: 30)
         .tint(Theme.accent)
         .preferredColorScheme(.dark)
     }
 
-    private func section<C: View>(_ title: String, _ subtitle: String?, @ViewBuilder content: () -> C) -> some View {
+    private func section<C: View>(_ title: String, _ subtitle: String?, _ icon: String, _ accent: Color,
+                                  @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title.uppercased()).font(.deck(12, .bold)).tracking(1.4).foregroundStyle(Theme.accent)
-            if let s = subtitle { Text(s).font(.deck(13)).foregroundStyle(Theme.textFaint) }
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 8) {
+                    Image(systemName: icon).font(.system(size: 13, weight: .bold)).foregroundStyle(accent)
+                    Text(title.uppercased()).font(.deck(12, .bold)).tracking(1.4).foregroundStyle(accent)
+                }
+                Rectangle().fill(LinearGradient(colors: [accent.opacity(0.4), .clear], startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 1)
+            }
+            if let s = subtitle { Text(s).font(.deck(13)).foregroundStyle(Theme.textSecondary) }
             content().font(.deck(15)).foregroundStyle(Theme.textPrimary)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.04)))
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom))
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(RadialGradient(colors: [accent.opacity(0.10), .clear], center: .topLeading, startRadius: 0, endRadius: 280))
+            }
+        )
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(LinearGradient(colors: [accent.opacity(0.22), Theme.stroke], startPoint: .top, endPoint: .bottom), lineWidth: 1))
     }
 
     private func modeButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon).font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary)
-                .padding(.horizontal, 18).padding(.vertical, 11)
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
         }.buttonStyle(.pressable)
     }
@@ -87,5 +142,19 @@ struct SettingsView: View {
     private func labelRow(_ a: String, _ b: String) -> some View {
         HStack { Text(a).foregroundStyle(Theme.textSecondary); Spacer(); Text(b).foregroundStyle(Theme.textFaint) }
             .font(.deck(14))
+    }
+
+    private var touchStatusRow: some View {
+        let active = model.touchStatus == .active
+        return HStack {
+            Text("Touch").foregroundStyle(Theme.textSecondary)
+            Spacer()
+            HStack(spacing: 7) {
+                Circle().fill(active ? Theme.battery : Theme.batteryLow).frame(width: 8, height: 8)
+                    .deckGlow(active ? Theme.battery : Theme.batteryLow, strength: 0.6)
+                Text(active ? "Active" : "Inactive").foregroundStyle(active ? Theme.battery : Theme.batteryLow)
+            }
+        }
+        .font(.deck(14))
     }
 }

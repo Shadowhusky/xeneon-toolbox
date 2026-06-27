@@ -10,13 +10,18 @@ struct TileSurface<Content: View>: View {
             .padding(22)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(
-                ZStack {
-                    RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
-                        .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom],
-                                             startPoint: .top, endPoint: .bottom))
-                    RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
-                        .fill(RadialGradient(colors: [accent.opacity(0.16), .clear],
-                                             center: .top, startRadius: 0, endRadius: 260))
+                GeometryReader { geo in
+                    ZStack {
+                        RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
+                            .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom],
+                                                 startPoint: .top, endPoint: .bottom))
+                        // Lit-from-top sheen scales with the tile so wide and narrow
+                        // tiles catch light proportionally.
+                        RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
+                            .fill(RadialGradient(colors: [accent.opacity(0.16), .clear],
+                                                 center: .top, startRadius: 0,
+                                                 endRadius: max(180, geo.size.width * 0.6)))
+                    }
                 }
             )
             .overlay(
@@ -52,8 +57,8 @@ struct TileHeader: View {
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(accent)
                 Text(title.uppercased())
-                    .font(.deck(13, .bold))
-                    .tracking(1.8)
+                    .font(.deckLabel)
+                    .tracking(Theme.labelTracking)
                     .foregroundStyle(Theme.textSecondary)
                 Spacer(minLength: 0)
             }
@@ -75,7 +80,7 @@ struct RingGauge<Center: View>: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(Color.white.opacity(0.06), lineWidth: lineWidth)
+                .stroke(Theme.trackFill, lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: max(0.001, min(1, value)))
                 .stroke(
@@ -102,13 +107,20 @@ struct Sparkline: View {
         GeometryReader { geo in
             let pts = points(in: geo.size)
             ZStack {
-                if pts.count > 1 {
+                // Resting state: a faint baseline so the tile never reads as an
+                // empty void before history accumulates.
+                if pts.count <= 1 {
+                    Capsule()
+                        .fill(Theme.trackFill)
+                        .frame(height: 2)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                } else {
                     area(pts, in: geo.size)
                         .fill(LinearGradient(colors: [color.opacity(fillOpacity), color.opacity(0)],
                                              startPoint: .top, endPoint: .bottom))
                     line(pts)
                         .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-                        .shadow(color: color.opacity(0.6), radius: 4)
+                        .deckGlow(color, strength: 0.6)
                 }
             }
         }
@@ -141,6 +153,43 @@ struct Sparkline: View {
     }
 }
 
+/// Indeterminate branded spinner — an accent arc with the deck's glow, instead
+/// of the stock system ProgressView.
+struct DeckSpinner: View {
+    var color: Color = Theme.accent
+    var size: CGFloat = 58
+    @State private var spin = false
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.7)
+            .stroke(AngularGradient(colors: [color.opacity(0), color], center: .center),
+                    style: StrokeStyle(lineWidth: 5, lineCap: .round))
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(spin ? 360 : 0))
+            .deckGlow(color, strength: 0.7)
+            .onAppear { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { spin = true } }
+    }
+}
+
+/// Branded "assistant is typing" indicator — three accent dots that pulse in
+/// sequence, instead of a system spinner.
+struct TypingDots: View {
+    var color: Color = Theme.accent
+    @State private var phase = 0
+    private let timer = Timer.publish(every: 0.28, on: .main, in: .common).autoconnect()
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle().fill(color).frame(width: 8, height: 8)
+                    .opacity(phase == i ? 1 : 0.28)
+                    .scaleEffect(phase == i ? 1.2 : 0.85)
+            }
+        }
+        .animation(.easeInOut(duration: 0.28), value: phase)
+        .onReceive(timer) { _ in phase = (phase + 1) % 3 }
+    }
+}
+
 /// Thin horizontal capacity bar.
 struct CapacityBar: View {
     var fraction: Double
@@ -149,11 +198,11 @@ struct CapacityBar: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.07))
+                Capsule().fill(Theme.trackFill)
                 Capsule()
                     .fill(LinearGradient(colors: [color.opacity(0.7), color], startPoint: .leading, endPoint: .trailing))
                     .frame(width: max(4, geo.size.width * CGFloat(max(0, min(1, fraction)))))
-                    .shadow(color: color.opacity(0.5), radius: 5)
+                    .deckGlow(color, strength: 0.8)
             }
         }
         .frame(height: 10)
