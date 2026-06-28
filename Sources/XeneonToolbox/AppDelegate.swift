@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ApplicationServices
 
 final class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
@@ -25,6 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
+
+        // Touch injection needs Accessibility; prompt for it on launch so a new
+        // (re-signed) build can be granted instead of silently failing.
+        let axPrompt = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(axPrompt)
 
         // The touch driver reads the digitizer on the main run loop. When the app
         // isn't frontmost (you're working on another screen), App Nap would

@@ -76,6 +76,9 @@ public func findEdgeDisplay(preferred: CGDirectDisplayID?) -> DisplayRect? {
 /// usually holds the device exclusively (kIOReturnExclusiveAccess), so on that
 /// failure we fall back to a non-exclusive open and inject events alongside it.
 public func openManager(preferSeize: Bool) -> (manager: IOHIDManager, seized: Bool)? {
+    // Trigger the Input Monitoring prompt / register the app in the list so the
+    // user can grant it (otherwise reading the digitizer silently fails).
+    _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
     if preferSeize {
         let manager = makeManager()
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
