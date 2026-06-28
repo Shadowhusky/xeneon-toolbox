@@ -16,6 +16,9 @@ your finger.
 
 ### [⬇︎ Download for macOS](https://github.com/Shadowhusky/xeneon-toolbox/releases/latest)
 
+Free and open source. If it makes your Edge more useful, you can
+[**buy me a coffee ☕**](https://www.buymeacoffee.com/shadowhusky).
+
 </div>
 
 ![Dashboard](docs/img/dashboard.png)
@@ -50,6 +53,9 @@ apps built for the strip. While the app runs, the panel just works:
 - **Games** — full web games embedded for the Edge.
 - **Ambient modes** — a minimal clock-and-vitals view and a power-saving sleep
   mode; dim or switch the screen off entirely to save power.
+- **Remote control** — drive the Edge from any phone or PC browser on the same
+  network: switch pages, rest/wake, set brightness, and talk to the assistant
+  (with a voice button). On by default; toggle it in Settings.
 
 ---
 
@@ -99,6 +105,16 @@ Touch calibration, display modes, screen brightness (and a true screen-off to sa
 power), and conversation management — each in its own labeled panel.
 
 ![Settings](docs/img/settings.png)
+
+### Remote control
+
+When the app runs it also serves a small web remote on your local network, so you
+can drive the Edge from your phone or laptop — switch pages, rest or wake it, set
+brightness, and chat with the assistant (there's a voice button too). It picks a
+free port automatically; the address is shown in Settings. On by default, and
+easy to turn off.
+
+![Remote control on a phone](docs/img/remote.png)
 
 ---
 

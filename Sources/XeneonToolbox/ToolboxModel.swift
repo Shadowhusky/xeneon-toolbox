@@ -50,6 +50,8 @@ final class ToolboxModel: ObservableObject {
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
     private var preDimBrightness = 90             // restored when waking from sleep
     lazy var agent = AgentController(config: ChatConfig.loadSaved() ?? ChatConfig.presets[0].config, app: self)
+    lazy var remote = RemoteServer(model: self)
+    @Published var remoteEnabled = (UserDefaults.standard.object(forKey: "remote.enabled") as? Bool) ?? true
     @Published var route: AppRoute = .dashboard
     @Published var displayMode: DisplayMode = .minimal   // ambient default; tap to wake to full
     @Published var showSettings = false
@@ -154,6 +156,7 @@ final class ToolboxModel: ObservableObject {
         weather.start()
         todos.start()
         startTouch()
+        if remoteEnabled { remote.start() }
         if canControlBacklight {
             DispatchQueue.global(qos: .utility).async {
                 if let b = Backlight.getBrightness() {
@@ -203,4 +206,10 @@ final class ToolboxModel: ObservableObject {
     }
 
     func toggleTouch() { touchOn ? stopTouch() : startTouch() }
+
+    func setRemote(_ enabled: Bool) {
+        remoteEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "remote.enabled")
+        if enabled { remote.start() } else { remote.stop() }
+    }
 }
