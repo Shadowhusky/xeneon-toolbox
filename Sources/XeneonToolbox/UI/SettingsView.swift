@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var model: ToolboxModel
+    @ObservedObject var remote: RemoteServer
     var onClose: () -> Void = {}
     @State private var confirmClear = false
     @State private var sliderValue: Double = 90
@@ -60,6 +61,23 @@ struct SettingsView: View {
                         }.buttonStyle(.pressable)
                         Text("Tap the screen to turn it back on.")
                             .font(.deck(12)).foregroundStyle(Theme.textFaint)
+                    }
+                    section("Remote control", "Control the Edge from your phone or PC on the same network.", "antenna.radiowaves.left.and.right", Theme.netDown) {
+                        Toggle("Enable remote control", isOn: Binding(get: { model.remoteEnabled }, set: { model.setRemote($0) }))
+                        if model.remoteEnabled {
+                            if remote.urls.isEmpty {
+                                Text(remote.running ? "Running on port \(remote.port)" : "Starting…")
+                                    .font(.deck(12)).foregroundStyle(Theme.textFaint)
+                            } else {
+                                ForEach(remote.urls, id: \.self) { u in
+                                    Text(u).font(.system(size: 13, design: .monospaced))
+                                        .foregroundStyle(Theme.accent).textSelection(.enabled)
+                                        .lineLimit(1).minimumScaleFactor(0.55)
+                                }
+                                Text("Open that address in a browser on the same Wi-Fi.")
+                                    .font(.deck(12)).foregroundStyle(Theme.textFaint)
+                            }
+                        }
                     }
                     section("Assistant", "Conversations are stored on this Mac.", "sparkles", Theme.batteryLow) {
                         if confirmClear {

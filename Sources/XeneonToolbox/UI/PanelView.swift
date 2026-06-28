@@ -53,7 +53,7 @@ struct RootView: View {
                 ZStack {
                     Color.black.opacity(0.55).ignoresSafeArea()
                         .onTapGesture { model.showSettings = false }
-                    SettingsView(model: model) { model.showSettings = false }
+                    SettingsView(model: model, remote: model.remote) { model.showSettings = false }
                 }
                 .transition(.opacity)
             }
