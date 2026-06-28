@@ -79,6 +79,11 @@ extension RemoteServer {
   .typing .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);animation:blink 1.2s infinite}
   .typing .dot:nth-child(2){animation-delay:.2s}.typing .dot:nth-child(3){animation-delay:.4s}
   @keyframes blink{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+  .chatcard{position:relative}
+  .scrollbtn{position:absolute;left:50%;transform:translateX(-50%);bottom:78px;display:none;
+    width:40px;height:40px;border-radius:50%;background:var(--cyan);color:#03222a;border:none;cursor:pointer;
+    align-items:center;justify-content:center;box-shadow:0 8px 18px #00000077;z-index:5}
+  .scrollbtn.show{display:flex} .scrollbtn svg{width:20px;height:20px}
   .composer{display:flex;gap:8px;align-items:flex-end;margin-top:10px}
   .composer textarea{flex:1;resize:none;background:#ffffff0d;border:1px solid var(--stroke2);color:var(--txt);
     border-radius:14px;padding:12px 14px;font:inherit;max-height:120px}
@@ -118,9 +123,10 @@ extension RemoteServer {
     </div>
   </section>
 
-  <section class="card">
+  <section class="card chatcard">
     <p class="label">ASSISTANT</p>
     <div class="log" id="log"><div class="empty">Ask anything, or tap the mic to speak.</div></div>
+    <button class="scrollbtn" id="scrollbtn" title="Scroll to latest"></button>
     <div class="composer">
       <textarea id="text" rows="1" placeholder="Message the assistant…"></textarea>
       <button class="iconbtn mic" id="mic" title="Voice"></button>
@@ -149,6 +155,7 @@ const P={
  power:'<path d="M12 4v8"/><path d="M7.5 7.5a7 7 0 1 0 9 0"/>',
  mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>',
  send:'<path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>',
+ down:'<path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/>',
  grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'
 };
 const svg=(n,cls='ico')=>'<svg class="'+cls+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>';
@@ -187,7 +194,13 @@ function paintState(s){
 }
 
 const logEl=document.getElementById('log');
-let lastSig='';
+const scrollbtn=document.getElementById('scrollbtn');
+let lastSig='', stick=true;
+function nearBottom(){return logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 48;}
+function updateScrollBtn(){scrollbtn.classList.toggle('show',!stick);}
+function toBottom(){logEl.scrollTop=logEl.scrollHeight;stick=true;updateScrollBtn();}
+logEl.addEventListener('scroll',()=>{stick=nearBottom();updateScrollBtn();});
+scrollbtn.innerHTML=svg('down'); scrollbtn.onclick=toBottom;
 function cell(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;}
 function renderCard(c){
   const card=cell('div','card2');
@@ -217,12 +230,16 @@ function paintChat(d){
   const turns=(d&&d.turns)||[], busy=!!(d&&d.busy);
   const sig=JSON.stringify(turns)+'|'+busy;
   if(sig===lastSig)return; lastSig=sig;
-  if(!turns.length&&!busy){logEl.innerHTML='<div class="empty">Ask anything, or tap the mic to speak.</div>';return;}
+  const prev=logEl.scrollTop;
+  if(!turns.length&&!busy){logEl.innerHTML='<div class="empty">Ask anything, or tap the mic to speak.</div>';updateScrollBtn();return;}
   logEl.innerHTML='';
   turns.forEach(t=>{ if(t.role==='card'&&t.card)logEl.appendChild(renderCard(t.card));
     else logEl.appendChild(cell('div','msg '+t.role,t.text)); });
   if(busy)logEl.appendChild(typingEl());
-  logEl.scrollTop=logEl.scrollHeight;
+  // Stick to the bottom only when the user is already there; otherwise keep their
+  // place (and show the scroll-to-latest button).
+  if(stick)logEl.scrollTop=logEl.scrollHeight; else logEl.scrollTop=prev;
+  updateScrollBtn();
 }
 
 async function tick(){ paintState(await j('/api/state')); paintChat(await j('/api/agent')); }
@@ -230,7 +247,7 @@ tick(); setInterval(tick,1500);
 
 const text=document.getElementById('text');
 text.addEventListener('input',()=>{text.style.height='auto';text.style.height=Math.min(text.scrollHeight,120)+'px';});
-function sendText(){const v=text.value.trim();if(!v)return;post('/api/agent',{text:v});text.value='';text.style.height='auto';setTimeout(tick,300);}
+function sendText(){const v=text.value.trim();if(!v)return;stick=true;post('/api/agent',{text:v});text.value='';text.style.height='auto';setTimeout(tick,300);}
 document.getElementById('send').onclick=sendText;
 text.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendText();}});
 
