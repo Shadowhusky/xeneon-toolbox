@@ -17,7 +17,7 @@ your finger.
 ### [⬇︎ Download for macOS](https://github.com/Shadowhusky/xeneon-toolbox/releases/latest)
 
 Free and open source. If it makes your Edge more useful, you can
-[**buy me a coffee ☕**](https://www.buymeacoffee.com/shadowhusky).
+[**buy me a coffee ☕**](https://www.buymeacoffee.com/Richardliao).
 
 </div>
 
@@ -110,9 +110,12 @@ power), and conversation management — each in its own labeled panel.
 
 When the app runs it also serves a small web remote on your local network, so you
 can drive the Edge from your phone or laptop — switch pages, rest or wake it, set
-brightness, and chat with the assistant (there's a voice button too). It picks a
-free port automatically; the address is shown in Settings. On by default, and
-easy to turn off.
+brightness, and chat with the assistant (there's a voice button too).
+
+The default address is **`http://<your-mac-ip>:8765/`** (it falls back to the next
+free port if 8765 is taken). The exact link — including its access token — is
+shown in **Settings → Remote control**, ready to open on your phone. On by
+default, and easy to turn off there.
 
 ![Remote control on a phone](docs/img/remote.png)
 
