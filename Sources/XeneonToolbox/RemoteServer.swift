@@ -128,6 +128,14 @@ final class RemoteServer: ObservableObject {
             return json(state(model))
         case ("GET", "/api/agent"):
             return json(["turns": turns(model), "busy": model.agent.busy])
+        case ("GET", "/api/image"):
+            if let idStr = req.query["id"], let uuid = UUID(uuidString: idStr),
+               let turn = model.agent.turns.first(where: { $0.id == uuid }),
+               case .image(let data)? = turn.card {
+                let png = data.starts(with: [0x89, 0x50]) || !data.starts(with: [0xFF, 0xD8])
+                return ("200 OK", png ? "image/png" : "image/jpeg", data)
+            }
+            return ("404 Not Found", "text/plain", Data())
         case ("POST", "/api/route"):
             if let r = body(req)["route"] as? String, let route = AppRoute(rawValue: r == "assistant" ? "chat" : r) {
                 model.route = route
@@ -177,14 +185,36 @@ final class RemoteServer: ObservableObject {
         switch d { case .full: return "full"; case .minimal: return "minimal"; case .sleep: return "sleep" }
     }
 
-    private func turns(_ m: ToolboxModel) -> [[String: String]] {
-        m.agent.turns.compactMap { t in
-            let role = t.role
-            guard role == "user" || role == "assistant" || role == "error" else { return nil }
-            let text = t.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            return ["role": role, "text": text]
-        }.suffix(40).map { $0 }
+    private func turns(_ m: ToolboxModel) -> [[String: Any]] {
+        let mapped: [[String: Any]] = m.agent.turns.compactMap { t in
+            switch t.role {
+            case "user", "assistant", "error":
+                let text = t.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { return nil }
+                return ["role": t.role, "text": text]
+            case "card":
+                guard let card = t.card else { return nil }
+                return ["role": "card", "card": Self.serialize(card, id: t.id)]
+            default:
+                return nil   // skip ephemeral "tools" activity
+            }
+        }
+        return Array(mapped.suffix(60))
+    }
+
+    private static func serialize(_ card: AgentCard, id: UUID) -> [String: Any] {
+        switch card {
+        case .processes(let rows):
+            return ["type": "processes", "rows": rows.map { ["name": $0.name, "cpu": Int($0.cpu.rounded()), "mem": Int($0.mem.rounded())] }]
+        case .generic(let title, let rows):
+            return ["type": "generic", "title": title, "rows": rows.map { ["label": $0.label, "value": $0.value] }]
+        case .chart(let title, let points, let line):
+            return ["type": "chart", "title": title, "line": line, "points": points.map { ["label": $0.label, "value": $0.value] }]
+        case .table(let title, let headers, let rows):
+            return ["type": "table", "title": title, "headers": headers, "rows": rows]
+        case .image:
+            return ["type": "image", "id": id.uuidString]
+        }
     }
 
     // MARK: - HTTP helpers

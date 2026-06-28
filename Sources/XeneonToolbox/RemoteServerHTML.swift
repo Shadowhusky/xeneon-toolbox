@@ -62,6 +62,23 @@ extension RemoteServer {
   .msg.assistant{align-self:flex-start;background:#ffffff0e;border:1px solid var(--stroke)}
   .msg.error{align-self:flex-start;background:#fb746b1f;border:1px solid #fb746b55;color:#ffd9d5}
   .empty{color:var(--faint);text-align:center;padding:18px 0;font-size:14px}
+  .card2{align-self:stretch;background:#ffffff0a;border:1px solid var(--stroke);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px}
+  .ctitle{font-size:11px;font-weight:800;letter-spacing:.1em;color:var(--cyan);text-transform:uppercase}
+  .card2 table{border-collapse:collapse;width:100%;font-size:13px}
+  .card2 th{text-align:left;color:var(--dim);font-weight:700;padding:4px 8px;border-bottom:1px solid var(--stroke);white-space:nowrap}
+  .card2 td{padding:4px 8px;border-bottom:1px solid #ffffff0a}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:14px}
+  .kv .k{color:var(--dim)} .kv .v{color:var(--txt);font-weight:600;text-align:right}
+  .bar{display:flex;align-items:center;gap:8px;font-size:13px}
+  .bar .blabel{width:32%;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar .btrack{flex:1;height:8px;background:#ffffff14;border-radius:999px;overflow:hidden}
+  .bar .bfill{display:block;height:100%;background:linear-gradient(90deg,#54d6eb88,var(--cyan));border-radius:999px}
+  .bar .bval{width:50px;text-align:right;color:var(--txt);font-variant-numeric:tabular-nums}
+  .cimg{max-width:100%;border-radius:10px}
+  .typing{display:flex;gap:5px;align-items:center;width:fit-content}
+  .typing .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);animation:blink 1.2s infinite}
+  .typing .dot:nth-child(2){animation-delay:.2s}.typing .dot:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
   .composer{display:flex;gap:8px;align-items:flex-end;margin-top:10px}
   .composer textarea{flex:1;resize:none;background:#ffffff0d;border:1px solid var(--stroke2);color:var(--txt);
     border-radius:14px;padding:12px 14px;font:inherit;max-height:120px}
@@ -170,13 +187,41 @@ function paintState(s){
 }
 
 const logEl=document.getElementById('log');
-let lastN=-1;
+let lastSig='';
+function cell(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e;}
+function renderCard(c){
+  const card=cell('div','card2');
+  if(c.title)card.appendChild(cell('div','ctitle',c.title));
+  if(c.type==='table'){
+    const t=document.createElement('table');
+    if(c.headers&&c.headers.length){const tr=document.createElement('tr');c.headers.forEach(h=>tr.appendChild(cell('th',null,h)));t.appendChild(tr);}
+    (c.rows||[]).forEach(r=>{const tr=document.createElement('tr');r.forEach(v=>tr.appendChild(cell('td',null,v)));t.appendChild(tr);});
+    card.appendChild(t);
+  }else if(c.type==='generic'){
+    (c.rows||[]).forEach(r=>{const row=cell('div','kv');row.appendChild(cell('span','k',r.label));row.appendChild(cell('span','v',r.value));card.appendChild(row);});
+  }else if(c.type==='processes'){
+    (c.rows||[]).forEach(r=>{const row=cell('div','kv');row.appendChild(cell('span','k',r.name));row.appendChild(cell('span','v','CPU '+r.cpu+'% · MEM '+r.mem+'%'));card.appendChild(row);});
+  }else if(c.type==='chart'){
+    const max=Math.max(1,...(c.points||[]).map(p=>p.value));
+    (c.points||[]).forEach(p=>{const row=cell('div','bar');row.appendChild(cell('span','blabel',p.label));
+      const track=cell('span','btrack'),fill=cell('span','bfill');fill.style.width=Math.round(p.value/max*100)+'%';track.appendChild(fill);
+      row.appendChild(track);row.appendChild(cell('span','bval',String(p.value)));card.appendChild(row);});
+  }else if(c.type==='image'){
+    const img=document.createElement('img');img.className='cimg';
+    img.src='/api/image?id='+encodeURIComponent(c.id)+'&t='+encodeURIComponent(T);card.appendChild(img);
+  }
+  return card;
+}
+function typingEl(){const w=cell('div','msg assistant typing');for(let i=0;i<3;i++)w.appendChild(cell('span','dot'));return w;}
 function paintChat(d){
-  const turns=(d&&d.turns)||[];
-  if(turns.length===lastN)return; lastN=turns.length;
-  if(!turns.length){logEl.innerHTML='<div class="empty">Ask anything, or tap the mic to speak.</div>';return;}
+  const turns=(d&&d.turns)||[], busy=!!(d&&d.busy);
+  const sig=JSON.stringify(turns)+'|'+busy;
+  if(sig===lastSig)return; lastSig=sig;
+  if(!turns.length&&!busy){logEl.innerHTML='<div class="empty">Ask anything, or tap the mic to speak.</div>';return;}
   logEl.innerHTML='';
-  turns.forEach(t=>{const m=document.createElement('div');m.className='msg '+t.role;m.textContent=t.text;logEl.appendChild(m);});
+  turns.forEach(t=>{ if(t.role==='card'&&t.card)logEl.appendChild(renderCard(t.card));
+    else logEl.appendChild(cell('div','msg '+t.role,t.text)); });
+  if(busy)logEl.appendChild(typingEl());
   logEl.scrollTop=logEl.scrollHeight;
 }
 
