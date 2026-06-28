@@ -37,8 +37,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleExecutable</key><string>$BIN_NAME</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.1.0</string>
-    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleShortVersionString</key><string>1.2.0</string>
+    <key>CFBundleVersion</key><string>3</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
@@ -52,6 +52,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
         <key>NSAllowsLocalNetworking</key><true/>
     </dict>
     <key>NSLocalNetworkUsageDescription</key><string>Xeneon Toolbox connects to AI model servers (such as LM Studio or Ollama) running on your local network.</string>
+    <key>NSMicrophoneUsageDescription</key><string>Xeneon Toolbox uses the microphone for voice commands to the assistant.</string>
+    <key>NSSpeechRecognitionUsageDescription</key><string>Xeneon Toolbox transcribes your voice on-device to send commands to the assistant.</string>
 </dict>
 </plist>
 PLIST

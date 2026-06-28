@@ -120,6 +120,8 @@ easy to turn off.
 
 ## The Assistant, in depth
 
+- **Voice** — tap the mic to talk to it; speech is transcribed **on-device** (no
+  cloud) and sent to the assistant. The web remote has a voice button too.
 - **Drives the app** — knows the current tab and live stats; can navigate, toggle
   touch, change display mode, set brightness, and open games.
 - **Generative UI** — renders results as a key/value card, a multi-column table, a

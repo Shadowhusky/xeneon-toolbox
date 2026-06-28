@@ -11,6 +11,7 @@ struct ChatView: View {
     @State private var input = ""
     @State private var pendingImageURL: URL?
     @State private var pendingImageName: String?
+    @StateObject private var voice = VoiceInput()
 
     init(model: ToolboxModel) {
         _model = ObservedObject(wrappedValue: model)
@@ -27,11 +28,18 @@ struct ChatView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
+            voice.onFinal = { spoken in
+                let t = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !t.isEmpty, config != nil else { input = spoken; return }
+                input = ""
+                agent.send(text: t, imageDataURL: nil)
+            }
             if let p = ProcessInfo.processInfo.environment["XENEON_AGENT_PROMPT"],
                config != nil, agent.turns.isEmpty {
                 agent.send(text: p, imageDataURL: nil)
             }
         }
+        .onChange(of: voice.transcript) { _, t in if voice.listening { input = t } }
     }
 
     private var mainColumn: some View {
@@ -245,6 +253,18 @@ struct ChatView: View {
                             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
                             .onSubmit(send)
                     }
+                }
+                if voice.supported {
+                    Button { voice.toggle() } label: {
+                        Image(systemName: voice.listening ? "waveform" : "mic.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(voice.listening ? Theme.batteryLow : Theme.textSecondary)
+                            .frame(width: 52, height: 52)
+                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(voice.listening ? Theme.batteryLow.opacity(0.18) : Color.white.opacity(0.06)))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(voice.listening ? Theme.batteryLow.opacity(0.5) : .clear, lineWidth: 1))
+                    }.buttonStyle(.plain)
                 }
                 Button(action: agent.busy ? agent.cancel : send) {
                     Image(systemName: agent.busy ? "stop.circle.fill" : "arrow.up.circle.fill")
