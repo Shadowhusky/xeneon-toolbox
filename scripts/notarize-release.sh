@@ -22,7 +22,8 @@ echo "▸ Signing nested helpers + app (Developer ID, hardened runtime, timestam
 if [ -f "$APP/Contents/Resources/m1ddc" ]; then
   codesign --force --options runtime --timestamp -s "$IDENTITY" "$APP/Contents/Resources/m1ddc"
 fi
-codesign --force --options runtime --timestamp -s "$IDENTITY" "$APP"
+ENT="$(cd "$(dirname "$0")" && pwd)/entitlements.plist"
+codesign --force --options runtime --timestamp --entitlements "$ENT" -s "$IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 echo "▸ Zipping for notarization…"
