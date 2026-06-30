@@ -8,8 +8,9 @@ import ToolboxKit
 struct ProcRow: Identifiable, Codable {
     var id = UUID()
     let name: String
-    let cpu: Double   // percent
-    let mem: Double   // percent
+    let cpu: Double      // percent
+    let mem: Double      // percent of physical memory
+    var rssMB: Double = 0 // resident memory in MB
 }
 
 struct CardRow: Identifiable, Codable {
@@ -618,22 +619,7 @@ final class AgentController: ObservableObject {
     // MARK: - Tool implementations
 
     private func topProcesses(_ n: Int) -> [ProcRow] {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/ps")
-        p.arguments = ["-Aceo", "pcpu,pmem,comm", "-r"]
-        let pipe = Pipe(); p.standardOutput = pipe
-        guard (try? p.run()) != nil else { return [] }
-        p.waitUntilExit()
-        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        var rows: [ProcRow] = []
-        for line in out.split(separator: "\n").dropFirst() {
-            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard parts.count >= 3, let cpu = Double(parts[0]), let mem = Double(parts[1]) else { continue }
-            let name = parts[2...].joined(separator: " ")
-            rows.append(ProcRow(name: name, cpu: cpu, mem: mem))
-            if rows.count >= max(1, min(n, 12)) { break }
-        }
-        return rows
+        ProcessSampler.sample(byMemory: false, count: min(n, 12))
     }
 
     private static let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
