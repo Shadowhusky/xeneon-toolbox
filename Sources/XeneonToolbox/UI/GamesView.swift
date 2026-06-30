@@ -14,39 +14,56 @@ struct GamesView: View {
     private var selected: Game { .rhythm }
 
     var body: some View {
-        VStack(spacing: 14) {
-            HStack(spacing: 12) {
-                Image(systemName: "gamecontroller.fill").font(.system(size: 22, weight: .bold)).foregroundStyle(Theme.accent)
-                Text("Games").font(.deck(28, .bold)).foregroundStyle(Theme.textPrimary)
-                Spacer()
-                Text(selected.rawValue)
-                    .font(.deck(15, .semibold)).foregroundStyle(Theme.textSecondary)
-                    .padding(.horizontal, 16).frame(height: 44)
-                    .background(Capsule().fill(Color.white.opacity(0.05)))
-                    .overlay(Capsule().strokeBorder(Theme.strokeStrong, lineWidth: 1))
-                Button { reload() } label: {
-                    Image(systemName: "arrow.clockwise").font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Theme.textPrimary).frame(width: 46, height: 46)
-                        .background(Circle().fill(Color.white.opacity(0.06)))
-                        .overlay(Circle().strokeBorder(Theme.strokeStrong, lineWidth: 1))
-                }
-                .buttonStyle(.pressable)
-            }
-            ZStack {
-                WebGameView(url: selected.url, state: $loadState)
-                    .id("\(selected.key)-\(reloadID)")
-                if loadState == .loading { loadingOverlay }
-                if loadState == .failed { errorOverlay }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.stroke],
-                                             startPoint: .top, endPoint: .bottom), lineWidth: 1))
-            .shadow(color: .black.opacity(0.45), radius: 18, x: 0, y: 12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .animation(.easeInOut(duration: 0.3), value: loadState)
+        VStack(spacing: model.fullscreen ? 0 : 14) {
+            if !model.fullscreen { header }
+            gameArea
         }
         .onChange(of: selected.key) { loadState = .loading }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "gamecontroller.fill").font(.system(size: 22, weight: .bold)).foregroundStyle(Theme.accent)
+            Text("Games").font(.deck(28, .bold)).foregroundStyle(Theme.textPrimary)
+            Spacer()
+            Text(selected.rawValue)
+                .font(.deck(15, .semibold)).foregroundStyle(Theme.textSecondary)
+                .padding(.horizontal, 16).frame(height: 44)
+                .background(Capsule().fill(Color.white.opacity(0.05)))
+                .overlay(Capsule().strokeBorder(Theme.strokeStrong, lineWidth: 1))
+            circleButton("arrow.clockwise") { reload() }
+            circleButton("arrow.up.left.and.arrow.down.right") { model.toggleFullscreen() }
+        }
+    }
+
+    private var gameArea: some View {
+        ZStack {
+            WebGameView(url: selected.url, state: $loadState)
+                .id("\(selected.key)-\(reloadID)")
+            if loadState == .loading { loadingOverlay }
+            if loadState == .failed { errorOverlay }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: model.fullscreen ? 0 : Theme.tileCorner, style: .continuous))
+        .overlay {
+            if !model.fullscreen {
+                RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
+                    .strokeBorder(LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.stroke],
+                                                 startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            }
+        }
+        .shadow(color: .black.opacity(model.fullscreen ? 0 : 0.45), radius: 18, x: 0, y: 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.3), value: loadState)
+    }
+
+    private func circleButton(_ name: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name).font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Theme.textPrimary).frame(width: 46, height: 46)
+                .background(Circle().fill(Color.white.opacity(0.06)))
+                .overlay(Circle().strokeBorder(Theme.strokeStrong, lineWidth: 1))
+        }
+        .buttonStyle(.pressable)
     }
 
     private func reload() { loadState = .loading; reloadID = UUID() }

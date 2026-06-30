@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var model: ToolboxModel
     @ObservedObject var remote: RemoteServer
+    @ObservedObject var updater: UpdateChecker
     var onClose: () -> Void = {}
     @State private var confirmClear = false
     @State private var sliderValue: Double = 90
@@ -102,6 +103,18 @@ struct SettingsView: View {
                                     .padding(.horizontal, 16).frame(height: 44)
                                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.batteryLow.opacity(0.12)))
                             }.buttonStyle(.pressable)
+                        }
+                    }
+                    section("Software update", "Checks GitHub for new versions automatically.", "arrow.down.circle.fill", Theme.netDown) {
+                        labelRow("Current version", "v\(updater.currentVersion ?? "—")")
+                        Button { updater.check(manual: true) } label: {
+                            Label(updater.checking ? "Checking…" : "Check for updates", systemImage: "arrow.clockwise")
+                                .font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary)
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
+                        }.buttonStyle(.pressable).disabled(updater.checking)
+                        if !updater.statusLine.isEmpty {
+                            Text(updater.statusLine).font(.deck(12)).foregroundStyle(Theme.textFaint)
                         }
                     }
                     section("About", nil, "info.circle.fill", Theme.time) {

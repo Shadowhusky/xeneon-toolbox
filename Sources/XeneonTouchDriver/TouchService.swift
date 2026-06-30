@@ -34,6 +34,7 @@ final class TouchDriver {
               let xr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageX),
               let yr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageY) else {
             if debug { warn("TOUCH: device matched but no X/Y range found\n") }
+            touchDiag(calibration != nil ? "deviceMatched: already calibrated (extra interface)" : "deviceMatched: no X/Y range on this interface")
             return
         }
         calibration = AxisCalibration(minX: xr.0, maxX: xr.1, minY: yr.0, maxY: yr.1,
@@ -41,6 +42,7 @@ final class TouchDriver {
         display = findEdgeDisplay(preferred: preferredDisplayID)
         decoder = HIDTouchDecoder()
         if debug { warn("TOUCH: connected, X[\(xr.0),\(xr.1)] Y[\(yr.0),\(yr.1)] display=\(display != nil)\n") }
+        touchDiag("deviceConnected: X[\(xr.0),\(xr.1)] Y[\(yr.0),\(yr.1)] edgeDisplayFound=\(display != nil)")
         onPresenceChanged?(display != nil)
     }
 
@@ -68,7 +70,7 @@ final class TouchDriver {
         guard let cal = calibration, let disp = display,
               let x = decoder.rawX, let y = decoder.rawY else { return }
 
-        if !announcedActive { announcedActive = true; onPresenceChanged?(true) }
+        if !announcedActive { announcedActive = true; touchDiag("first digitizer value received — touch is LIVE"); onPresenceChanged?(true) }
         let point = CoordinateMapper.mapToScreen(rawX: x, rawY: y, calibration: cal, display: disp)
         lastPoint = point
         for action in machine.update(contact: decoder.contact, point: point) {

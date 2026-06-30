@@ -111,6 +111,11 @@ extension RemoteServer {
   <section class="card">
     <p class="label">PAGES</p>
     <div class="grid" id="pages"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <input id="weburl" type="text" placeholder="Open a URL on the Edge…" autocapitalize="off" autocomplete="off" spellcheck="false"
+        style="flex:1;min-width:0;background:#ffffff0e;border:1px solid var(--stroke);border-radius:12px;color:var(--txt);padding:11px 14px;font-size:15px;outline:none">
+      <button id="webgo" style="background:#54d6eb;color:#04222a;border:none;border-radius:12px;padding:0 18px;font-weight:800;font-size:14px">Open</button>
+    </div>
   </section>
 
   <section class="card">
@@ -149,6 +154,7 @@ const P={
  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
  tasks:'<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>',
  games:'<rect x="2" y="6" width="20" height="12" rx="4"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/><circle cx="16" cy="11.5" r="1"/><circle cx="18.5" cy="13.5" r="1"/>',
+ web:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/>',
  assistant:'<path d="M12 3l1.7 4.6L18.5 9.5l-4.8 1.9L12 16l-1.7-4.6L5.5 9.5l4.8-1.9z"/>',
  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
  moon:'<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>',
@@ -166,12 +172,17 @@ document.getElementById('mic').innerHTML=svg('mic');
 document.getElementById('send').innerHTML=svg('send');
 
 const PAGES=[['dashboard','dashboard','Dashboard'],['clock','clock','Clock'],['tasks','tasks','Tasks'],
-  ['games','games','Games'],['chat','assistant','Assistant']];
+  ['games','games','Games'],['web','web','Web'],['chat','assistant','Assistant']];
 const DISPLAY=[['full','sun','Wake'],['minimal','moon','Minimal'],['sleep','power','Rest']];
 
 const pagesEl=document.getElementById('pages');
 PAGES.forEach(([k,ic,nm])=>{const b=document.createElement('button');b.dataset.route=k;
   b.innerHTML=svg(ic)+'<span>'+nm+'</span>';b.onclick=()=>post('/api/route',{route:k});pagesEl.appendChild(b);});
+
+const weburl=document.getElementById('weburl'),webgo=document.getElementById('webgo');
+function openWeb(){const u=weburl.value.trim();if(!u)return;post('/api/web',{url:u});weburl.value='';weburl.blur();}
+webgo.onclick=openWeb;
+weburl.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();openWeb();}});
 const dispEl=document.getElementById('display');
 DISPLAY.forEach(([k,ic,nm])=>{const b=document.createElement('button');b.dataset.mode=k;
   b.innerHTML=svg(ic)+'<span>'+nm+'</span>';b.onclick=()=>post('/api/display',{mode:k});dispEl.appendChild(b);});

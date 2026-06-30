@@ -142,6 +142,11 @@ final class RemoteServer: ObservableObject {
                 if model.displayMode != .full { model.setDisplay(.full) }
             }
             return json(["ok": true])
+        case ("POST", "/api/web"):
+            if let u = (body(req)["url"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !u.isEmpty {
+                model.openWeb(u)
+            }
+            return json(["ok": true])
         case ("POST", "/api/display"):
             switch body(req)["mode"] as? String {
             case "minimal": model.setDisplay(.minimal)

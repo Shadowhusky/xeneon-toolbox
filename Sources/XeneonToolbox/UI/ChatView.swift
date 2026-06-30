@@ -40,11 +40,14 @@ struct ChatView: View {
             }
         }
         .onChange(of: voice.transcript) { _, t in if voice.listening { input = t } }
+        // Selecting a conversation (or starting a new one) should leave the chat
+        // settings pane — otherwise it stays stuck on settings.
+        .onChange(of: agent.activeID) { if config != nil { showSettings = false } }
     }
 
     private var mainColumn: some View {
         VStack(alignment: .leading, spacing: 16) {
-            header
+            if !model.fullscreen { header }
             if showSettings || config == nil {
                 ChatSettingsView(initial: config) { saved in
                     saved.save(); config = saved; agent.update(config: saved); showSettings = false

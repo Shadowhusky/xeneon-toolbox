@@ -5,7 +5,7 @@ import ToolboxKit
 enum DisplayMode { case full, minimal, sleep }
 
 enum AppRoute: String, CaseIterable, Identifiable {
-    case dashboard, clock, tasks, games, chat
+    case dashboard, clock, tasks, games, web, chat
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -13,6 +13,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
         case .clock: return "Clock"
         case .tasks: return "Tasks"
         case .games: return "Games"
+        case .web: return "Web"
         case .chat: return "Assistant"
         }
     }
@@ -22,6 +23,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
         case .clock: return "clock.fill"
         case .tasks: return "checklist"
         case .games: return "gamecontroller.fill"
+        case .web: return "globe"
         case .chat: return "sparkles"
         }
     }
@@ -32,6 +34,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
         case .clock: return Theme.time
         case .tasks: return Theme.netUp
         case .games: return Theme.gpu
+        case .web: return Theme.disk
         case .chat: return Theme.memory
         }
     }
@@ -46,14 +49,19 @@ final class ToolboxModel: ObservableObject {
     let weather = WeatherService()
     let todos = TodoStore()
     let worldClocks = WorldClockStore()
+    let webApps = WebAppStore()
     let canControlBacklight = Backlight.isAvailable
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
     private var preDimBrightness = 90             // restored when waking from sleep
     lazy var agent = AgentController(config: ChatConfig.loadSaved() ?? ChatConfig.presets[0].config, app: self)
     lazy var remote = RemoteServer(model: self)
+    lazy var web = WebController()   // persists the Web tab's page/history across tab switches
+    lazy var updater = UpdateChecker()
     @Published var remoteEnabled = (UserDefaults.standard.object(forKey: "remote.enabled") as? Bool) ?? true
     @Published var route: AppRoute = .dashboard
     @Published var displayMode: DisplayMode = .minimal   // ambient default; tap to wake to full
+    @Published var fullscreen = false                    // hide the nav rail; page fills the panel
+    @Published var pendingWebURL: String?                // a URL the Web tab should open (agent/remote)
     @Published var showSettings = false
     var exportMode = false   // static input bar etc. for off-screen mockup renders
     @Published var touchOn = false
@@ -76,6 +84,7 @@ final class ToolboxModel: ObservableObject {
             metrics.start(); weather.start()
             if wasSleep { restoreBacklight() }
         }
+        if mode != .full { fullscreen = false }   // don't wake straight back into immersive mode
         displayMode = mode
     }
 
@@ -149,6 +158,8 @@ final class ToolboxModel: ObservableObject {
         default: break
         }
         if ProcessInfo.processInfo.environment["XENEON_SETTINGS"] != nil { showSettings = true }
+        if ProcessInfo.processInfo.environment["XENEON_FULLSCREEN"] != nil { fullscreen = true }
+        if let u = ProcessInfo.processInfo.environment["XENEON_OPEN_URL"] { route = .web; pendingWebURL = u }
     }
 
     func onAppear() {
@@ -157,6 +168,7 @@ final class ToolboxModel: ObservableObject {
         todos.start()
         startTouch()
         if remoteEnabled { remote.start() }
+        if ProcessInfo.processInfo.environment["XENEON_UPDATE_DEMO"] != nil { updater.demo() } else { updater.start() }
         if canControlBacklight {
             DispatchQueue.global(qos: .utility).async {
                 if let b = Backlight.getBrightness() {
@@ -206,6 +218,16 @@ final class ToolboxModel: ObservableObject {
     }
 
     func toggleTouch() { touchOn ? stopTouch() : startTouch() }
+
+    func toggleFullscreen() { fullscreen.toggle() }
+
+    /// Open a web page in the Web tab — used by the assistant and the remote.
+    /// Wakes the panel and switches to the tab; the BrowserView picks up the URL.
+    func openWeb(_ urlString: String) {
+        if displayMode != .full { setDisplay(.full) }
+        route = .web
+        pendingWebURL = urlString
+    }
 
     func setRemote(_ enabled: Bool) {
         remoteEnabled = enabled

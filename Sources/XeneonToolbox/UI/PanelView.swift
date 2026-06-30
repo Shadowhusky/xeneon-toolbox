@@ -24,10 +24,14 @@ struct RootView: View {
 
     private var fullUI: some View {
         HStack(spacing: 0) {
-            NavRail(route: $model.route, touchActive: model.touchStatus == .active, todos: model.todos,
-                    exportMode: model.exportMode,
-                    onMinimal: { model.setDisplay(.minimal) }, onSleep: { model.setDisplay(.sleep) },
-                    onSettings: { model.showSettings = true })
+            if !model.fullscreen {
+                NavRail(route: $model.route, touchActive: model.touchStatus == .active, todos: model.todos,
+                        exportMode: model.exportMode,
+                        onFullscreen: { model.toggleFullscreen() },
+                        onMinimal: { model.setDisplay(.minimal) }, onSleep: { model.setDisplay(.sleep) },
+                        onSettings: { model.showSettings = true })
+                    .transition(.move(edge: .leading))
+            }
             ZStack(alignment: .top) {
                 DeckBackground()
                 // VStack lays out strictly top-down, so oversized content (e.g. a
@@ -39,7 +43,7 @@ struct RootView: View {
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .offset(x: 26)),
                             removal: .opacity.combined(with: .offset(x: -26))))
-                        .padding(20)
+                        .padding(contentInset)
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -48,17 +52,51 @@ struct RootView: View {
             .animation(.spring(response: 0.45, dampingFraction: 0.85), value: model.route)
         }
         .background(Theme.background)
+        // In fullscreen every page hides its chrome. The exit tab sits at the
+        // top-center edge — the one strip page/web/game controls (titles on the
+        // left, actions on the right) reliably leave clear — so it doesn't cover
+        // the underlying UI the way a top-right pill did.
+        .overlay(alignment: .top) {
+            if model.fullscreen { fullscreenExit }
+        }
         .overlay {
             if model.showSettings {
                 ZStack {
                     Color.black.opacity(0.55).ignoresSafeArea()
                         .onTapGesture { model.showSettings = false }
-                    SettingsView(model: model, remote: model.remote) { model.showSettings = false }
+                    SettingsView(model: model, remote: model.remote, updater: model.updater) { model.showSettings = false }
                 }
                 .transition(.opacity)
             }
         }
+        .overlay { UpdateGate(updater: model.updater, fullscreen: model.fullscreen) }
+        .animation(.easeInOut(duration: 0.3), value: model.fullscreen)
         .animation(.easeInOut(duration: 0.25), value: model.showSettings)
+    }
+
+    // Web and Games hide their own chrome and fill the panel, so they go fully
+    // edge-to-edge in fullscreen. Other pages keep a small inset so their controls
+    // never sit flush against the physical screen edge.
+    private var contentInset: CGFloat {
+        guard model.fullscreen else { return 20 }
+        return (model.route == .web || model.route == .games) ? 0 : 14
+    }
+
+    private var fullscreenExit: some View {
+        Button { model.toggleFullscreen() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 11, weight: .bold))
+                Text("Exit Full Screen").font(.deck(12, .semibold))
+            }
+            .foregroundStyle(Theme.textPrimary)
+            .padding(.horizontal, 14).frame(height: 28)
+            .background(Capsule().fill(.ultraThinMaterial))
+            .overlay(Capsule().strokeBorder(Theme.strokeStrong, lineWidth: 1))
+            .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
+        }
+        .buttonStyle(.pressable)
+        .padding(.top, 8)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     @ViewBuilder private var content: some View {
@@ -67,6 +105,7 @@ struct RootView: View {
         case .clock: ClockAppView(store: model.worldClocks, exportMode: model.exportMode)
         case .tasks: TasksView(todos: model.todos, exportMode: model.exportMode)
         case .games: GamesView(model: model)
+        case .web: BrowserView(model: model, store: model.webApps, web: model.web)
         case .chat: ChatView(model: model)
         }
     }
@@ -77,6 +116,7 @@ struct NavRail: View {
     var touchActive: Bool
     @ObservedObject var todos: TodoStore
     var exportMode = false
+    var onFullscreen: () -> Void = {}
     var onMinimal: () -> Void = {}
     var onSleep: () -> Void = {}
     var onSettings: () -> Void = {}
@@ -85,7 +125,7 @@ struct NavRail: View {
     private var hasOverdue: Bool { todos.items.contains { $0.isOverdue } }
 
     @ViewBuilder private var navButtons: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 9) {
             ForEach(AppRoute.allCases) { r in
                 NavButton(route: r, selected: route == r,
                           badge: r == .tasks ? openTasks : 0,
@@ -127,9 +167,10 @@ struct NavRail: View {
                     Text(touchActive ? "Touch on" : "Touch off")
                         .font(.deck(11, .semibold)).foregroundStyle(touchActive ? Theme.battery : Theme.textFaint)
                 }
-                HStack(spacing: 10) {
-                    railIcon("rectangle.compress.vertical", action: onMinimal)
-                    railIcon("moon.fill", action: onSleep)
+                HStack(spacing: 8) {
+                    railIcon("arrow.up.left.and.arrow.down.right", width: 40, action: onFullscreen)
+                    railIcon("rectangle.compress.vertical", width: 40, action: onMinimal)
+                    railIcon("moon.fill", width: 40, action: onSleep)
                 }
                 HStack(spacing: 10) {
                     railIcon("gearshape.fill", action: onSettings)
@@ -189,7 +230,7 @@ private struct NavButton: View {
         Button(action: action) {
             VStack(spacing: 7) {
                 Image(systemName: route.icon)
-                    .font(.system(size: 29, weight: .semibold))
+                    .font(.system(size: 25, weight: .semibold))
                     .overlay(alignment: .topTrailing) {
                         if badge > 0 {
                             Text("\(badge)")
@@ -199,11 +240,11 @@ private struct NavButton: View {
                                 .offset(x: 16, y: -8)
                         }
                     }
-                Text(route.title).font(.deck(13, .semibold)).tracking(0.3)
+                Text(route.title).font(.deck(12, .semibold)).tracking(0.3)
             }
             .foregroundStyle(selected ? accent : Theme.textSecondary)
             .shadow(color: selected ? accent.opacity(0.6) : .clear, radius: 10)
-            .frame(width: 120, height: 82)
+            .frame(width: 120, height: 66)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(selected
@@ -213,7 +254,7 @@ private struct NavButton: View {
             )
             .overlay(alignment: .leading) {
                 Capsule().fill(accent)
-                    .frame(width: 4, height: selected ? 52 : 0)
+                    .frame(width: 4, height: selected ? 40 : 0)
                     .deckGlow(accent, strength: 0.9)
                     .offset(x: -15)
             }
