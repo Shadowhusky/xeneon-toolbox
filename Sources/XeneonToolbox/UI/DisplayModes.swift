@@ -7,6 +7,9 @@ import ToolboxKit
 struct MinimalView: View {
     @ObservedObject var metrics: SystemMetrics
     @ObservedObject var todos: TodoStore
+    @ObservedObject var media: MediaController
+    var showNowPlaying = true
+    var onHideNowPlaying: () -> Void = {}
 
     private var nextReminder: TodoItem? {
         todos.items.filter { !$0.done && $0.dueAt != nil }
@@ -14,29 +17,39 @@ struct MinimalView: View {
     }
     private var openCount: Int { todos.items.filter { !$0.done }.count }
 
+    private var playing: Bool { showNowPlaying && media.available && media.nowPlaying != nil }
+
     var body: some View {
         ZStack {
             Color.black
-            HStack(spacing: 0) {
-                clockBlock
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 110)
+            VStack(spacing: 0) {
+                // Clock + vitals centre in whatever height is left above the player.
+                HStack(spacing: 0) {
+                    clockBlock
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 110)
 
-                Rectangle()
-                    .fill(LinearGradient(colors: [.clear, Theme.stroke, Theme.stroke, .clear],
-                                         startPoint: .top, endPoint: .bottom))
-                    .frame(width: 1).padding(.vertical, 96)
+                    Rectangle()
+                        .fill(LinearGradient(colors: [.clear, Theme.stroke, Theme.stroke, .clear],
+                                             startPoint: .top, endPoint: .bottom))
+                        .frame(width: 1).padding(.vertical, 64)
 
-                rightColumn
-                    .frame(width: 540)
-                    .padding(.horizontal, 64)
-            }
-            VStack {
-                Spacer()
+                    rightColumn
+                        .frame(width: 540)
+                        .padding(.horizontal, 64)
+                }
+                .frame(maxHeight: .infinity)
+
+                if playing {
+                    NowPlayingBar(media: media, onHide: onHideNowPlaying)
+                        .padding(.horizontal, 96)
+                        .padding(.bottom, 12)
+                }
                 Text("Tap anywhere to exit")
-                    .font(.deck(13)).foregroundStyle(.white.opacity(0.22)).padding(.bottom, 26)
+                    .font(.deck(13)).foregroundStyle(.white.opacity(0.22)).padding(.bottom, 22)
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: playing)
     }
 
     private var clockBlock: some View {

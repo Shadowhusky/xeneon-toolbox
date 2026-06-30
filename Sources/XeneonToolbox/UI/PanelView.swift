@@ -4,13 +4,17 @@ import ToolboxKit
 struct RootView: View {
     @ObservedObject var model: ToolboxModel
     @ObservedObject var metrics: SystemMetrics
+    @State private var showFsTip = false
+    @State private var fsTipToken = 0
 
     var body: some View {
         Group {
             switch model.displayMode {
             case .full: fullUI
             case .minimal:
-                MinimalView(metrics: metrics, todos: model.todos).contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
+                MinimalView(metrics: metrics, todos: model.todos, media: model.media,
+                            showNowPlaying: model.showNowPlaying, onHideNowPlaying: { model.showNowPlaying = false })
+                    .contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
             case .sleep:
                 SleepView().contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
             }
@@ -56,8 +60,20 @@ struct RootView: View {
         // top-center edge — the one strip page/web/game controls (titles on the
         // left, actions on the right) reliably leave clear — so it doesn't cover
         // the underlying UI the way a top-right pill did.
-        .overlay(alignment: .top) {
-            if model.fullscreen { fullscreenExit }
+        .overlay(alignment: .bottom) {
+            if model.fullscreen { fullscreenControls }
+        }
+        .onChange(of: model.fullscreen) { _, fs in
+            if fs {
+                fsTipToken += 1
+                let token = fsTipToken
+                withAnimation { showFsTip = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                    if fsTipToken == token { withAnimation { showFsTip = false } }
+                }
+            } else {
+                showFsTip = false
+            }
         }
         .overlay {
             if model.showSettings {
@@ -82,26 +98,41 @@ struct RootView: View {
         return (model.route == .web || model.route == .games) ? 0 : 14
     }
 
-    private var fullscreenExit: some View {
-        Button { model.toggleFullscreen() } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.down.right.and.arrow.up.left").font(.system(size: 11, weight: .bold))
-                Text("Exit Full Screen").font(.deck(12, .semibold))
+    // A subtle home-indicator-style handle (tap to exit — the safe fallback), with
+    // a tip on entering fullscreen that explains the swipe-up gesture and can be
+    // dismissed immediately. Replaces the old always-on "Exit Full Screen" tab.
+    private var fullscreenControls: some View {
+        VStack(spacing: 10) {
+            if showFsTip {
+                HStack(spacing: 10) {
+                    Image(systemName: "chevron.up").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
+                    Text("Swipe up from the bottom edge to exit").font(.deck(12, .semibold)).foregroundStyle(Theme.textPrimary)
+                    Button { withAnimation { showFsTip = false } } label: {
+                        Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.textFaint)
+                            .frame(width: 26, height: 26).contentShape(Rectangle())
+                    }.buttonStyle(.pressable)
+                }
+                .padding(.leading, 14).padding(.trailing, 4).padding(.vertical, 6)
+                .background(Capsule().fill(.ultraThinMaterial))
+                .overlay(Capsule().strokeBorder(Theme.strokeStrong, lineWidth: 1))
+                .shadow(color: .black.opacity(0.4), radius: 10, y: 3)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .foregroundStyle(Theme.textPrimary)
-            .padding(.horizontal, 14).frame(height: 28)
-            .background(Capsule().fill(.ultraThinMaterial))
-            .overlay(Capsule().strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
+            Button { model.toggleFullscreen() } label: {
+                Capsule().fill(Color.white.opacity(0.35))
+                    .frame(width: 132, height: 5)
+                    .padding(.vertical, 9).padding(.horizontal, 50)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.pressable)
-        .padding(.top, 8)
-        .transition(.move(edge: .top).combined(with: .opacity))
+        .padding(.bottom, 6)
+        .animation(.easeInOut(duration: 0.25), value: showFsTip)
     }
 
     @ViewBuilder private var content: some View {
         switch model.route {
-        case .dashboard: DashboardView(model: model, metrics: metrics, weather: model.weather)
+        case .dashboard: DashboardView(model: model, metrics: metrics, weather: model.weather, layout: model.dashboardLayout)
         case .clock: ClockAppView(store: model.worldClocks, exportMode: model.exportMode)
         case .tasks: TasksView(todos: model.todos, exportMode: model.exportMode)
         case .games: GamesView(model: model)
@@ -167,19 +198,21 @@ struct NavRail: View {
                     Text(touchActive ? "Touch on" : "Touch off")
                         .font(.deck(11, .semibold)).foregroundStyle(touchActive ? Theme.battery : Theme.textFaint)
                 }
-                HStack(spacing: 8) {
-                    railIcon("arrow.up.left.and.arrow.down.right", width: 40, action: onFullscreen)
-                    railIcon("rectangle.compress.vertical", width: 40, action: onMinimal)
-                    railIcon("moon.fill", width: 40, action: onSleep)
+                HStack(spacing: 10) {
+                    railIcon("arrow.up.left.and.arrow.down.right", action: onFullscreen)
+                    railIcon("rectangle.compress.vertical", action: onMinimal)
+                    railIcon("moon.fill", action: onSleep)
                 }
+                .padding(.horizontal, 12)
                 HStack(spacing: 10) {
                     railIcon("gearshape.fill", action: onSettings)
                     railIcon("power") { NSApplication.shared.terminate(nil) }
                 }
+                .padding(.horizontal, 12)
             }
-            .padding(.top, 8).padding(.bottom, 18)
+            .padding(.top, 10).padding(.bottom, 16)
         }
-        .frame(width: 156)
+        .frame(width: 168)
         .frame(maxHeight: .infinity)
         .background(Theme.backgroundEdge)
         .overlay(alignment: .trailing) {
@@ -204,14 +237,15 @@ struct NavRail: View {
         .padding(.top, 20).padding(.bottom, 14)
     }
 
-    private func railIcon(_ name: String, width: CGFloat = 41, action: @escaping () -> Void) -> some View {
+    private func railIcon(_ name: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: name)
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(Theme.textSecondary)
-                .frame(width: width, height: 44)
-                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.07)))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                .frame(maxWidth: .infinity).frame(height: 56)
+                .background(RoundedRectangle(cornerRadius: 15, style: .continuous).fill(Color.white.opacity(0.07)))
+                .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
         }
         .buttonStyle(.pressable)
     }
@@ -244,7 +278,7 @@ private struct NavButton: View {
             }
             .foregroundStyle(selected ? accent : Theme.textSecondary)
             .shadow(color: selected ? accent.opacity(0.6) : .clear, radius: 10)
-            .frame(width: 120, height: 66)
+            .frame(width: 132, height: 66)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .fill(selected

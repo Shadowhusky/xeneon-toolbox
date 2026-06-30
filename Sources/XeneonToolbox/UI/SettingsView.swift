@@ -36,6 +36,9 @@ struct SettingsView: View {
                             modeButton("Sleep", "moon.fill") { model.setDisplay(.sleep); dismiss() }
                         }
                     }
+                    section("Now Playing", "Show music controls on the dashboard and idle screen.", "music.note", Theme.memory) {
+                        Toggle("Show Now Playing", isOn: $model.showNowPlaying)
+                    }
                     section("Screen", "Dim the screen, or turn it off to save power.", "sun.max.fill", Theme.netUp) {
                         if model.canControlBacklight {
                             HStack(spacing: 12) {

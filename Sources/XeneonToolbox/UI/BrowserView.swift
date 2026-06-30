@@ -27,6 +27,7 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
         wk.uiDelegate = self
         wk.setValue(false, forKey: "drawsBackground")
         wk.allowsBackForwardNavigationGestures = true
+        wk.allowsMagnification = true   // enables pinch-to-zoom (driver maps pinch → ⌘-scroll)
 
         func sync(_ block: @escaping () -> Void) { DispatchQueue.main.async(execute: block) }
         observers = [

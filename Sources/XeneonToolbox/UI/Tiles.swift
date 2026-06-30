@@ -229,6 +229,9 @@ struct ControlsTile: View {
     @Binding var flipX: Bool
     @Binding var flipY: Bool
     @Binding var swapXY: Bool
+    var onEditLayout: () -> Void = {}
+    var nowPlayingHidden: Bool = false
+    var onShowNowPlaying: () -> Void = {}
     @State private var showCalibrate = false
 
     private var on: Bool { status != .off }
@@ -249,7 +252,7 @@ struct ControlsTile: View {
     var body: some View {
         TileSurface(accent: on ? tint : Theme.textFaint) {
             VStack(alignment: .leading, spacing: 0) {
-                TileHeader(title: "Controls", systemImage: "slider.horizontal.3", accent: on ? tint : Theme.textFaint)
+                TileHeader(title: "Configs", systemImage: "slider.horizontal.3", accent: on ? tint : Theme.textFaint)
                 Spacer()
                 Button(action: toggleTouch) {
                     HStack(spacing: 14) {
@@ -269,26 +272,41 @@ struct ControlsTile: View {
                 Spacer().frame(height: 14)
                 Label(detail.1, systemImage: detail.0).font(.deck(13)).foregroundStyle(tint)
                 Spacer()
-                Button { showCalibrate.toggle() } label: {
-                    Label("Calibrate", systemImage: "slider.horizontal.3")
-                        .font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.05)))
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showCalibrate, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Touch calibration").font(.deck(15, .bold)).foregroundStyle(Theme.textPrimary)
-                        Text("Use these if taps land mirrored or rotated.").font(.deck(12)).foregroundStyle(Theme.textFaint)
-                        Toggle("Flip horizontal", isOn: $flipX)
-                        Toggle("Flip vertical", isOn: $flipY)
-                        Toggle("Swap axes", isOn: $swapXY)
+                VStack(spacing: 8) {
+                    if nowPlayingHidden {
+                        configButton("Show Now Playing", "music.note", action: onShowNowPlaying)
                     }
-                    .font(.deck(14)).tint(Theme.accent)
-                    .padding(20).frame(width: 260)
+                    HStack(spacing: 8) {
+                        Button { showCalibrate.toggle() } label: { configLabel("Calibrate", "slider.horizontal.3") }
+                            .buttonStyle(.plain)
+                            .popover(isPresented: $showCalibrate, arrowEdge: .bottom) {
+                                VStack(alignment: .leading, spacing: 16) {
+                                    Text("Touch calibration").font(.deck(15, .bold)).foregroundStyle(Theme.textPrimary)
+                                    Text("Use these if taps land mirrored or rotated.").font(.deck(12)).foregroundStyle(Theme.textFaint)
+                                    Toggle("Flip horizontal", isOn: $flipX)
+                                    Toggle("Flip vertical", isOn: $flipY)
+                                    Toggle("Swap axes", isOn: $swapXY)
+                                }
+                                .font(.deck(14)).tint(Theme.accent)
+                                .padding(20).frame(width: 260)
+                            }
+                        configButton("Edit", "square.grid.2x2", action: onEditLayout)
+                    }
                 }
             }
         }
+    }
+
+    private func configLabel(_ title: String, _ icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
+            .lineLimit(1).minimumScaleFactor(0.85)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.05)))
+    }
+
+    private func configButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { configLabel(title, icon) }.buttonStyle(.plain)
     }
 }
 

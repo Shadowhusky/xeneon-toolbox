@@ -50,6 +50,8 @@ final class ToolboxModel: ObservableObject {
     let todos = TodoStore()
     let worldClocks = WorldClockStore()
     let webApps = WebAppStore()
+    let media = MediaController()
+    let dashboardLayout = DashboardLayout()
     let canControlBacklight = Backlight.isAvailable
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
     private var preDimBrightness = 90             // restored when waking from sleep
@@ -62,6 +64,9 @@ final class ToolboxModel: ObservableObject {
     @Published var displayMode: DisplayMode = .minimal   // ambient default; tap to wake to full
     @Published var fullscreen = false                    // hide the nav rail; page fills the panel
     @Published var pendingWebURL: String?                // a URL the Web tab should open (agent/remote)
+    @Published var showNowPlaying = (UserDefaults.standard.object(forKey: "ui.showNowPlaying") as? Bool) ?? true {
+        didSet { UserDefaults.standard.set(showNowPlaying, forKey: "ui.showNowPlaying") }
+    }
     @Published var showSettings = false
     var exportMode = false   // static input bar etc. for off-screen mockup renders
     @Published var touchOn = false
@@ -122,12 +127,25 @@ final class ToolboxModel: ObservableObject {
     }
 
     private lazy var touch: TouchService = makeTouch()
+    private let cursor = CursorController()
     private var retryTimer: Timer?
 
     private func makeTouch() -> TouchService {
         let t = TouchService(config: TouchServiceConfig(flipX: flipX, flipY: flipY, swapXY: swapXY, preferSeize: true))
         t.onPresenceChanged = { [weak self] present in Task { @MainActor in self?.edgeDetected = present } }
+        t.onSystemGesture = { [weak self] g in Task { @MainActor in self?.handleSystemGesture(g) } }
         return t
+    }
+
+    /// Whole-screen edge swipes recognized by the driver: up from the bottom exits
+    /// fullscreen; down from the top drops to the minimal/idle screen.
+    private func handleSystemGesture(_ gesture: SystemGesture) {
+        switch gesture {
+        case .swipeUpFromBottom:
+            if fullscreen { withAnimation(.easeInOut(duration: 0.3)) { fullscreen = false } }
+        case .swipeDownFromTop:
+            if displayMode == .full { setDisplay(.minimal) }
+        }
     }
 
     private func applyCalibration() {
@@ -166,6 +184,7 @@ final class ToolboxModel: ObservableObject {
         metrics.start()
         weather.start()
         todos.start()
+        media.start()
         startTouch()
         if remoteEnabled { remote.start() }
         if ProcessInfo.processInfo.environment["XENEON_UPDATE_DEMO"] != nil { updater.demo() } else { updater.start() }
@@ -180,6 +199,7 @@ final class ToolboxModel: ObservableObject {
 
     func startTouch() {
         touchOn = true
+        cursor.start()   // hide the pointer while touching; shows again on real mouse use
         attemptAcquire()
     }
 
@@ -215,6 +235,7 @@ final class ToolboxModel: ObservableObject {
         edgeDetected = false
         retryTimer?.invalidate(); retryTimer = nil
         touch.stop()
+        cursor.stop()
     }
 
     func toggleTouch() { touchOn ? stopTouch() : startTouch() }

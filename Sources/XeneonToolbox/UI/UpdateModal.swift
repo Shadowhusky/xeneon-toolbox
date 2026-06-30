@@ -48,17 +48,29 @@ struct UpdateModal: View {
 
             Rectangle().fill(Theme.stroke).frame(height: 1).padding(.bottom, 16)
 
-            HStack(spacing: 12) {
-                textButton("Skip this version", color: Theme.textFaint) { updater.skip(info) }
-                Spacer(minLength: 0)
-                textButton("Later", color: Theme.textSecondary) { updater.ignoreThisTime(info) }
-                Button { updater.update(info) } label: {
-                    Label("Update", systemImage: "arrow.down.circle.fill")
-                        .font(.deck(16, .bold)).foregroundStyle(Color(red: 0.02, green: 0.13, blue: 0.16))
-                        .padding(.horizontal, 22).frame(height: 48)
-                        .background(Capsule().fill(Theme.accent))
-                        .deckGlow(Theme.accent, strength: 0.5)
-                }.buttonStyle(.pressable)
+            switch updater.install {
+            case .working(let message):
+                HStack(spacing: 12) {
+                    ProgressView().controlSize(.small).tint(Theme.accent)
+                    Text(message).font(.deck(15, .semibold)).foregroundStyle(Theme.textSecondary)
+                    Spacer(minLength: 0)
+                }
+                .frame(height: 48)
+            case .failed(let message):
+                HStack(spacing: 12) {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.deck(13)).foregroundStyle(Theme.batteryLow).lineLimit(2)
+                    Spacer(minLength: 0)
+                    textButton("Later", color: Theme.textSecondary) { updater.ignoreThisTime(info) }
+                    updateButton("Open download") { updater.openDownload(info) }
+                }
+            case .idle:
+                HStack(spacing: 12) {
+                    textButton("Skip this version", color: Theme.textFaint) { updater.skip(info) }
+                    Spacer(minLength: 0)
+                    textButton("Later", color: Theme.textSecondary) { updater.ignoreThisTime(info) }
+                    updateButton(updater.canSelfInstall ? "Update" : "Download") { updater.update(info) }
+                }
             }
         }
         .padding(28)
@@ -80,6 +92,16 @@ struct UpdateModal: View {
         .padding(.horizontal, 12).frame(height: 32)
         .background(Capsule().fill(Color.white.opacity(0.05)))
         .overlay(Capsule().strokeBorder(Theme.strokeStrong, lineWidth: 1))
+    }
+
+    private func updateButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: "arrow.down.circle.fill")
+                .font(.deck(16, .bold)).foregroundStyle(Color(red: 0.02, green: 0.13, blue: 0.16))
+                .padding(.horizontal, 22).frame(height: 48)
+                .background(Capsule().fill(Theme.accent))
+                .deckGlow(Theme.accent, strength: 0.5)
+        }.buttonStyle(.pressable)
     }
 
     private func textButton(_ title: String, color: Color, action: @escaping () -> Void) -> some View {

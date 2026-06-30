@@ -20,6 +20,19 @@ final class GameWebView: WKWebView {
         super.mouseDown(with: event)
     }
 
+    /// The touch driver maps a two-finger pinch to a Command-modified scroll.
+    /// When magnification is enabled (the browser), treat that as page zoom
+    /// centered on the fingers; otherwise scroll normally.
+    override func scrollWheel(with event: NSEvent) {
+        if allowsMagnification, event.modifierFlags.contains(.command) {
+            let factor = 1 + event.scrollingDeltaY * 0.004
+            let target = max(0.5, min(8.0, magnification * factor))
+            setMagnification(target, centeredAt: convert(event.locationInWindow, from: nil))
+            return
+        }
+        super.scrollWheel(with: event)
+    }
+
     func grabFocus() {
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.window else { return }
