@@ -40,11 +40,14 @@ struct ChatView: View {
             }
         }
         .onChange(of: voice.transcript) { _, t in if voice.listening { input = t } }
+        // Selecting a conversation (or starting a new one) should leave the chat
+        // settings pane — otherwise it stays stuck on settings.
+        .onChange(of: agent.activeID) { if config != nil { showSettings = false } }
     }
 
     private var mainColumn: some View {
         VStack(alignment: .leading, spacing: 16) {
-            header
+            if !model.fullscreen { header }
             if showSettings || config == nil {
                 ChatSettingsView(initial: config) { saved in
                     saved.save(); config = saved; agent.update(config: saved); showSettings = false
@@ -130,7 +133,7 @@ struct ChatView: View {
               prompt: "Make a table comparing the RTX 4090, RTX 4080 Super, and RX 7900 XTX by VRAM, TDP, and price", tint: Theme.gpu),
         .init(icon: "magnifyingglass", label: "Latest AI news",
               prompt: "Search the web for the latest AI news and summarize the top items", tint: Theme.netUp),
-        .init(icon: "gamecontroller.fill", label: "Open the card game", prompt: "Open the card game", tint: Theme.battery),
+        .init(icon: "gamecontroller.fill", label: "Play Rhythm Plus", prompt: "Open Rhythm Plus", tint: Theme.battery),
         .init(icon: "music.note", label: "What's playing?", prompt: "What's playing right now?", tint: Theme.memory),
     ]
 

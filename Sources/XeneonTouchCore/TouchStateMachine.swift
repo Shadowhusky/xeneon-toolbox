@@ -20,6 +20,11 @@ public enum PointerAction: Equatable, Sendable {
     /// moved down. The driver turns this into continuous scroll-wheel events so
     /// SwiftUI scroll views — which ignore left-drag on macOS — actually scroll.
     case scroll(dx: Double, dy: Double, phase: ScrollPhase)
+    /// Pinch zoom step: the change in the distance between two fingers, in screen
+    /// pixels (positive = spreading / zoom in), plus the midpoint between the two
+    /// fingers so the driver can anchor the zoom there. The driver turns this into
+    /// a Command-modified scroll, which the browser treats as page zoom.
+    case zoom(delta: Double, center: ScreenPoint)
 }
 
 /// Converts a stream of (contact, point) samples into pointer actions.

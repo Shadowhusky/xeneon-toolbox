@@ -1,5 +1,6 @@
 .build/
 XeneonToolbox.app/
+XeneonToolbox.zip
 .DS_Store
 *.xcuserstate
 .swiftpm/

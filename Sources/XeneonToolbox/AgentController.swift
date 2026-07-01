@@ -8,8 +8,9 @@ import ToolboxKit
 struct ProcRow: Identifiable, Codable {
     var id = UUID()
     let name: String
-    let cpu: Double   // percent
-    let mem: Double   // percent
+    let cpu: Double      // percent
+    let mem: Double      // percent of physical memory
+    var rssMB: Double = 0 // resident memory in MB
 }
 
 struct CardRow: Identifiable, Codable {
@@ -279,7 +280,7 @@ final class AgentController: ObservableObject {
             // App awareness + control
             tool("get_app_state", "Get the current tab, touch status, and live system stats (CPU, memory, network, disk, uptime)."),
             tool("navigate", "Switch to a tab in the toolbox.",
-                 ["tab": .init(type: .string, enum: ["dashboard", "clock", "games", "assistant"])], required: ["tab"]),
+                 ["tab": .init(type: .string, enum: ["dashboard", "clock", "tasks", "games", "web", "assistant"])], required: ["tab"]),
             tool("set_touch", "Turn the Edge touchscreen driver on or off.",
                  ["enabled": .init(type: .boolean)], required: ["enabled"]),
             tool("set_display_mode", "Change the screen mode: full (normal UI), minimal (clock + basics on black), or sleep (black screen, pauses monitoring AND turns the LCD backlight off to save power). Tapping the screen wakes it.",
@@ -323,7 +324,7 @@ final class AgentController: ObservableObject {
             tool("get_clipboard", "Read the current macOS clipboard text."),
             tool("set_clipboard", "Put text on the macOS clipboard.",
                  ["text": .init(type: .string)], required: ["text"]),
-            tool("open_url", "Open a URL in the default browser.",
+            tool("open_url", "Open a web page in the Web tab — an embedded browser on the panel. 'url' may be a full URL or a bare domain like youtube.com.",
                  ["url": .init(type: .string)], required: ["url"]),
             tool("current_datetime", "Get the current local date and time."),
             tool("set_volume", "Set the Mac output volume (0–100).",
@@ -491,8 +492,9 @@ final class AgentController: ObservableObject {
             NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
             return "Copied \(text.count) chars to the clipboard."
         case "open_url":
-            guard let u = URL(string: (args["url"] as? String) ?? "") else { return "Invalid URL." }
-            NSWorkspace.shared.open(u); return "Opened \(u.absoluteString)."
+            guard let app, let u = (args["url"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !u.isEmpty else { return "No URL given." }
+            app.openWeb(u)
+            return "Opened \(u) in the Web tab."
         case "current_datetime":
             let f = DateFormatter(); f.dateStyle = .full; f.timeStyle = .medium
             return f.string(from: Date())
@@ -617,22 +619,7 @@ final class AgentController: ObservableObject {
     // MARK: - Tool implementations
 
     private func topProcesses(_ n: Int) -> [ProcRow] {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/ps")
-        p.arguments = ["-Aceo", "pcpu,pmem,comm", "-r"]
-        let pipe = Pipe(); p.standardOutput = pipe
-        guard (try? p.run()) != nil else { return [] }
-        p.waitUntilExit()
-        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        var rows: [ProcRow] = []
-        for line in out.split(separator: "\n").dropFirst() {
-            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard parts.count >= 3, let cpu = Double(parts[0]), let mem = Double(parts[1]) else { continue }
-            let name = parts[2...].joined(separator: " ")
-            rows.append(ProcRow(name: name, cpu: cpu, mem: mem))
-            if rows.count >= max(1, min(n, 12)) { break }
-        }
-        return rows
+        ProcessSampler.sample(byMemory: false, count: min(n, 12))
     }
 
     private static let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
@@ -800,7 +787,7 @@ final class AgentController: ObservableObject {
 
     private var systemPrompt: String {
         var p = """
-        You are the built-in assistant inside Xeneon Toolbox, a macOS app on a Corsair Xeneon Edge — a 2560x720 ultrawide touchscreen. Tabs: Dashboard (live system telemetry), Clock (world clocks + focus timer), Games (embeds the 山海残卷 card roguelike and Rhythm Plus), and Assistant (you). "Touch" is the embedded driver that lets the user tap the Edge.
+        You are the built-in assistant inside Xeneon Toolbox, a macOS app on a Corsair Xeneon Edge — a 2560x720 ultrawide touchscreen. Tabs: Dashboard (live system telemetry), Clock (world clocks + focus timer), Tasks (to-dos and reminders), Games (the Rhythm Plus music game), Web (an embedded browser — use open_url to open a page there), and Assistant (you). "Touch" is the embedded driver that lets the user tap the Edge.
 
         Guidelines:
         - Answer questions directly here in the Assistant. Use web_search/fetch_url for current facts and get_weather for weather anywhere. Pick the clearest output: show_card for key/value stats or lists, show_table for multi-column comparisons, show_chart for numeric trends, generate_image for pictures. Don't force everything into one format.
@@ -873,7 +860,10 @@ final class AgentController: ObservableObject {
         turns[i].steps[turns[i].steps.count - 1].done = true
     }
 
-    private func host(_ v: Any?) -> String { URL(string: (v as? String) ?? "")?.host ?? "page" }
+    private func host(_ v: Any?) -> String {
+        let s = (v as? String) ?? ""
+        return URL(string: s)?.host ?? URL(string: "https://\(s)")?.host ?? "page"
+    }
 
     /// (present-tense working label, past-tense done label) for a tool, or nil
     /// to show nothing (e.g. a card speaks for itself).
@@ -883,7 +873,7 @@ final class AgentController: ObservableObject {
         case "set_touch": let on = (args["enabled"] as? Bool ?? false); return ("Setting touch…", "Touch \(on ? "on" : "off")")
         case "set_display_mode": let m = args["mode"] as? String ?? ""; return ("Setting display…", "Display → \(m)")
         case "set_brightness": return ("Setting brightness…", "Brightness → \(args["level"] as? Int ?? 0)%")
-        case "open_game": let g = (args["game"] as? String) == "rhythm" ? "Rhythm Plus" : "山海残卷"; return ("Opening \(g)…", "Opened \(g)")
+        case "open_game": return ("Opening Rhythm Plus…", "Opened Rhythm Plus")
         case "get_app_state": return ("Checking system…", "Checked system stats")
         case "show_top_processes": return nil
         case "show_card": return nil
@@ -903,7 +893,7 @@ final class AgentController: ObservableObject {
         case "run_command": return ("Running command…", "Ran a command")
         case "get_clipboard": return ("Reading clipboard…", "Read clipboard")
         case "set_clipboard": return ("Copying…", "Set clipboard")
-        case "open_url": let h = host(args["url"]); return ("Opening \(h)…", "Opened \(h) in browser")
+        case "open_url": let h = host(args["url"]); return ("Opening \(h)…", "Opened \(h) in the Web tab")
         case "current_datetime": return ("Checking time…", "Checked the time")
         case "set_volume": return ("Setting volume…", "Set volume to \(args["level"] as? Int ?? 0)")
         case "get_volume": return ("Checking volume…", "Checked volume")

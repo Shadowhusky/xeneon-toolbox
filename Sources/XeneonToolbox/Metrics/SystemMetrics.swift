@@ -33,6 +33,7 @@ final class SystemMetrics: ObservableObject {
     @Published private(set) var snap = MetricsSnapshot()
     @Published private(set) var cpuHistory: [Double] = []
     @Published private(set) var gpuHistory: [Double] = []
+    @Published private(set) var memHistory: [Double] = []
     @Published private(set) var netRxHistory: [Double] = []
     @Published private(set) var netTxHistory: [Double] = []
 
@@ -78,6 +79,7 @@ final class SystemMetrics: ObservableObject {
 
         cpuHistory = trimmed(cpuHistory + [s.cpu])
         gpuHistory = trimmed(gpuHistory + [s.gpu])
+        memHistory = trimmed(memHistory + [s.memFraction])
         netRxHistory = trimmed(netRxHistory + [s.netRx])
         netTxHistory = trimmed(netTxHistory + [s.netTx])
     }

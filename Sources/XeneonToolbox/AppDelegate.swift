@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import ApplicationServices
+import XeneonTouchDriver
 
 final class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
@@ -23,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
     private let model = ToolboxModel()
     private var noNapToken: NSObjectProtocol?
+    private var devMode = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
@@ -31,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (re-signed) build can be granted instead of silently failing.
         let axPrompt = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(axPrompt)
+        touchDiag("launch: AXIsProcessTrusted=\(AXIsProcessTrusted()) bundleID=\(Bundle.main.bundleIdentifier ?? "nil")")
 
         // The touch driver reads the digitizer on the main run loop. When the app
         // isn't frontmost (you're working on another screen), App Nap would
@@ -49,19 +52,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let screen = edgeScreen() ?? NSScreen.main
-        let frame = screen?.frame ?? NSRect(x: 0, y: 0, width: 2560, height: 720)
-        let devMode = ProcessInfo.processInfo.environment["XENEON_NO_FULLSCREEN"] != nil
+        devMode = ProcessInfo.processInfo.environment["XENEON_NO_FULLSCREEN"] != nil
 
-        // Kiosk by default: a borderless window covering the whole Edge, rather
-        // than macOS native fullscreen. Native fullscreen lets the system steal
-        // Esc (and ⌘ gestures) to exit — which interrupted in-game menus — whereas
-        // a borderless cover can't be "exited", so those keys reach the app/game.
-        // Dev mode keeps a normal titled window for off-screen capture.
-        let style: NSWindow.StyleMask = devMode
-            ? [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-            : [.borderless]
-        let win = KeyableWindow(contentRect: frame, styleMask: style, backing: .buffered, defer: false)
+        // Create the window titled (not borderless) so we can never end up with an
+        // uncloseable cover. placeWindow() then decides, based on whether the Edge
+        // is actually connected, whether to pin it to the panel as a kiosk or leave
+        // it a normal movable/closable window.
+        let initialFrame = (edgeScreen() ?? NSScreen.main)?.frame ?? NSRect(x: 0, y: 0, width: 2560, height: 720)
+        let win = KeyableWindow(contentRect: initialFrame,
+                                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                backing: .buffered, defer: false)
         win.title = "Xeneon Toolbox"
         win.titlebarAppearsTransparent = true
         win.titleVisibility = .hidden
@@ -70,21 +70,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         win.hasShadow = false
         win.acceptsMouseMovedEvents = true
         win.contentView = FirstMouseHostingView(rootView: RootView(model: model, metrics: model.metrics))
-        win.setFrame(frame, display: true)
+        self.window = win
 
-        if !devMode {
-            // Sit just above the menu bar so the panel fully covers the Edge (incl.
-            // any per-display menu bar) without native fullscreen.
-            win.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
-            win.collectionBehavior = [.canJoinAllSpaces, .stationary]
-            NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
-        }
-
-        win.makeKeyAndOrderFront(nil)
+        placeWindow()
         NSApp.activate(ignoringOtherApps: true)
         fputs("WINDOW_ID=\(win.windowNumber)\n", stderr)
 
-        self.window = win
+        // Displays can be added, removed, or rearranged at runtime, and on
+        // sleep/wake macOS may move the window to another screen. Re-place the
+        // window whenever that happens so the kiosk follows the Edge back and is
+        // never stranded, untitled, on the main monitor.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(screenParametersChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
+
         model.onAppear()
     }
 
@@ -94,6 +93,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // it from another screen re-engages touch immediately.
     func applicationDidBecomeActive(_ notification: Notification) {
         model.reacquireTouch()
+        // If the kiosk drifted off the Edge while we were away (e.g. a display
+        // reshuffle that didn't fire a parameters change), pull it back.
+        if !devMode, let edge = edgeScreen(), window?.screen != edge {
+            placeWindow()
+        }
+    }
+
+    /// Positions the main window. With the Edge connected it becomes a borderless
+    /// kiosk covering the panel, above the menu bar so Esc/⌘ gestures can't exit
+    /// (and so they reach the game). Without the Edge it stays a normal, movable,
+    /// closable window on the main display — never an untitled cover with no way to
+    /// move or quit it.
+    private func placeWindow() {
+        guard let win = window else { return }
+
+        if devMode {
+            win.level = .normal
+            win.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        if let edge = edgeScreen() {
+            win.styleMask = [.borderless]
+            win.collectionBehavior = [.canJoinAllSpaces, .stationary]
+            win.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
+            win.setFrame(edge.frame, display: true)
+            NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
+            win.makeKeyAndOrderFront(nil)
+        } else {
+            // No Edge connected: restore a normal titled window centered on the main
+            // display, with a visible title and a close button, so it can always be
+            // moved and quit. It re-pins to the Edge automatically once it appears.
+            NSApp.presentationOptions = []
+            win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            win.collectionBehavior = [.managed]
+            win.level = .normal
+            win.titleVisibility = .visible
+            win.title = "Xeneon Toolbox — connect the Xeneon Edge"
+            let size = NSSize(width: 1280, height: 360)
+            let area = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            let origin = NSPoint(x: area.midX - size.width / 2, y: area.midY - size.height / 2)
+            win.setFrame(NSRect(origin: origin, size: size), display: true)
+            win.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    @objc private func screenParametersChanged(_ note: Notification) {
+        placeWindow()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
