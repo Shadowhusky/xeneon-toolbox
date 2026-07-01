@@ -36,8 +36,8 @@ final class UpdateChecker: ObservableObject {
     private var snoozedThisSession: Set<String> = []
 
     private var skippedVersion: String? {
-        get { UserDefaults.standard.string(forKey: "update.skippedVersion") }
-        set { UserDefaults.standard.setValue(newValue, forKey: "update.skippedVersion") }
+        get { AppDefaults.shared.string(forKey: "update.skippedVersion") }
+        set { AppDefaults.shared.setValue(newValue, forKey: "update.skippedVersion") }
     }
 
     /// Begin automatic checks. No-op when running as a bare executable (no bundle

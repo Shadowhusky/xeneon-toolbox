@@ -8,6 +8,7 @@ struct DashboardView: View {
 
     enum DetailKind { case cpu, gpu, memory, network }
     @State private var detailKind: DetailKind?
+    @State private var showWeather = false
     @State private var procs: [ProcRow] = []
     @State private var sampleTask: Task<Void, Never>?
 
@@ -39,8 +40,17 @@ struct DashboardView: View {
                 }
                 .zIndex(1)
             }
+            if showWeather, !editing {
+                ZStack {
+                    Color.black.opacity(0.62).ignoresSafeArea().onTapGesture { showWeather = false }
+                    WeatherDetailView(weather: weather.weather) { showWeather = false }
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
+                .zIndex(1)
+            }
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.82), value: detailKind)
+        .animation(.spring(response: 0.34, dampingFraction: 0.82), value: showWeather)
         .onAppear {
             switch ProcessInfo.processInfo.environment["XENEON_DETAIL"] {
             case "cpu": open(.cpu); case "gpu": open(.gpu)
@@ -87,6 +97,8 @@ struct DashboardView: View {
         return Group {
             if editing {
                 tileContent(tile, snap).allowsHitTesting(false)
+            } else if tile == .clock {
+                tileContent(tile, snap).expandable { close(); showWeather = true }
             } else if let kind = expandKind(tile) {
                 tileContent(tile, snap).expandable { open(kind) }
             } else {

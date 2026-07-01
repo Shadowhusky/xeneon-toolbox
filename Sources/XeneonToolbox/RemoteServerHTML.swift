@@ -143,8 +143,7 @@ extension RemoteServer {
 </div>
 
 <script>
-const T = new URLSearchParams(location.search).get('t') || '';
-const j = (p,m='GET',b)=>fetch(p+(p.indexOf('?')<0?'?':'&')+'t='+encodeURIComponent(T),
+const j = (p,m='GET',b)=>fetch(p,
   {method:m,headers:b?{'Content-Type':'application/json'}:undefined,body:b?JSON.stringify(b):undefined})
   .then(r=>r.json()).catch(()=>({}));
 const post=(p,b)=>j(p,'POST',b);
@@ -232,7 +231,7 @@ function renderCard(c){
       row.appendChild(track);row.appendChild(cell('span','bval',String(p.value)));card.appendChild(row);});
   }else if(c.type==='image'){
     const img=document.createElement('img');img.className='cimg';
-    img.src='/api/image?id='+encodeURIComponent(c.id)+'&t='+encodeURIComponent(T);card.appendChild(img);
+    img.src='/api/image?id='+encodeURIComponent(c.id);card.appendChild(img);
   }
   return card;
 }

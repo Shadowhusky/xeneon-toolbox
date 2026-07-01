@@ -10,12 +10,9 @@ import XeneonTouchCore
 /// `CGEventGetIntegerValueField(event, .eventSourceUserData)`.
 public let kXeneonTouchEventTag: Int64 = 0x58_454E_4F4E   // "XENON"
 
-/// A whole-screen edge swipe the driver recognizes from raw touch positions
-/// (single finger), since vertical swipes reach the app only as scroll events.
-public enum SystemGesture: Sendable {
-    case swipeUpFromBottom   // exit fullscreen
-    case swipeDownFromTop    // drop to the minimal/idle screen
-}
+/// Phase of a continuous edge pull (driven from raw touch positions, since
+/// vertical drags reach the app only as scroll events).
+public enum EdgePhase: Sendable { case began, changed, ended }
 
 /// Reads the Xeneon Edge digitizer and injects pointer events. Prefers the
 /// 10-finger digitizer interface (report id 0x0D) for genuine multi-touch —
@@ -77,14 +74,41 @@ final class TouchDriver: @unchecked Sendable {
     private var valueLogCount = 0
 
     var onPresenceChanged: ((Bool) -> Void)?
-    var onSystemGesture: ((SystemGesture) -> Void)?
+    var onShadePull: ((Double, EdgePhase) -> Void)?    // top-edge pull-down, left/centre (full → minimal)
+    var onControlPull: ((Double, EdgePhase) -> Void)?  // top-edge pull-down, right third (control centre)
+    var onBottomPull: ((Double, EdgePhase) -> Void)?   // bottom-edge pull-up (dismiss / exit)
+    var onSwipeApp: ((Bool) -> Void)?                  // side-edge swipe inward — true = next app
+    var sideSwipeEnabled = false                       // app-switch swipes (set true in fullscreen)
 
-    // Edge-swipe recognition (runs alongside normal pointer handling).
-    private enum Edge { case top, bottom, middle }
-    private var edgeStart: (edge: Edge, y: Double)?
-    private var edgeFired = false
-    private let edgeMargin = 28.0
-    private let edgeSwipeDistance = 190.0
+    // Edge gestures (run alongside normal pointer handling). Once one engages, the
+    // contact's normal pointer/scroll events are suppressed so the page underneath
+    // doesn't also scroll.
+    private enum EdgeKind { case none, middle, top, bottom, left, right }
+    private var edgeKind: EdgeKind = .none
+    private var edgeStartY = 0.0
+    private var edgeStartX = 0.0
+    private var edgeStartXFrac = 0.0
+    private var lastDX = 0.0
+    private var lastFraction = 0.0
+    private var topActive = false
+    private var topControl = false      // this top pull started in the right third
+    private var bottomActive = false
+    private var sideActive = false
+    private var edgeSuppress = false    // an edge gesture has engaged — drop pointer events
+    private var edgeCancelled = false   // already flushed the in-flight pointer gesture
+    // Touch-down anchor + release velocity, so classification tolerates a stale
+    // first sample and commits project forward on a flick (iOS-style).
+    private var edgeAnchored = false
+    private var edgeAnchorX = 0.0, edgeAnchorY = 0.0, edgeAnchorTime = 0.0
+    private var edgeVelX = 0.0, edgeVelY = 0.0
+    private var edgeVelTime = 0.0, edgeVelX0 = 0.0, edgeVelY0 = 0.0
+    private let edgeMargin = 64.0       // how close to an edge a touch must start
+    private let edgeActivate = 12.0     // travel before a pull engages
+    private let appSwipeDistance = 96.0  // inward travel to switch apps
+    private let edgeGraceTime = 0.11    // window to still catch an edge after a stale first sample
+    private let edgeGraceDist = 52.0
+    private let flickVelocity = 620.0   // px/s — a flick commits regardless of distance
+    private let projectTime = 0.28      // seconds of velocity to project a release forward
 
     init(verbose: Bool, flipX: Bool, flipY: Bool, swapXY: Bool, preferredDisplayID: CGDirectDisplayID?) {
         self.flipX = flipX
@@ -146,7 +170,7 @@ final class TouchDriver: @unchecked Sendable {
         display = nil
         digitizerActive = false
         announcedActive = false
-        edgeStart = nil; edgeFired = false
+        edgeKind = .none; topActive = false; topControl = false; bottomActive = false
         filters.removeAll()
         decoder = HIDTouchDecoder()
         onPresenceChanged?(false)
@@ -232,6 +256,17 @@ final class TouchDriver: @unchecked Sendable {
         if let first = contacts.first { lastPoint = first.point }
         feedEdge(down: !contacts.isEmpty, point: contacts.first?.point)
 
+        // Once an edge gesture engages, swallow this contact's pointer/scroll so the
+        // page underneath doesn't scroll along with the swipe.
+        if edgeSuppress {
+            if !edgeCancelled { for action in recognizer.reset() { post(action) }; edgeCancelled = true }
+            cancelMomentum()
+            gestureActive = !contacts.isEmpty
+            rearmWatchdog()
+            return
+        }
+        edgeCancelled = false
+
         for action in recognizer.update(contacts: contacts) { post(action) }
 
         // A finger touching cancels any coasting inertia and any momentum the
@@ -259,27 +294,94 @@ final class TouchDriver: @unchecked Sendable {
         let point = CoordinateMapper.mapToScreen(rawX: x, rawY: y, calibration: cal, display: disp)
         lastPoint = point
         feedEdge(down: decoder.contact, point: point)
+        if edgeSuppress {
+            if !edgeCancelled { for action in machine.reset() { post(action) }; edgeCancelled = true }
+            gestureActive = decoder.contact
+            rearmWatchdog()
+            return
+        }
+        edgeCancelled = false
         for action in machine.update(contact: decoder.contact, point: point) { post(action) }
         gestureActive = decoder.contact   // self-cancels when a real release arrives
         rearmWatchdog()
     }
 
-    /// Recognizes a single-finger swipe that begins at the top or bottom edge and
-    /// travels far enough. Additive: it only observes, so normal taps, scrolls and
-    /// drags are unaffected; it fires at most once per touch.
+    /// Observes the primary finger for edge gestures (additive — taps, scrolls and
+    /// drags still run normally underneath). A touch starting at the top edge and
+    /// moving down streams a continuous "shade" pull (the app follows it with the
+    /// minimal screen); a touch at the bottom edge moving up fires once to exit
+    /// fullscreen.
     private func feedEdge(down: Bool, point: ScreenPoint?) {
         guard let disp = display else { return }
-        guard down, let p = point else { edgeStart = nil; edgeFired = false; return }
-        if edgeStart == nil {
-            let edge: Edge = p.y <= disp.y + edgeMargin ? .top
-                : (p.y >= disp.y + disp.height - edgeMargin ? .bottom : .middle)
-            edgeStart = (edge, p.y)
+        let h = max(1, disp.height), w = max(1, disp.width)
+        guard down, let p = point else {
+            // Project the release forward by its velocity so a quick flick commits
+            // even from a short drag (UIScrollView-style deceleration projection).
+            let projected = min(1, max(0, lastFraction + (edgeVelY / h) * projectTime))
+            if topActive { (topControl ? onControlPull : onShadePull)?(projected, .ended) }
+            if bottomActive { onBottomPull?(projected, .ended) }
+            if sideActive {
+                if edgeKind == .left, lastDX > appSwipeDistance || edgeVelX > flickVelocity { onSwipeApp?(false) }
+                else if edgeKind == .right, -lastDX > appSwipeDistance || -edgeVelX > flickVelocity { onSwipeApp?(true) }
+            }
+            edgeKind = .none; topActive = false; topControl = false; bottomActive = false; sideActive = false
+            edgeSuppress = false; edgeAnchored = false
             return
         }
-        guard !edgeFired, let s = edgeStart, s.edge != .middle else { return }
-        let dy = p.y - s.y
-        if s.edge == .top, dy > edgeSwipeDistance { edgeFired = true; onSystemGesture?(.swipeDownFromTop) }
-        else if s.edge == .bottom, dy < -edgeSwipeDistance { edgeFired = true; onSystemGesture?(.swipeUpFromBottom) }
+        let now = CFAbsoluteTimeGetCurrent()
+        let localX = p.x - disp.x
+        let localY = p.y - disp.y
+        let frac = min(1, max(0, localY / h))
+        lastFraction = frac
+
+        // Anchor the touch on first contact; track a velocity EMA over ~30ms windows.
+        if !edgeAnchored {
+            edgeAnchored = true
+            edgeAnchorX = p.x; edgeAnchorY = p.y; edgeAnchorTime = now
+            edgeVelX = 0; edgeVelY = 0; edgeVelTime = now; edgeVelX0 = p.x; edgeVelY0 = p.y
+        } else if now - edgeVelTime > 0.03 {
+            let dt = now - edgeVelTime
+            edgeVelX = 0.6 * ((p.x - edgeVelX0) / dt) + 0.4 * edgeVelX
+            edgeVelY = 0.6 * ((p.y - edgeVelY0) / dt) + 0.4 * edgeVelY
+            edgeVelTime = now; edgeVelX0 = p.x; edgeVelY0 = p.y
+        }
+
+        if edgeKind == .none {
+            // Classify against the current point. Tolerate a stale first sample by
+            // staying undecided (not locking to `.middle`) until the touch has
+            // clearly moved inward or the grace window has elapsed.
+            if localY <= edgeMargin {
+                edgeKind = .top; edgeStartY = p.y; edgeStartXFrac = localX / w
+            } else if localY >= h - edgeMargin {
+                edgeKind = .bottom; edgeStartY = p.y
+            } else if sideSwipeEnabled, localX <= edgeMargin {
+                edgeKind = .left; edgeStartX = p.x; lastDX = 0
+            } else if sideSwipeEnabled, localX >= w - edgeMargin {
+                edgeKind = .right; edgeStartX = p.x; lastDX = 0
+            } else if now - edgeAnchorTime > edgeGraceTime || hypot(p.x - edgeAnchorX, p.y - edgeAnchorY) > edgeGraceDist {
+                edgeKind = .middle
+            }
+            return
+        }
+        switch edgeKind {
+        case .top:
+            if topActive {
+                (topControl ? onControlPull : onShadePull)?(frac, .changed)
+            } else if p.y - edgeStartY > edgeActivate {
+                topActive = true
+                topControl = edgeStartXFrac > 0.66
+                (topControl ? onControlPull : onShadePull)?(frac, .began)
+            }
+        case .bottom:
+            if bottomActive { onBottomPull?(frac, .changed) }
+            else if edgeStartY - p.y > edgeActivate { bottomActive = true; onBottomPull?(frac, .began) }
+        case .left, .right:
+            lastDX = p.x - edgeStartX
+            if !sideActive, abs(lastDX) > edgeActivate { sideActive = true }
+        default:
+            break
+        }
+        edgeSuppress = topActive || bottomActive || sideActive
     }
 
     // MARK: - Event injection
@@ -454,8 +556,18 @@ public final class TouchService: @unchecked Sendable {
     public var isRunning: Bool { lock.withLock { running } }
     /// Called when the Edge connects/disconnects (off the main thread).
     public var onPresenceChanged: ((Bool) -> Void)?
-    /// Called when a whole-screen edge swipe is recognized (off the main thread).
-    public var onSystemGesture: ((SystemGesture) -> Void)?
+    /// Called continuously during a top-edge pull-down, left/centre (off the main thread).
+    public var onShadePull: ((Double, EdgePhase) -> Void)?
+    /// Called continuously during a top-edge pull-down in the right third (off the main thread).
+    public var onControlPull: ((Double, EdgePhase) -> Void)?
+    /// Called continuously during a bottom-edge pull-up (off the main thread).
+    public var onBottomPull: ((Double, EdgePhase) -> Void)?
+    /// Called once when a side edge is swiped inward — true = next app (off the main thread).
+    public var onSwipeApp: ((Bool) -> Void)?
+    /// Enables the left/right edge app-switch swipes (set true only in fullscreen).
+    public var sideSwipeEnabled = false {
+        didSet { lock.withLock { driver?.sideSwipeEnabled = sideSwipeEnabled } }
+    }
 
     private let config: TouchServiceConfig
     private let lock = NSLock()
@@ -481,7 +593,11 @@ public final class TouchService: @unchecked Sendable {
                                  flipX: config.flipX, flipY: config.flipY, swapXY: config.swapXY,
                                  preferredDisplayID: config.preferredDisplayID)
         driver.onPresenceChanged = { [weak self] present in self?.onPresenceChanged?(present) }
-        driver.onSystemGesture = { [weak self] g in self?.onSystemGesture?(g) }
+        driver.onShadePull = { [weak self] f, p in self?.onShadePull?(f, p) }
+        driver.onControlPull = { [weak self] f, p in self?.onControlPull?(f, p) }
+        driver.onBottomPull = { [weak self] f, p in self?.onBottomPull?(f, p) }
+        driver.onSwipeApp = { [weak self] next in self?.onSwipeApp?(next) }
+        driver.sideSwipeEnabled = sideSwipeEnabled
         let ctx = Unmanaged.passUnretained(driver).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, deviceMatchedCallback, ctx)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, deviceRemovedCallback, ctx)

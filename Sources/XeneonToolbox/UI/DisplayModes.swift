@@ -8,6 +8,7 @@ struct MinimalView: View {
     @ObservedObject var metrics: SystemMetrics
     @ObservedObject var todos: TodoStore
     @ObservedObject var media: MediaController
+    var weather: Weather? = nil
     var showNowPlaying = true
     var onHideNowPlaying: () -> Void = {}
 
@@ -67,6 +68,7 @@ struct MinimalView: View {
 
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 24) {
+            if let w = weather { weatherLine(w) }
             vital("cpu.fill", Fmt.percent(metrics.snap.cpu), "CPU", Theme.cpu)
             vital("memorychip.fill", Fmt.percent(metrics.snap.memFraction), "MEM", Theme.memory)
             if let b = metrics.snap.battery {
@@ -78,6 +80,20 @@ struct MinimalView: View {
             reminderLine
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func weatherLine(_ w: Weather) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: w.symbol).font(.system(size: 26, weight: .bold))
+                .symbolRenderingMode(.multicolor).foregroundStyle(Theme.disk.opacity(0.85)).frame(width: 34)
+            Text(w.displayTemp).font(.readout(42, .semibold)).foregroundStyle(.white.opacity(0.92))
+                .frame(width: 132, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(w.condition).font(.deck(15, .semibold)).foregroundStyle(.white.opacity(0.5))
+                if !w.city.isEmpty { Text(w.city).font(.deck(12)).foregroundStyle(.white.opacity(0.28)) }
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     private func vital(_ icon: String, _ value: String, _ label: String, _ color: Color) -> some View {
@@ -110,7 +126,6 @@ struct MinimalView: View {
             .foregroundStyle(.white.opacity(0.4))
         } else {
             HStack(spacing: 11) {
-                Image(systemName: "sparkles").font(.system(size: 16))
                 Text("All clear").font(.deck(18, .medium))
                 Spacer(minLength: 0)
             }

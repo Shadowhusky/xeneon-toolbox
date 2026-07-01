@@ -99,8 +99,14 @@ final class MediaController: ObservableObject {
 
     func seek(to seconds: Double) {
         guard let source = nowPlaying?.source else { return }
-        Self.runScript("tell application \"\(source == .music ? "Music" : "Spotify")\" to set player position to \(Int(seconds))")
-        refreshSoon()
+        // Optimistically move the bar now so it doesn't flick back to the old
+        // position while AppleScript applies the seek and the next poll lands.
+        if var np = nowPlaying { np.elapsed = seconds; np.asOf = Date(); nowPlaying = np }
+        let app = source == .music ? "Music" : "Spotify"
+        Task.detached(priority: .userInitiated) {
+            Self.runScript("tell application \"\(app)\" to set player position to \(Int(seconds))")
+            await MainActor.run { self.refreshSoon() }
+        }
     }
 
     private func control(_ verb: String) {

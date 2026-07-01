@@ -5,11 +5,12 @@ import ToolboxKit
 enum DisplayMode { case full, minimal, sleep }
 
 enum AppRoute: String, CaseIterable, Identifiable {
-    case dashboard, clock, tasks, games, web, chat
+    case dashboard, deck, clock, tasks, games, web, chat
     var id: String { rawValue }
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
+        case .deck: return "Deck"
         case .clock: return "Clock"
         case .tasks: return "Tasks"
         case .games: return "Games"
@@ -20,6 +21,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .dashboard: return "gauge.with.dots.needle.67percent"
+        case .deck: return "square.grid.3x3.fill"
         case .clock: return "clock.fill"
         case .tasks: return "checklist"
         case .games: return "gamecontroller.fill"
@@ -31,6 +33,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
     var accent: Color {
         switch self {
         case .dashboard: return Theme.accent
+        case .deck: return Theme.battery
         case .clock: return Theme.time
         case .tasks: return Theme.netUp
         case .games: return Theme.gpu
@@ -52,6 +55,7 @@ final class ToolboxModel: ObservableObject {
     let webApps = WebAppStore()
     let media = MediaController()
     let dashboardLayout = DashboardLayout()
+    let deck = DeckStore()
     let canControlBacklight = Backlight.isAvailable
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
     private var preDimBrightness = 90             // restored when waking from sleep
@@ -59,13 +63,28 @@ final class ToolboxModel: ObservableObject {
     lazy var remote = RemoteServer(model: self)
     lazy var web = WebController()   // persists the Web tab's page/history across tab switches
     lazy var updater = UpdateChecker()
-    @Published var remoteEnabled = (UserDefaults.standard.object(forKey: "remote.enabled") as? Bool) ?? true
+    @Published var remoteEnabled = (AppDefaults.shared.object(forKey: "remote.enabled") as? Bool) ?? true
     @Published var route: AppRoute = .dashboard
     @Published var displayMode: DisplayMode = .minimal   // ambient default; tap to wake to full
-    @Published var fullscreen = false                    // hide the nav rail; page fills the panel
+    @Published var fullscreen = false {                  // hide the nav rail; page fills the panel
+        didSet {
+            touch.sideSwipeEnabled = fullscreen          // side-edge app-switch only in fullscreen
+            if fullscreen, !oldValue, !fsTutorialSeen { showFsTutorial = true }
+        }
+    }
+    @Published var showFsTutorial = false                // first-run fullscreen gesture coach marks
+    private var fsTutorialSeen = AppDefaults.shared.bool(forKey: "tutorial.fullscreen.seen")
+
+    func dismissFsTutorial() {
+        showFsTutorial = false
+        fsTutorialSeen = true
+        AppDefaults.shared.set(true, forKey: "tutorial.fullscreen.seen")
+    }
+    @Published var pullFrac: Double?                     // 0…1 minimal-screen bottom while dragging it in/out from an edge
+    @Published var controlExt: Double = 0                // 0…1 how far the control centre is pulled down
     @Published var pendingWebURL: String?                // a URL the Web tab should open (agent/remote)
-    @Published var showNowPlaying = (UserDefaults.standard.object(forKey: "ui.showNowPlaying") as? Bool) ?? true {
-        didSet { UserDefaults.standard.set(showNowPlaying, forKey: "ui.showNowPlaying") }
+    @Published var showNowPlaying = (AppDefaults.shared.object(forKey: "ui.showNowPlaying") as? Bool) ?? true {
+        didSet { AppDefaults.shared.set(showNowPlaying, forKey: "ui.showNowPlaying") }
     }
     @Published var showSettings = false
     var exportMode = false   // static input bar etc. for off-screen mockup renders
@@ -74,9 +93,9 @@ final class ToolboxModel: ObservableObject {
     @Published var gamePref = "rhythm"
 
     // Touch calibration — flips persist and rebuild the driver when changed.
-    @Published var flipX = UserDefaults.standard.bool(forKey: "touch.flipX") { didSet { applyCalibration() } }
-    @Published var flipY = UserDefaults.standard.bool(forKey: "touch.flipY") { didSet { applyCalibration() } }
-    @Published var swapXY = UserDefaults.standard.bool(forKey: "touch.swapXY") { didSet { applyCalibration() } }
+    @Published var flipX = AppDefaults.shared.bool(forKey: "touch.flipX") { didSet { applyCalibration() } }
+    @Published var flipY = AppDefaults.shared.bool(forKey: "touch.flipY") { didSet { applyCalibration() } }
+    @Published var swapXY = AppDefaults.shared.bool(forKey: "touch.swapXY") { didSet { applyCalibration() } }
 
     /// Sleep stops monitoring (saves battery, avoids burn-in); minimal keeps
     /// light stats; full is the normal UI.
@@ -95,6 +114,61 @@ final class ToolboxModel: ObservableObject {
 
     /// Move the screen to sleep with the backlight off (the real power-saving "off").
     func turnScreenOff() { setDisplay(.sleep) }
+
+    /// Run a deck tile: launch an app, open a URL in the default browser, control
+    /// media, or fire an in-app system action.
+    func runDeck(_ action: DeckAction) {
+        switch action.kind {
+        case .app:
+            NSWorkspace.shared.open(URL(fileURLWithPath: action.target))
+        case .url:
+            var s = action.target
+            if !s.contains("://") { s = "https://" + s }
+            if let u = URL(string: s) { NSWorkspace.shared.open(u) }
+        case .media:
+            switch DeckMediaAction(rawValue: action.target) {
+            case .playPause: media.togglePlayPause()
+            case .next: media.next()
+            case .previous: media.previous()
+            case nil: break
+            }
+        case .system:
+            runSystemAction(DeckSystemAction(rawValue: action.target))
+        case .command:
+            shell("/bin/sh", ["-c", action.target])
+        case .webhook:
+            var s = action.target
+            if !s.contains("://") { s = "https://" + s }
+            guard let u = URL(string: s) else { return }
+            var req = URLRequest(url: u)
+            req.httpMethod = action.httpMethod ?? "GET"
+            if let body = action.httpBody, !body.isEmpty {
+                req.httpBody = body.data(using: .utf8)
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            }
+            URLSession.shared.dataTask(with: req).resume()
+        }
+    }
+
+    private func runSystemAction(_ action: DeckSystemAction?) {
+        switch action {
+        case .minimal: setDisplay(.minimal)
+        case .sleepDisplay: shell("/usr/bin/pmset", ["displaysleepnow"])
+        case .missionControl: NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Mission Control.app"))
+        case .launchpad: shell("/usr/bin/open", ["-a", "Launchpad"])
+        case .screenshot: shell("/usr/sbin/screencapture", ["-i", "-c"])   // interactive → clipboard
+        case .lockScreen:
+            shell("/usr/bin/osascript", ["-e", "tell application \"System Events\" to keystroke \"q\" using {control down, command down}"])
+        case nil: break
+        }
+    }
+
+    private func shell(_ launchPath: String, _ args: [String]) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: launchPath)
+        p.arguments = args
+        try? p.run()
+    }
 
     func applyBrightness(_ value: Int) {
         let v = max(0, min(100, value))
@@ -133,25 +207,98 @@ final class ToolboxModel: ObservableObject {
     private func makeTouch() -> TouchService {
         let t = TouchService(config: TouchServiceConfig(flipX: flipX, flipY: flipY, swapXY: swapXY, preferSeize: true))
         t.onPresenceChanged = { [weak self] present in Task { @MainActor in self?.edgeDetected = present } }
-        t.onSystemGesture = { [weak self] g in Task { @MainActor in self?.handleSystemGesture(g) } }
+        t.onShadePull = { [weak self] frac, phase in Task { @MainActor in self?.handleShadePull(frac, phase) } }
+        t.onControlPull = { [weak self] frac, phase in Task { @MainActor in self?.handleControlPull(frac, phase) } }
+        t.onBottomPull = { [weak self] frac, phase in Task { @MainActor in self?.handleBottomPull(frac, phase) } }
+        t.onSwipeApp = { [weak self] next in Task { @MainActor in self?.handleSwipeApp(next) } }
+        t.sideSwipeEnabled = fullscreen
         return t
     }
 
-    /// Whole-screen edge swipes recognized by the driver: up from the bottom exits
-    /// fullscreen; down from the top drops to the minimal/idle screen.
-    private func handleSystemGesture(_ gesture: SystemGesture) {
-        switch gesture {
-        case .swipeUpFromBottom:
-            if fullscreen { withAnimation(.easeInOut(duration: 0.3)) { fullscreen = false } }
-        case .swipeDownFromTop:
-            if displayMode == .full { setDisplay(.minimal) }
+    /// Swipe in from a side edge (fullscreen only) to flip to the previous/next app.
+    private func handleSwipeApp(_ next: Bool) {
+        guard fullscreen else { return }
+        let all = AppRoute.allCases
+        guard let i = all.firstIndex(of: route) else { return }
+        let j = next ? (i + 1) % all.count : (i - 1 + all.count) % all.count
+        withAnimation(.easeInOut(duration: 0.25)) { route = all[j] }
+    }
+
+    private var dismissing = false
+    private var closingControl = false
+    private func controlExtent(_ frac: Double) -> Double { min(1, frac / 0.68) }
+
+    /// Pull down from the top edge (in full) to drag the minimal screen into view —
+    /// its bottom tracks the finger. Release past the threshold drops to it.
+    private func handleShadePull(_ fraction: Double, _ phase: EdgePhase) {
+        guard displayMode == .full, !dismissing else { return }
+        switch phase {
+        case .began, .changed: pullFrac = fraction
+        case .ended: commit(to: fraction > 0.32 ? .minimal : .full, settle: fraction > 0.32 ? 1 : 0)
+        }
+    }
+
+    /// Pull down from the top-right edge to bring the control centre down; release
+    /// past the threshold latches it open, otherwise it retracts.
+    private func handleControlPull(_ fraction: Double, _ phase: EdgePhase) {
+        guard displayMode != .sleep else { return }
+        switch phase {
+        case .began, .changed: controlExt = controlExtent(fraction)
+        case .ended: withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { controlExt = fraction > 0.3 ? 1 : 0 }
+        }
+    }
+
+    func closeControlCenter() {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { controlExt = 0 }
+    }
+
+    /// Pull up from the bottom edge. Closes the control centre if it's open; else in
+    /// minimal it drags the minimal screen up to the full UI; in fullscreen it exits.
+    private func handleBottomPull(_ fraction: Double, _ phase: EdgePhase) {
+        switch phase {
+        case .began:
+            if controlExt > 0.5 {
+                closingControl = true
+                controlExt = controlExtent(fraction)
+            } else if displayMode == .minimal {
+                dismissing = true
+                var t = Transaction(); t.disablesAnimations = true
+                withTransaction(t) { setDisplay(.full) }
+                pullFrac = fraction
+            }
+        case .changed:
+            if closingControl { controlExt = controlExtent(fraction) }
+            else if dismissing { pullFrac = fraction }
+        case .ended:
+            if closingControl {
+                closingControl = false
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { controlExt = fraction < 0.45 ? 0 : 1 }
+            } else if dismissing {
+                dismissing = false
+                commit(to: fraction < 0.6 ? .full : .minimal, settle: fraction < 0.6 ? 0 : 1)
+            } else if fullscreen, fraction < 0.62 {
+                withAnimation(.easeInOut(duration: 0.3)) { fullscreen = false }
+            }
+        }
+    }
+
+    /// Settle the pull to its end, then switch display mode with animation off and
+    /// clear the overlay in the same step — the destination is already shown when
+    /// the overlay goes, so neither screen flashes.
+    private func commit(to mode: DisplayMode, settle: Double) {
+        withAnimation(.easeOut(duration: 0.16)) { pullFrac = settle } completion: {
+            var t = Transaction(); t.disablesAnimations = true
+            withTransaction(t) {
+                self.setDisplay(mode)
+                self.pullFrac = nil
+            }
         }
     }
 
     private func applyCalibration() {
-        UserDefaults.standard.set(flipX, forKey: "touch.flipX")
-        UserDefaults.standard.set(flipY, forKey: "touch.flipY")
-        UserDefaults.standard.set(swapXY, forKey: "touch.swapXY")
+        AppDefaults.shared.set(flipX, forKey: "touch.flipX")
+        AppDefaults.shared.set(flipY, forKey: "touch.flipY")
+        AppDefaults.shared.set(swapXY, forKey: "touch.swapXY")
         let wasOn = touchOn
         touch.stop()
         edgeDetected = false
@@ -178,6 +325,11 @@ final class ToolboxModel: ObservableObject {
         if ProcessInfo.processInfo.environment["XENEON_SETTINGS"] != nil { showSettings = true }
         if ProcessInfo.processInfo.environment["XENEON_FULLSCREEN"] != nil { fullscreen = true }
         if let u = ProcessInfo.processInfo.environment["XENEON_OPEN_URL"] { route = .web; pendingWebURL = u }
+        if let s = ProcessInfo.processInfo.environment["XENEON_SHADE"], let v = Double(s) { pullFrac = v }
+        if ProcessInfo.processInfo.environment["XENEON_CONTROL"] != nil { controlExt = 1 }
+        if ProcessInfo.processInfo.environment["XENEON_TUTORIAL"] != nil {
+            displayMode = .full; fullscreen = true; showFsTutorial = true
+        }
     }
 
     func onAppear() {
@@ -252,7 +404,7 @@ final class ToolboxModel: ObservableObject {
 
     func setRemote(_ enabled: Bool) {
         remoteEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: "remote.enabled")
+        AppDefaults.shared.set(enabled, forKey: "remote.enabled")
         if enabled { remote.start() } else { remote.stop() }
     }
 }

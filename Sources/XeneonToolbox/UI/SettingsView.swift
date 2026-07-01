@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import CoreImage
 
 struct SettingsView: View {
     @ObservedObject var model: ToolboxModel
@@ -7,23 +9,25 @@ struct SettingsView: View {
     var onClose: () -> Void = {}
     @State private var confirmClear = false
     @State private var sliderValue: Double = 90
+    @State private var configStatus = ""
 
     private func dismiss() { onClose() }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Settings").font(.deck(26, .bold)).foregroundStyle(Theme.textPrimary)
+                Text("Settings").font(.deck(30, .bold)).foregroundStyle(Theme.textPrimary)
                 Spacer()
                 Button { dismiss() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 26)).foregroundStyle(Theme.textFaint)
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 30)).foregroundStyle(Theme.textFaint)
+                        .frame(width: 48, height: 48).contentShape(Rectangle())
                 }.buttonStyle(.pressable)
             }
             Rectangle().fill(LinearGradient(colors: [Theme.accent.opacity(0.4), .clear], startPoint: .leading, endPoint: .trailing))
                 .frame(height: 1.5).padding(.bottom, 18)
 
             ScrollView(showsIndicators: false) {
+              HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 18) {
                     section("Touch calibration", "Use these if taps land mirrored or rotated.", "hand.tap.fill", Theme.accent) {
                         Toggle("Flip horizontal", isOn: $model.flipX)
@@ -66,20 +70,34 @@ struct SettingsView: View {
                         Text("Tap the screen to turn it back on.")
                             .font(.deck(12)).foregroundStyle(Theme.textFaint)
                     }
+                }
+                .frame(maxWidth: .infinity, alignment: .top)
+
+                VStack(alignment: .leading, spacing: 18) {
                     section("Remote control", "Control the Edge from your phone or PC on the same network.", "antenna.radiowaves.left.and.right", Theme.netDown) {
                         Toggle("Enable remote control", isOn: Binding(get: { model.remoteEnabled }, set: { model.setRemote($0) }))
                         if model.remoteEnabled {
                             if remote.urls.isEmpty {
                                 Text(remote.running ? "Running on port \(remote.port)" : "Starting…")
-                                    .font(.deck(12)).foregroundStyle(Theme.textFaint)
+                                    .font(.deck(13)).foregroundStyle(Theme.textFaint)
                             } else {
-                                ForEach(remote.urls, id: \.self) { u in
-                                    Text(u).font(.system(size: 13, design: .monospaced))
-                                        .foregroundStyle(Theme.accent).textSelection(.enabled)
-                                        .lineLimit(1).minimumScaleFactor(0.55)
+                                HStack(alignment: .top, spacing: 16) {
+                                    if let qr = Self.qrImage(remote.urls[0]) {
+                                        Image(nsImage: qr).interpolation(.none).resizable()
+                                            .frame(width: 128, height: 128).padding(9)
+                                            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white))
+                                    }
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        Text("Scan with your phone, or open:").font(.deck(13)).foregroundStyle(Theme.textSecondary)
+                                        ForEach(remote.urls, id: \.self) { u in
+                                            Text(u).font(.system(size: 15, design: .monospaced))
+                                                .foregroundStyle(Theme.accent).textSelection(.enabled)
+                                                .lineLimit(1).minimumScaleFactor(0.5)
+                                        }
+                                        Text("Anyone on the same Wi-Fi can use it.").font(.deck(12)).foregroundStyle(Theme.textFaint)
+                                    }
+                                    Spacer(minLength: 0)
                                 }
-                                Text("Open that address in a browser on the same Wi-Fi.")
-                                    .font(.deck(12)).foregroundStyle(Theme.textFaint)
                             }
                         }
                     }
@@ -108,6 +126,22 @@ struct SettingsView: View {
                             }.buttonStyle(.pressable)
                         }
                     }
+                    section("Configuration", "Back up your layout, deck and preferences to iCloud, or restore them.", "icloud.fill", Theme.disk) {
+                        HStack(spacing: 10) {
+                            modeButton("Back up to iCloud", "icloud.and.arrow.up") {
+                                switch ConfigBackup.backup() { case .ok(let m): configStatus = m; case .fail(let m): configStatus = m }
+                            }
+                            modeButton("Restore", "icloud.and.arrow.down") {
+                                switch ConfigBackup.restore() {
+                                case .ok(let m):
+                                    configStatus = m
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { ConfigBackup.relaunch() }
+                                case .fail(let m): configStatus = m
+                                }
+                            }
+                        }
+                        if !configStatus.isEmpty { Text(configStatus).font(.deck(12)).foregroundStyle(Theme.textFaint) }
+                    }
                     section("Software update", "Checks GitHub for new versions automatically.", "arrow.down.circle.fill", Theme.netDown) {
                         labelRow("Current version", "v\(updater.currentVersion ?? "—")")
                         Button { updater.check(manual: true) } label: {
@@ -126,10 +160,12 @@ struct SettingsView: View {
                         labelRow("Repo", "github.com/Shadowhusky/xeneon-toolbox")
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .top)
+              }
             }
         }
-        .padding(28)
-        .frame(width: 560, height: 560)
+        .padding(30)
+        .frame(width: 1240, height: 660)
         .background(RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous).fill(Theme.background))
         .overlay(RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
         .shadow(color: .black.opacity(0.5), radius: 30)
@@ -142,16 +178,16 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 8) {
-                    Image(systemName: icon).font(.system(size: 13, weight: .bold)).foregroundStyle(accent)
-                    Text(title.uppercased()).font(.deck(12, .bold)).tracking(1.4).foregroundStyle(accent)
+                    Image(systemName: icon).font(.system(size: 15, weight: .bold)).foregroundStyle(accent)
+                    Text(title.uppercased()).font(.deck(14, .bold)).tracking(1.4).foregroundStyle(accent)
                 }
                 Rectangle().fill(LinearGradient(colors: [accent.opacity(0.4), .clear], startPoint: .leading, endPoint: .trailing))
                     .frame(height: 1)
             }
-            if let s = subtitle { Text(s).font(.deck(13)).foregroundStyle(Theme.textSecondary) }
-            content().font(.deck(15)).foregroundStyle(Theme.textPrimary)
+            if let s = subtitle { Text(s).font(.deck(14)).foregroundStyle(Theme.textSecondary) }
+            content().font(.deck(16)).foregroundStyle(Theme.textPrimary)
         }
-        .padding(18)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             ZStack {
@@ -175,7 +211,20 @@ struct SettingsView: View {
 
     private func labelRow(_ a: String, _ b: String) -> some View {
         HStack { Text(a).foregroundStyle(Theme.textSecondary); Spacer(); Text(b).foregroundStyle(Theme.textFaint) }
-            .font(.deck(14))
+            .font(.deck(15))
+    }
+
+    static func qrImage(_ string: String) -> NSImage? {
+        guard let data = string.data(using: .utf8),
+              let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+        let rep = NSCIImageRep(ciImage: scaled)
+        let img = NSImage(size: rep.size)
+        img.addRepresentation(rep)
+        return img
     }
 
     private var touchStatusRow: some View {

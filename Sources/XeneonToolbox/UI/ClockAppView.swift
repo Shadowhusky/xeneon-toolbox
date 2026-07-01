@@ -317,9 +317,10 @@ private struct FocusTimerCard: View {
         return Button {
             total = mins * 60; remaining = mins * 60; running = false
         } label: {
-            Text("\(mins)m").font(.deck(15, .semibold))
+            Text("\(mins)m").font(.deck(17, .semibold))
                 .foregroundStyle(selected ? Theme.netUp : Theme.textSecondary)
-                .frame(maxWidth: .infinity).padding(.vertical, 9)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .background(RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .fill(selected ? Theme.netUp.opacity(0.16) : Color.white.opacity(0.05)))
                 .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
@@ -331,9 +332,10 @@ private struct FocusTimerCard: View {
     private func control(_ title: String, icon: String, accent: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.deck(16, .semibold))
+                .font(.deck(17, .semibold))
                 .foregroundStyle(accent ? Theme.netUp : Theme.textSecondary)
-                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                .frame(maxWidth: .infinity, minHeight: 58)
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(accent ? Theme.netUp.opacity(0.16) : Color.white.opacity(0.05)))
         }

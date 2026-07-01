@@ -46,7 +46,7 @@ final class DashboardLayout: ObservableObject {
     private struct Saved: Codable { var order: [DashTile]; var hidden: [DashTile] }
 
     init() {
-        if let data = UserDefaults.standard.data(forKey: key),
+        if let data = AppDefaults.shared.data(forKey: key),
            let saved = try? JSONDecoder().decode(Saved.self, from: data) {
             let known = saved.order.filter { DashTile.allCases.contains($0) }
             let missing = DashTile.allCases.filter { !known.contains($0) }
@@ -85,7 +85,7 @@ final class DashboardLayout: ObservableObject {
 
     func save() {
         let s = Saved(order: order, hidden: Array(hidden))
-        if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: key) }
+        if let data = try? JSONEncoder().encode(s) { AppDefaults.shared.set(data, forKey: key) }
     }
 
     func reset() {

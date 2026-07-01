@@ -16,19 +16,11 @@ final class RemoteServer: ObservableObject {
     private weak var model: ToolboxModel?
     private var listener: NWListener?
     private var candidates: [UInt16] = []
-    let token: String
 
     private static let portRange: [UInt16] = Array(8765...8784)
 
     init(model: ToolboxModel) {
         self.model = model
-        if let t = UserDefaults.standard.string(forKey: "remote.token"), !t.isEmpty {
-            token = t
-        } else {
-            let t = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8).lowercased()
-            UserDefaults.standard.set(String(t), forKey: "remote.token")
-            token = String(t)
-        }
     }
 
     func start() {
@@ -64,8 +56,8 @@ final class RemoteServer: ObservableObject {
             listener = l
             port = p
             running = true
-            urls = Self.lanIPv4().map { "http://\($0):\(p)/?t=\(token)" }
-            fputs("REMOTE ready: http://localhost:\(p)/?t=\(token)\n", stderr)
+            urls = Self.lanIPv4().map { "http://\($0):\(p)/" }
+            fputs("REMOTE ready: http://localhost:\(p)/\n", stderr)
             urls.forEach { fputs("REMOTE lan: \($0)\n", stderr) }
         case .failed:
             l.cancel()
@@ -117,9 +109,6 @@ final class RemoteServer: ObservableObject {
         }
         guard req.path.hasPrefix("/api/") else {
             return ("404 Not Found", "text/plain", Data("Not found".utf8))
-        }
-        guard req.query["t"] == token else {
-            return ("401 Unauthorized", "application/json", Data(#"{"error":"unauthorized"}"#.utf8))
         }
         guard let model else { return json(["error": "unavailable"]) }
 

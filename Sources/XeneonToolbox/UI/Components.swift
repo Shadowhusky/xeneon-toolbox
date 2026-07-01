@@ -90,9 +90,11 @@ struct RingGauge<Center: View>: View {
                 )
                 .rotationEffect(.degrees(-90))
                 .shadow(color: color.opacity(0.55), radius: 7)
+                // Animate only the ring — animating the ZStack cross-faded the
+                // center number, which read as a flicker between values.
+                .animation(.easeOut(duration: 0.5), value: value)
             center
         }
-        .animation(.easeOut(duration: 0.5), value: value)
     }
 }
 
