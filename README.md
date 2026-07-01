@@ -46,8 +46,19 @@ apps built for the strip. While the app runs, the panel just works:
 
 - **Customizable dashboard** — CPU, GPU, memory, network, storage, power, clock
   and current weather, with hue-coded ring gauges and sparklines. Tap a tile for a
-  detail view (top processes by CPU or memory), or enter Edit to **drag tiles to
-  rearrange and hide** the ones you don't need — your layout persists.
+  detail view (top processes by CPU or memory; tap the Local tile for a **6-day
+  weather forecast**), or enter Edit to **drag tiles to rearrange and hide** the
+  ones you don't need — your layout persists.
+- **Deck** — a Stream-Deck-style page of big, tappable tiles that quick-launch
+  apps (with their real icons), open websites, run shell commands or webhooks, and
+  control media. Search to add, drag to reorder, sort, and give any tile a custom
+  SF Symbol or an uploaded image.
+- **Control Centre** — swipe down from the top-right — from the full UI or the
+  ambient screen — for a brightness slider, volume, quick actions (Minimal / Sleep /
+  Screen off), a touch toggle, and now-playing.
+- **Touch gestures** — swipe up from the bottom to exit fullscreen, down from the
+  top-left for the ambient screen, and in from the side edges to switch apps; a
+  first-run tutorial teaches them.
 - **Now Playing** — control whatever's playing in Spotify or Music: artwork, a
   scrubbable progress bar, and play/skip — on the dashboard and the ambient screen.
 - **Web browser** — open and save any site on the Edge, with real favicons,
@@ -65,6 +76,8 @@ apps built for the strip. While the app runs, the panel just works:
 - **Remote control** — drive the Edge from any phone or PC browser on the same
   network: switch pages, rest/wake, set brightness, and talk to the assistant
   (with a voice button). On by default; toggle it in Settings.
+- **iCloud backup** — back up your layout, deck, and preferences to iCloud Drive
+  and restore them on another Mac, from Settings.
 - **Stays current** — checks GitHub for new versions and updates itself in place
   (notarized; signature- and developer-verified before it swaps).
 
@@ -72,10 +85,29 @@ apps built for the strip. While the app runs, the panel just works:
 
 ## Screens
 
+### Deck
+
+A Stream-Deck-style launcher: big tiles that open apps (with their real macOS
+icons), launch websites, run shell commands or webhooks, or control media. Tap
+**Edit** to drag tiles into any order or remove them, **Sort** alphabetically or by
+type (with a confirmation before it replaces a hand-arranged order), and **Add**
+from a searchable picker — including custom actions with an SF Symbol or your own
+uploaded icon.
+
+![Deck](docs/img/deck.png)
+
+### Control Centre
+
+Swipe down from the top-right edge for a compact control panel — brightness,
+volume, quick actions, a touch toggle, and now-playing — available over the full
+UI and the ambient screen alike.
+
+![Control Centre](docs/img/control-center.png)
+
 ### Ambient
 
-A calm, always-on view: the time as the hero, with key vitals and your next
-reminder. Tap anywhere to wake to the full UI.
+A calm, always-on view: the time as the hero, with current weather, key vitals,
+and your next reminder. Tap anywhere to wake to the full UI.
 
 ![Ambient mode](docs/img/minimal.png)
 
