@@ -37,8 +37,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleExecutable</key><string>$BIN_NAME</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.7.0</string>
-    <key>CFBundleVersion</key><string>8</string>
+    <key>CFBundleShortVersionString</key><string>1.7.1</string>
+    <key>CFBundleVersion</key><string>9</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
@@ -55,6 +55,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSMicrophoneUsageDescription</key><string>Xeneon Toolbox uses the microphone for voice commands to the assistant.</string>
     <key>NSSpeechRecognitionUsageDescription</key><string>Xeneon Toolbox transcribes your voice on-device to send commands to the assistant.</string>
     <key>NSLocationUsageDescription</key><string>Xeneon Toolbox uses your approximate location to show local weather on the dashboard and ambient screen.</string>
+    <key>NSLocationWhenInUseUsageDescription</key><string>Xeneon Toolbox uses your approximate location to show local weather and nearby Wi-Fi network names.</string>
+    <key>NSAppleEventsUsageDescription</key><string>Xeneon Toolbox controls Music/Spotify playback, system volume, and appearance via Apple Events.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key><string>Xeneon Toolbox lists your paired Bluetooth devices so you can connect or disconnect them from the Control Centre.</string>
 </dict>
 </plist>
 PLIST

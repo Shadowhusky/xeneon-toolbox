@@ -56,8 +56,10 @@ apps built for the strip. While the app runs, the panel just works:
   add — anything already on the deck is filtered out — drag to reorder, sort, and
   give any tile a custom SF Symbol or an uploaded image.
 - **Control Centre** — swipe down from the top-right — from the full UI or the
-  ambient screen — for a brightness slider, volume, quick actions (Minimal / Sleep /
-  Screen off), a touch toggle, and now-playing.
+  ambient screen — for **Wi-Fi, Bluetooth, Focus and appearance controls** with
+  macOS semantics: tap the icon to toggle, tap the tile to pick a network,
+  device, or Focus mode. Plus a brightness slider, volume, quick actions
+  (Minimal / Sleep / Screen off), a touch toggle, and now-playing.
 - **Touch gestures** — swipe up from the bottom to exit fullscreen, down from the
   top-left for the ambient screen, and in from a side edge to flip between apps
   with a natural page-turn animation (from the normal UI the swipe enters
@@ -108,9 +110,18 @@ actions with an SF Symbol or your own uploaded icon.
 
 ### Control Centre
 
-Swipe down from the top-right edge for a compact control panel — brightness,
-volume, quick actions, a touch toggle, and now-playing — available over the full
-UI and the ambient screen alike.
+Swipe down from the top-right edge for a compact control panel — available over
+the full UI and the ambient screen alike. The connectivity tiles work like
+macOS's own Control Centre: **tap the circular icon to toggle the radio, tap the
+rest of the tile to expand a picker** — nearby Wi-Fi networks (tap to join, tap
+the connected one to disconnect), paired Bluetooth devices (tap to connect or
+disconnect), and your Focus modes. An Appearance tile flips system dark mode,
+and below sit brightness, volume, quick actions, a touch toggle, and now-playing.
+
+Some of it needs one-time grants: allow **Location** for Wi-Fi network names,
+**Full Disk Access** for Focus state, and a Shortcut named "Toggle Focus" (built
+from the Set Focus action) for Focus toggling — tiles that can't work yet hide
+themselves or explain what to enable.
 
 ![Control Centre](docs/img/control-center.png)
 
