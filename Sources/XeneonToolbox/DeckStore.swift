@@ -208,7 +208,9 @@ final class DeckStore: ObservableObject {
         var paths: [String] = []
         for dir in dirs {
             guard let items = try? fm.contentsOfDirectory(atPath: dir) else { continue }
-            for item in items where item.hasSuffix(".app") { paths.append("\(dir)/\(item)") }
+            for item in items where item.hasSuffix(".app") && item != "XeneonToolbox.app" {
+                paths.append("\(dir)/\(item)")
+            }
         }
         return paths.sorted { DeckAction.appName($0).localizedCaseInsensitiveCompare(DeckAction.appName($1)) == .orderedAscending }
     }

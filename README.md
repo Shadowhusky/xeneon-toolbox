@@ -48,21 +48,29 @@ apps built for the strip. While the app runs, the panel just works:
   and current weather, with hue-coded ring gauges and sparklines. Tap a tile for a
   detail view (top processes by CPU or memory; tap the Local tile for a **6-day
   weather forecast**), or enter Edit to **drag tiles to rearrange and hide** the
-  ones you don't need — your layout persists.
+  ones you don't need — your layout persists. Weather locates via Wi-Fi
+  positioning (with IP fallback), or **pin your exact city** in Settings.
 - **Deck** — a Stream-Deck-style page of big, tappable tiles that quick-launch
-  apps (with their real icons), open websites, run shell commands or webhooks, and
-  control media. Search to add, drag to reorder, sort, and give any tile a custom
-  SF Symbol or an uploaded image.
+  apps (with their real icons), open websites (with their real favicons) in the
+  built-in browser, run shell commands or webhooks, and control media. Search to
+  add — anything already on the deck is filtered out — drag to reorder, sort, and
+  give any tile a custom SF Symbol or an uploaded image.
 - **Control Centre** — swipe down from the top-right — from the full UI or the
   ambient screen — for a brightness slider, volume, quick actions (Minimal / Sleep /
   Screen off), a touch toggle, and now-playing.
 - **Touch gestures** — swipe up from the bottom to exit fullscreen, down from the
-  top-left for the ambient screen, and in from the side edges to switch apps; a
-  first-run tutorial teaches them.
+  top-left for the ambient screen, and in from a side edge to flip between apps
+  with a natural page-turn animation (from the normal UI the swipe enters
+  fullscreen as it switches); a first-run tutorial teaches them.
 - **Now Playing** — control whatever's playing in Spotify or Music: artwork, a
   scrubbable progress bar, and play/skip — on the dashboard and the ambient screen.
-- **Web browser** — open and save any site on the Edge, with real favicons,
-  fullscreen, and pinch-to-zoom.
+- **Never steals focus** — tap the Edge while you work; the panel responds (even
+  typing into its search fields) without pulling focus from the app you're
+  working in on the other screen.
+- **Shares the screen** — put any window on the Edge (a video, a reference doc)
+  and it stays visible above the panel while you work elsewhere — the panel acts
+  as the screen's desktop. Move or close the window and the full-bleed panel
+  returns. Mission Control works on the Edge like on any display.
 - **Clock** — local time with a day-progress bar, **customizable world clocks**
   (day/night + offset cues), and a focus timer.
 - **Tasks & reminders** — grouped by Overdue / Today / Upcoming, with recurring
@@ -88,11 +96,13 @@ apps built for the strip. While the app runs, the panel just works:
 ### Deck
 
 A Stream-Deck-style launcher: big tiles that open apps (with their real macOS
-icons), launch websites, run shell commands or webhooks, or control media. Tap
-**Edit** to drag tiles into any order or remove them, **Sort** alphabetically or by
-type (with a confirmation before it replaces a hand-arranged order), and **Add**
-from a searchable picker — including custom actions with an SF Symbol or your own
-uploaded icon.
+icons and a dock-style dot on the ones already running), launch websites (with
+their real favicons) in the built-in browser, run shell commands or webhooks, or
+control media. The grid scrolls when your deck outgrows the panel. Tap **Edit**
+to drag tiles into any order or remove them, **Sort** alphabetically or by type
+(with a confirmation before it replaces a hand-arranged order), and **Add** from
+a searchable picker that hides what's already on the deck — including custom
+actions with an SF Symbol or your own uploaded icon.
 
 ![Deck](docs/img/deck.png)
 
@@ -144,8 +154,9 @@ retry. Keyboard-driven games receive your keypresses directly.
 
 ### Web
 
-Open any site right on the Edge, or save your favorites to a launcher with their
-real favicons. Pages can go fullscreen, and two-finger pinch zooms.
+Websites live on the Deck — tap a website tile and it opens right on the Edge in
+the built-in browser, with fullscreen and two-finger pinch-to-zoom. Tap **+** in
+the toolbar to save the page you're on back to the Deck with its real favicon.
 
 ![Web browser](docs/img/web.png)
 
@@ -159,7 +170,8 @@ spot, tap **⊖** to hide one (it drops into a tray you can pull it back from), 
 
 ### Settings
 
-Touch calibration, display modes, screen brightness (and a true screen-off to save
+Touch calibration, display modes, weather location (pin your exact city if the
+automatic lookup is off), screen brightness (and a true screen-off to save
 power), and conversation management — each in its own labeled panel.
 
 ![Settings](docs/img/settings.png)

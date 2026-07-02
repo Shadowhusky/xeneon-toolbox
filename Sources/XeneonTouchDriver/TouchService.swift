@@ -79,6 +79,11 @@ final class TouchDriver: @unchecked Sendable {
     var onBottomPull: ((Double, EdgePhase) -> Void)?   // bottom-edge pull-up (dismiss / exit)
     var onSwipeApp: ((Bool) -> Void)?                  // side-edge swipe inward — true = next app
     var sideSwipeEnabled = false                       // app-switch swipes (set true in fullscreen)
+    // Edit-mode reordering: any single-finger move = mouse drag. Like
+    // sideSwipeEnabled this is written from the app thread but only *read* on the
+    // HID thread (applied to the state machines there, so they're never mutated
+    // cross-thread mid-gesture).
+    var dragAnywhereEnabled = false
 
     // Edge gestures (run alongside normal pointer handling). Once one engages, the
     // contact's normal pointer/scroll events are suppressed so the page underneath
@@ -102,13 +107,13 @@ final class TouchDriver: @unchecked Sendable {
     private var edgeAnchorX = 0.0, edgeAnchorY = 0.0, edgeAnchorTime = 0.0
     private var edgeVelX = 0.0, edgeVelY = 0.0
     private var edgeVelTime = 0.0, edgeVelX0 = 0.0, edgeVelY0 = 0.0
-    private let edgeMargin = 64.0       // how close to an edge a touch must start
-    private let edgeActivate = 12.0     // travel before a pull engages
-    private let appSwipeDistance = 96.0  // inward travel to switch apps
-    private let edgeGraceTime = 0.11    // window to still catch an edge after a stale first sample
-    private let edgeGraceDist = 52.0
-    private let flickVelocity = 620.0   // px/s — a flick commits regardless of distance
-    private let projectTime = 0.28      // seconds of velocity to project a release forward
+    private let edgeMargin = 84.0       // how close to an edge a touch must start
+    private let edgeActivate = 10.0     // travel before a pull engages
+    private let appSwipeDistance = 80.0  // inward travel to switch apps
+    private let edgeGraceTime = 0.14    // window to still catch an edge after a stale first sample
+    private let edgeGraceDist = 64.0
+    private let flickVelocity = 500.0   // px/s — a flick commits regardless of distance
+    private let projectTime = 0.30      // seconds of velocity to project a release forward
 
     init(verbose: Bool, flipX: Bool, flipY: Bool, swapXY: Bool, preferredDisplayID: CGDirectDisplayID?) {
         self.flipX = flipX
@@ -126,8 +131,14 @@ final class TouchDriver: @unchecked Sendable {
     // MARK: - Device lifecycle
 
     func deviceConnected(_ device: IOHIDDevice) {
-        guard let elements = IOHIDDeviceCopyMatchingElements(device, nil, 0) as? [IOHIDElement],
-              let xr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageX),
+        guard let elements = IOHIDDeviceCopyMatchingElements(device, nil, 0) as? [IOHIDElement] else {
+            touchDiag("deviceConnected: no elements on this interface")
+            return
+        }
+        // Try before the X/Y guard: the mode feature can live on a configuration
+        // collection that carries no axes at all.
+        enableMultiTouchMode(device, elements: elements)
+        guard let xr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageX),
               let yr = logicalRange(of: elements, page: kPageGenericDesktop, usage: kUsageY) else {
             touchDiag("deviceConnected: no X/Y range on this interface")
             return
@@ -155,6 +166,24 @@ final class TouchDriver: @unchecked Sendable {
             display = findEdgeDisplay(preferred: preferredDisplayID)
             touchDiag("mouse interface connected (fallback): X[\(xr.0),\(xr.1)] Y[\(yr.0),\(yr.1)]")
             onPresenceChanged?(display != nil)
+        }
+    }
+
+    /// Windows-Precision touch controllers often ship in mouse-emulation and only
+    /// stream parallel multi-touch (report 0x0D) once the host sets the HID
+    /// Digitizer "Device Mode" feature (usage 0x0D/0x52) to multi-input (2).
+    /// Windows does this on enumeration; macOS never does — which is why the
+    /// digitizer collection stays silent and we fall back to single-finger mouse
+    /// reports. Best-effort: harmless on interfaces without the feature.
+    private func enableMultiTouchMode(_ device: IOHIDDevice, elements: [IOHIDElement]) {
+        for el in elements where IOHIDElementGetType(el) == kIOHIDElementTypeFeature
+            && IOHIDElementGetUsagePage(el) == 0x0D
+            && IOHIDElementGetUsage(el) == 0x52 {
+            let value = IOHIDValueCreateWithIntegerValue(kCFAllocatorDefault, el, 0, 2)   // 2 = multi-input
+            let r = IOHIDDeviceSetValue(device, el, value)
+            touchDiag(String(format: "multi-touch: Device Mode=2 on feature report %d -> %@",
+                             IOHIDElementGetReportID(el),
+                             r == kIOReturnSuccess ? "OK" : String(format: "0x%08X", r)))
         }
     }
 
@@ -267,6 +296,7 @@ final class TouchDriver: @unchecked Sendable {
         }
         edgeCancelled = false
 
+        recognizer.dragAnywhere = dragAnywhereEnabled
         for action in recognizer.update(contacts: contacts) { post(action) }
 
         // A finger touching cancels any coasting inertia and any momentum the
@@ -301,6 +331,7 @@ final class TouchDriver: @unchecked Sendable {
             return
         }
         edgeCancelled = false
+        machine.dragAnywhere = dragAnywhereEnabled
         for action in machine.update(contact: decoder.contact, point: point) { post(action) }
         gestureActive = decoder.contact   // self-cancels when a real release arrives
         rearmWatchdog()
@@ -354,9 +385,11 @@ final class TouchDriver: @unchecked Sendable {
                 edgeKind = .top; edgeStartY = p.y; edgeStartXFrac = localX / w
             } else if localY >= h - edgeMargin {
                 edgeKind = .bottom; edgeStartY = p.y
-            } else if sideSwipeEnabled, localX <= edgeMargin {
+            // No side swipes while a grid is in edit mode (dragAnywhereEnabled) —
+            // dragging a tile from near a screen edge must not switch apps.
+            } else if sideSwipeEnabled, !dragAnywhereEnabled, localX <= edgeMargin {
                 edgeKind = .left; edgeStartX = p.x; lastDX = 0
-            } else if sideSwipeEnabled, localX >= w - edgeMargin {
+            } else if sideSwipeEnabled, !dragAnywhereEnabled, localX >= w - edgeMargin {
                 edgeKind = .right; edgeStartX = p.x; lastDX = 0
             } else if now - edgeAnchorTime > edgeGraceTime || hypot(p.x - edgeAnchorX, p.y - edgeAnchorY) > edgeGraceDist {
                 edgeKind = .middle
@@ -568,6 +601,12 @@ public final class TouchService: @unchecked Sendable {
     public var sideSwipeEnabled = false {
         didSet { lock.withLock { driver?.sideSwipeEnabled = sideSwipeEnabled } }
     }
+    /// While a grid is in edit mode, any single-finger move becomes a mouse drag
+    /// (instead of vertical/diagonal moves turning into scroll events with no
+    /// press) — this is what makes drag-to-reorder possible on a 2-D grid.
+    public var dragAnywhereEnabled = false {
+        didSet { lock.withLock { driver?.dragAnywhereEnabled = dragAnywhereEnabled } }
+    }
 
     private let config: TouchServiceConfig
     private let lock = NSLock()
@@ -598,6 +637,7 @@ public final class TouchService: @unchecked Sendable {
         driver.onBottomPull = { [weak self] f, p in self?.onBottomPull?(f, p) }
         driver.onSwipeApp = { [weak self] next in self?.onSwipeApp?(next) }
         driver.sideSwipeEnabled = sideSwipeEnabled
+        driver.dragAnywhereEnabled = dragAnywhereEnabled
         let ctx = Unmanaged.passUnretained(driver).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, deviceMatchedCallback, ctx)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, deviceRemovedCallback, ctx)

@@ -18,6 +18,7 @@ struct DeckView: View {
     @State private var dragPoint: CGPoint = .zero
     @State private var dragGrab: CGSize = .zero
     @State private var frames: [DeckAction.ID: CGRect] = [:]
+    @State private var runningApps: Set<String> = []
 
     private let space = "deckgrid"
     private let columns = [GridItem(.adaptive(minimum: 178, maximum: 220), spacing: 16)]
@@ -25,26 +26,41 @@ struct DeckView: View {
     var body: some View {
         VStack(spacing: 14) {
             header
-            // No ScrollView: it would swallow the reorder drag (the dashboard reorder
-            // works precisely because its grid isn't wrapped in one). Grids of this
-            // size fit the Edge; overflow clips at the bottom.
-            LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(deck.actions) { action in
-                    DeckTile(action: action, editing: editing, lifted: dragging == action.id,
-                             onRun: { model.runDeck($0) }, onRemove: { deck.remove($0) })
-                        .background(GeometryReader { p in
-                            Color.clear.preference(key: DeckFrameKey.self, value: [action.id: p.frame(in: .named(space))])
-                        })
+            // Scrolls when browsing (a big deck overflows the panel), but scrolling
+            // is disabled in edit mode so the ScrollView can't swallow the reorder
+            // drag — in edit mode the touch driver sends mouse drags, not scrolls.
+            ScrollView(showsIndicators: false) {
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(deck.actions) { action in
+                        DeckTile(action: action, editing: editing, lifted: dragging == action.id,
+                                 running: action.kind == .app && runningApps.contains(action.target),
+                                 onRun: { model.runDeck($0) })
+                            // In edit mode the tiles stop consuming touches, so the grid's
+                            // drag gesture actually receives them. This is the exact reason
+                            // the dashboard reorder works and the deck's earlier version
+                            // (a live Button on top) never did — the Button ate the drag.
+                            .allowsHitTesting(!editing)
+                            .background(GeometryReader { p in
+                                Color.clear.preference(key: DeckFrameKey.self, value: [action.id: p.frame(in: .named(space))])
+                            })
+                            // Remove badge sits OUTSIDE the disabled tile, so it stays tappable.
+                            .overlay(alignment: .topTrailing) {
+                                if editing && dragging != action.id { removeBadge(action.id) }
+                            }
+                    }
+                    if editing { AddTile { showAdd = true } }
                 }
-                if editing { AddTile { showAdd = true } }
+                .coordinateSpace(name: space)
+                .onPreferenceChange(DeckFrameKey.self) { frames = $0 }
+                .overlay { floatingDragged }
+                .contentShape(Rectangle())
+                // Exactly the dashboard's working pattern: a plain drag, active over the
+                // tiles only in edit mode (.all); otherwise taps pass through (.subviews).
+                .gesture(reorderGesture, including: editing ? .all : .subviews)
+                .padding(.bottom, 6)
             }
-            .coordinateSpace(name: space)
-            .onPreferenceChange(DeckFrameKey.self) { frames = $0 }
-            .overlay { floatingDragged }
-            // Exactly the dashboard's working pattern: a plain drag, active over the
-            // tiles only in edit mode (.all); otherwise taps pass through (.subviews).
-            .gesture(reorderGesture, including: editing ? .all : .subviews)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .scrollDisabled(editing)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .overlay { if showAdd { AddDeckOverlay(deck: deck) { showAdd = false } } }
         .overlay { if showSortMenu { sortMenu } }
@@ -52,8 +68,19 @@ struct DeckView: View {
         .animation(.easeInOut(duration: 0.2), value: editing)
         .animation(.easeInOut(duration: 0.2), value: showAdd)
         .onAppear {
+            if ProcessInfo.processInfo.environment["XENEON_DECK_EDIT"] != nil { editing = true }
             if ProcessInfo.processInfo.environment["XENEON_DECK_ADD"] != nil { editing = true; showAdd = true }
+            syncReorderDragging()
         }
+        // While editing (and no overlay needs to scroll), the touch driver treats
+        // any finger move as a mouse drag so tiles can be dragged in 2-D.
+        .onChange(of: editing) { syncReorderDragging() }
+        .onChange(of: showAdd) { syncReorderDragging() }
+        .onDisappear { model.setReorderDragging(false) }
+        // Dock-style running indicators on app tiles.
+        .task { refreshRunning() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)) { _ in refreshRunning() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didTerminateApplicationNotification)) { _ in refreshRunning() }
     }
 
     // MARK: Header
@@ -62,6 +89,12 @@ struct DeckView: View {
         HStack(spacing: 10) {
             Image(systemName: "square.grid.3x3.fill").font(.system(size: 18, weight: .bold)).foregroundStyle(Theme.battery)
             Text("Deck").font(.deck(24, .bold)).foregroundStyle(Theme.textPrimary)
+            if editing {
+                Text("Drag tiles to reorder · tap ⊖ to remove")
+                    .font(.deck(13, .medium)).foregroundStyle(Theme.textFaint)
+                    .padding(.leading, 6)
+                    .transition(.opacity)
+            }
             Spacer()
             deckButton("Sort", "arrow.up.arrow.down", tint: Theme.textSecondary) { withAnimation { showSortMenu.toggle() } }
             if editing { deckButton("Reset", "arrow.counterclockwise", tint: Theme.textSecondary) { pending = .reset } }
@@ -157,9 +190,27 @@ struct DeckView: View {
 
     // MARK: Reorder
 
+    private func syncReorderDragging() {
+        model.setReorderDragging(editing && !showAdd)
+    }
+
+    private func refreshRunning() {
+        runningApps = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleURL?.path })
+    }
+
+    private func removeBadge(_ id: DeckAction.ID) -> some View {
+        Button { deck.remove(id) } label: {
+            Image(systemName: "minus").font(.system(size: 15, weight: .heavy)).foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Theme.batteryLow))
+                .overlay(Circle().strokeBorder(Color.black.opacity(0.35), lineWidth: 1.5))
+                .contentShape(Circle())
+        }.buttonStyle(.pressable).padding(7)
+    }
+
     @ViewBuilder private var floatingDragged: some View {
         if let id = dragging, let a = deck.actions.first(where: { $0.id == id }), let f = frames[id] {
-            DeckTile(action: a, editing: editing, lifted: false, onRun: { _ in }, onRemove: { _ in })
+            DeckTile(action: a, editing: editing, lifted: false, onRun: { _ in })
                 .frame(width: f.width, height: f.height)
                 .scaleEffect(1.06)
                 .shadow(color: .black.opacity(0.55), radius: 22, y: 10)
@@ -203,8 +254,8 @@ private struct DeckTile: View {
     let action: DeckAction
     let editing: Bool
     var lifted: Bool = false
+    var running: Bool = false
     let onRun: (DeckAction) -> Void
-    let onRemove: (DeckAction.ID) -> Void
 
     private var tint: Color {
         switch action.kind {
@@ -230,15 +281,11 @@ private struct DeckTile: View {
                     .fill(LinearGradient(colors: [tint.opacity(0.16), Color.white.opacity(0.03)], startPoint: .top, endPoint: .bottom))
             )
             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(tint.opacity(0.35), lineWidth: 1))
-            .overlay(alignment: .topTrailing) {
-                if editing {
-                    Button { onRemove(action.id) } label: {
-                        Image(systemName: "minus").font(.system(size: 15, weight: .heavy)).foregroundStyle(.white)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(Theme.batteryLow))
-                            .overlay(Circle().strokeBorder(Color.black.opacity(0.35), lineWidth: 1.5))
-                            .contentShape(Circle())
-                    }.buttonStyle(.plain).padding(7)
+            .overlay(alignment: .bottom) {
+                if running {
+                    Circle().fill(Theme.battery).frame(width: 5, height: 5)
+                        .deckGlow(Theme.battery, strength: 0.8)
+                        .padding(.bottom, 8)
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -260,6 +307,20 @@ private struct DeckTile: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         } else if let img = action.appIcon {
             Image(nsImage: img).resizable().interpolation(.high).frame(width: 60, height: 60)
+        } else if action.kind == .url, let favicon = WebController.faviconURL(action.target) {
+            // Websites get their real favicon; the globe only shows while it loads
+            // (or if the site has none).
+            AsyncImage(url: favicon) { phase in
+                if let img = phase.image {
+                    img.resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                        .frame(width: 42, height: 42)
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                } else {
+                    Image(systemName: "globe").font(.system(size: 30, weight: .semibold)).foregroundStyle(tint)
+                }
+            }
+            .frame(width: 60, height: 60)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(tint.opacity(0.14)))
         } else {
             Image(systemName: action.symbol ?? "app.dashed").font(.system(size: 30, weight: .semibold))
                 .foregroundStyle(tint)

@@ -326,10 +326,8 @@ struct ChatView: View {
     }
 
     private func pickImage() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.png, .jpeg, .image]
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
+        guard let url = FilePanel.open(contentTypes: [.png, .jpeg, .image], message: "Choose an image to send"),
+              let data = try? Data(contentsOf: url) else { return }
         let mime = url.pathExtension.lowercased() == "png" ? "image/png" : "image/jpeg"
         pendingImageURL = URL(string: "data:\(mime);base64,\(data.base64EncodedString())")
         pendingImageName = url.lastPathComponent

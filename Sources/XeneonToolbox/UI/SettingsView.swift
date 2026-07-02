@@ -70,6 +70,9 @@ struct SettingsView: View {
                         Text("Tap the screen to turn it back on.")
                             .font(.deck(12)).foregroundStyle(Theme.textFaint)
                     }
+                    section("Weather location", "IP lookup is only ISP-accurate — pin your real city here.", "location.fill", Theme.time) {
+                        WeatherLocationPicker(weather: model.weather)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
 
@@ -158,6 +161,7 @@ struct SettingsView: View {
                         labelRow("Xeneon Toolbox", "for the Corsair Xeneon Edge")
                         touchStatusRow
                         labelRow("Repo", "github.com/Shadowhusky/xeneon-toolbox")
+                        labelRow("Logs", "~/.config/xeneon-toolbox (app.log · crash-*.log)")
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .top)
@@ -239,5 +243,77 @@ struct SettingsView: View {
             }
         }
         .font(.deck(14))
+    }
+}
+
+/// Search-and-pin the weather city, or return to automatic IP location.
+private struct WeatherLocationPicker: View {
+    @ObservedObject var weather: WeatherService
+    @State private var query = ""
+    @State private var results: [WeatherLocation] = []
+    @State private var searching = false
+    @State private var searchTask: Task<Void, Never>?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: weather.customPlace == nil ? "location.viewfinder" : "mappin.circle.fill")
+                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.time)
+                Text(currentLabel).font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+                if weather.customPlace != nil {
+                    Button { weather.setPlace(nil); query = ""; results = [] } label: {
+                        Text("Use automatic").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
+                            .padding(.horizontal, 12).frame(height: 36)
+                            .background(Capsule().fill(Color.white.opacity(0.06)))
+                            .contentShape(Capsule())
+                    }.buttonStyle(.pressable)
+                }
+            }
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.textFaint)
+                TextField("Search for your city", text: $query)
+                    .textFieldStyle(.plain).font(.deck(15)).foregroundStyle(Theme.textPrimary)
+                if searching { ProgressView().controlSize(.small) }
+            }
+            .padding(.horizontal, 12).frame(height: 44)
+            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+            .onChange(of: query) { search() }
+
+            ForEach(results) { r in
+                Button { weather.setPlace(r); query = ""; results = [] } label: {
+                    HStack(spacing: 8) {
+                        Text(r.name).font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
+                        Text(r.region).font(.deck(12)).foregroundStyle(Theme.textFaint).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Image(systemName: "plus.circle.fill").font(.system(size: 15)).foregroundStyle(Theme.textFaint)
+                    }
+                    .padding(.horizontal, 12).frame(height: 42)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.05)))
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }.buttonStyle(.pressable)
+            }
+        }
+    }
+
+    private var currentLabel: String {
+        if let p = weather.customPlace { return "\(p.name) · pinned" }
+        return "Automatic — \(weather.weather?.city.isEmpty == false ? weather.weather!.city : "detecting…")"
+    }
+
+    private func search() {
+        searchTask?.cancel()
+        let q = query
+        guard q.trimmingCharacters(in: .whitespaces).count >= 2 else { results = []; searching = false; return }
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)   // debounce typing
+            guard !Task.isCancelled else { return }
+            searching = true
+            let found = await WeatherService.searchCities(q)
+            if !Task.isCancelled { results = found }
+            searching = false
+        }
     }
 }

@@ -140,13 +140,8 @@ struct CustomActionForm: View {
     }
 
     private func uploadIcon() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.prompt = "Choose"
-        panel.message = "Choose an image for this deck tile"
-        if panel.runModal() == .OK, let url = panel.url, let path = DeckStore.importIcon(from: url) {
+        if let url = FilePanel.open(contentTypes: [.image], message: "Choose an image for this deck tile"),
+           let path = DeckStore.importIcon(from: url) {
             iconPath = path
         }
     }
