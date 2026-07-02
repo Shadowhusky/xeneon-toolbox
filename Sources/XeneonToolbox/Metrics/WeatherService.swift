@@ -17,11 +17,15 @@ private final class SystemLocator: NSObject, CLLocationManagerDelegate {
 
     func locate() async -> CLLocation? {
         let status = manager.authorizationStatus
+        AppLog.info("location", "authorization=\(status.rawValue) servicesEnabled=\(CLLocationManager.locationServicesEnabled())")
         guard status != .denied, status != .restricted else { return nil }
         guard continuation == nil else { return nil }   // a fix is already in flight
+        if status == .notDetermined {
+            manager.requestWhenInUseAuthorization()   // show the consent prompt explicitly
+        }
         return await withCheckedContinuation { (cont: CheckedContinuation<CLLocation?, Never>) in
             continuation = cont
-            manager.requestLocation()   // prompts for consent on first use
+            manager.requestLocation()
             // If CoreLocation never calls back (consent prompt pending, services
             // off), resume with nil so the weather refresh falls through to the
             // IP path instead of hanging forever. finish() ignores double calls.

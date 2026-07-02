@@ -61,6 +61,7 @@ final class ToolboxModel: ObservableObject {
     let media = MediaController()
     let dashboardLayout = DashboardLayout()
     let deck = DeckStore()
+    let systemToggles = SystemToggles()
     let canControlBacklight = Backlight.isAvailable
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
     private var preDimBrightness = 90             // restored when waking from sleep
@@ -69,22 +70,22 @@ final class ToolboxModel: ObservableObject {
     lazy var web = WebController()   // persists the Web tab's page/history across tab switches
     lazy var updater = UpdateChecker()
     @Published var remoteEnabled = (AppDefaults.shared.object(forKey: "remote.enabled") as? Bool) ?? true
+    /// How the page change should animate: swipes slide directionally (the page
+    /// follows the finger); tab taps and programmatic jumps cross-fade with a
+    /// gentle settle — a slide there reads as a phantom swipe.
+    enum PageTransition { case slideForward, slideBackward, fade }
     @Published var route: AppRoute = .dashboard {
         didSet {
             guard oldValue != route else { return }
-            // Direction for the page transition: +1 = new page enters from the
-            // right (forward), -1 = from the left. Swipes state it explicitly
-            // (wrap-around!); nav taps derive it from the tab order.
             if let d = swipeDirection {
-                navDirection = d
+                pageTransition = d > 0 ? .slideForward : .slideBackward
                 swipeDirection = nil
-            } else if let a = AppRoute.tabs.firstIndex(of: oldValue),
-                      let b = AppRoute.tabs.firstIndex(of: route) {
-                navDirection = b >= a ? 1 : -1
+            } else {
+                pageTransition = .fade
             }
         }
     }
-    private(set) var navDirection = 1   // read during the same render pass; not published
+    private(set) var pageTransition: PageTransition = .fade   // read in the same render pass
     private var swipeDirection: Int?
     @Published var displayMode: DisplayMode = .minimal   // ambient default; tap to wake to full
     @Published var fullscreen = false {                  // hide the nav rail; page fills the panel

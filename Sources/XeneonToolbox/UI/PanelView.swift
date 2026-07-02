@@ -46,11 +46,7 @@ struct RootView: View {
                 VStack(spacing: 0) {
                     content
                         .id(model.route)
-                        // Direction-aware paging: the new page slides in from the
-                        // side you swiped toward — like turning a real page.
-                        .transition(.asymmetric(
-                            insertion: .move(edge: model.navDirection >= 0 ? .trailing : .leading).combined(with: .opacity),
-                            removal: .move(edge: model.navDirection >= 0 ? .leading : .trailing).combined(with: .opacity)))
+                        .transition(pageTransition)
                         .padding(contentInset)
                     Spacer(minLength: 0)
                 }
@@ -138,7 +134,7 @@ struct RootView: View {
                 Color.black.opacity(0.5 * model.controlExt).ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { model.closeControlCenter() }
-                ControlCenterView(model: model)
+                ControlCenterView(model: model, toggles: model.systemToggles)
                     .background(GeometryReader { g in
                         Color.clear.preference(key: CCHeightKey.self, value: g.size.height)
                     })
@@ -165,6 +161,22 @@ struct RootView: View {
         .ignoresSafeArea()
         .transition(.move(edge: .top))
         .zIndex(60)
+    }
+
+    /// Swipes read as page turns (directional slide); tab taps cross-fade with a
+    /// slight settle, which feels intentional rather than like a phantom swipe.
+    private var pageTransition: AnyTransition {
+        switch model.pageTransition {
+        case .slideForward:
+            return .asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
+                               removal: .move(edge: .leading).combined(with: .opacity))
+        case .slideBackward:
+            return .asymmetric(insertion: .move(edge: .leading).combined(with: .opacity),
+                               removal: .move(edge: .trailing).combined(with: .opacity))
+        case .fade:
+            return .asymmetric(insertion: AnyTransition.opacity.combined(with: .scale(scale: 0.98)),
+                               removal: .opacity)
+        }
     }
 
     // Web and Games hide their own chrome and fill the panel, so they go fully
