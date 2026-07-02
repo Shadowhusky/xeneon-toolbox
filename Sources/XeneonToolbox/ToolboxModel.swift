@@ -41,6 +41,11 @@ enum AppRoute: String, CaseIterable, Identifiable {
         case .chat: return Theme.memory
         }
     }
+
+    /// Routes shown as nav tabs and reachable by side-swipe. The browser (`.web`) is
+    /// no longer its own tab — it's opened by tapping a website tile on the Deck — so
+    /// it's excluded here, which also gives the remaining tabs more room.
+    static var tabs: [AppRoute] { allCases.filter { $0 != .web } }
 }
 
 /// Owns the embedded touch driver, the metrics engine, and app navigation.
@@ -64,11 +69,26 @@ final class ToolboxModel: ObservableObject {
     lazy var web = WebController()   // persists the Web tab's page/history across tab switches
     lazy var updater = UpdateChecker()
     @Published var remoteEnabled = (AppDefaults.shared.object(forKey: "remote.enabled") as? Bool) ?? true
-    @Published var route: AppRoute = .dashboard
+    @Published var route: AppRoute = .dashboard {
+        didSet {
+            guard oldValue != route else { return }
+            // Direction for the page transition: +1 = new page enters from the
+            // right (forward), -1 = from the left. Swipes state it explicitly
+            // (wrap-around!); nav taps derive it from the tab order.
+            if let d = swipeDirection {
+                navDirection = d
+                swipeDirection = nil
+            } else if let a = AppRoute.tabs.firstIndex(of: oldValue),
+                      let b = AppRoute.tabs.firstIndex(of: route) {
+                navDirection = b >= a ? 1 : -1
+            }
+        }
+    }
+    private(set) var navDirection = 1   // read during the same render pass; not published
+    private var swipeDirection: Int?
     @Published var displayMode: DisplayMode = .minimal   // ambient default; tap to wake to full
     @Published var fullscreen = false {                  // hide the nav rail; page fills the panel
         didSet {
-            touch.sideSwipeEnabled = fullscreen          // side-edge app-switch only in fullscreen
             if fullscreen, !oldValue, !fsTutorialSeen { showFsTutorial = true }
         }
     }
@@ -87,7 +107,21 @@ final class ToolboxModel: ObservableObject {
         didSet { AppDefaults.shared.set(showNowPlaying, forKey: "ui.showNowPlaying") }
     }
     @Published var showSettings = false
+    @Published var crashPrompt: CrashReport?   // last session's crash — offer to report it
     var exportMode = false   // static input bar etc. for off-screen mockup renders
+
+    func sendCrashReport() {
+        guard let report = crashPrompt else { return }
+        if let url = CrashReporter.githubIssueURL(for: report) { NSWorkspace.shared.open(url) }
+        CrashReporter.markHandled(report)
+        crashPrompt = nil
+    }
+
+    func dismissCrashReport() {
+        guard let report = crashPrompt else { return }
+        CrashReporter.markHandled(report)
+        crashPrompt = nil
+    }
     @Published var touchOn = false
     @Published var edgeDetected = false
     @Published var gamePref = "rhythm"
@@ -118,13 +152,12 @@ final class ToolboxModel: ObservableObject {
     /// Run a deck tile: launch an app, open a URL in the default browser, control
     /// media, or fire an in-app system action.
     func runDeck(_ action: DeckAction) {
+        AppLog.info("deck", "run \(action.kind.rawValue): \(action.label)")
         switch action.kind {
         case .app:
             NSWorkspace.shared.open(URL(fileURLWithPath: action.target))
         case .url:
-            var s = action.target
-            if !s.contains("://") { s = "https://" + s }
-            if let u = URL(string: s) { NSWorkspace.shared.open(u) }
+            openWeb(action.target)   // open in the in-app browser (merged with the old saved-sites)
         case .media:
             switch DeckMediaAction(rawValue: action.target) {
             case .playPause: media.togglePlayPause()
@@ -211,17 +244,23 @@ final class ToolboxModel: ObservableObject {
         t.onControlPull = { [weak self] frac, phase in Task { @MainActor in self?.handleControlPull(frac, phase) } }
         t.onBottomPull = { [weak self] frac, phase in Task { @MainActor in self?.handleBottomPull(frac, phase) } }
         t.onSwipeApp = { [weak self] next in Task { @MainActor in self?.handleSwipeApp(next) } }
-        t.sideSwipeEnabled = fullscreen
+        t.sideSwipeEnabled = true   // side swipes work in the full UI too (auto-enter fullscreen)
         return t
     }
 
-    /// Swipe in from a side edge (fullscreen only) to flip to the previous/next app.
+    /// Swipe in from a side edge to flip to the previous/next app. From the
+    /// normal full UI this also enters fullscreen — the swipe reads as "give me
+    /// the immersive app view", matching the fullscreen gesture language.
     private func handleSwipeApp(_ next: Bool) {
-        guard fullscreen else { return }
-        let all = AppRoute.allCases
+        guard displayMode == .full else { return }
+        let all = AppRoute.tabs
         guard let i = all.firstIndex(of: route) else { return }
         let j = next ? (i + 1) % all.count : (i - 1 + all.count) % all.count
-        withAnimation(.easeInOut(duration: 0.25)) { route = all[j] }
+        swipeDirection = next ? 1 : -1   // page follows the finger, even on wrap-around
+        withAnimation(.easeInOut(duration: 0.28)) {
+            if !fullscreen { fullscreen = true }
+            route = all[j]
+        }
     }
 
     private var dismissing = false
@@ -330,9 +369,25 @@ final class ToolboxModel: ObservableObject {
         if ProcessInfo.processInfo.environment["XENEON_TUTORIAL"] != nil {
             displayMode = .full; fullscreen = true; showFsTutorial = true
         }
+        migrateWebAppsToDeck()
+    }
+
+    /// One-time: fold the old "Saved sites" bookmarks into the Deck as website tiles,
+    /// so websites live in a single place. Runs once; deduped by canonical URL.
+    private func migrateWebAppsToDeck() {
+        let flag = "deck.webAppsMigrated.v1"
+        guard !AppDefaults.shared.bool(forKey: flag) else { return }
+        for app in webApps.apps {
+            let key = WebAppStore.canonicalKey(app.urlString)
+            if !deck.actions.contains(where: { $0.kind == .url && WebAppStore.canonicalKey($0.target) == key }) {
+                deck.add(.url(app.urlString, label: app.title))
+            }
+        }
+        AppDefaults.shared.set(true, forKey: flag)
     }
 
     func onAppear() {
+        crashPrompt = CrashReporter.pendingReport()
         metrics.start()
         weather.start()
         todos.start()
@@ -363,8 +418,10 @@ final class ToolboxModel: ObservableObject {
     private func attemptAcquire() {
         guard touchOn else { return }
         if touch.start() {
+            AppLog.info("touch", "driver started")
             retryTimer?.invalidate(); retryTimer = nil
         } else if retryTimer == nil {
+            AppLog.error("touch", "driver couldn't open the digitizer — retrying every 3s")
             let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.attemptAcquire() }
             }
@@ -391,6 +448,12 @@ final class ToolboxModel: ObservableObject {
     }
 
     func toggleTouch() { touchOn ? stopTouch() : startTouch() }
+
+    /// While a grid is in edit mode, the driver must treat ANY single-finger move
+    /// as a mouse drag — its default classification turns vertical/diagonal moves
+    /// into scroll events with no press, which makes 2-D drag-to-reorder
+    /// impossible. Views enable this for exactly as long as they're editing.
+    func setReorderDragging(_ on: Bool) { touch.dragAnywhereEnabled = on }
 
     func toggleFullscreen() { fullscreen.toggle() }
 

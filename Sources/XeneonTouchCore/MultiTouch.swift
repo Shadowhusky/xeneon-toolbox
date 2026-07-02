@@ -105,6 +105,12 @@ public struct MultiTouchRecognizer: Sendable {
     private var mode: Mode = .idle
     private var kind: Kind = .undecided
     private var single = TouchStateMachine()
+
+    /// Forwarded to the single-finger machine — see `TouchStateMachine.dragAnywhere`.
+    public var dragAnywhere: Bool {
+        get { single.dragAnywhere }
+        set { single.dragAnywhere = newValue }
+    }
     private var lockedPair: (Int, Int)?    // the two contact ids the gesture is tracking
     private var startCentroid = ScreenPoint(x: 0, y: 0)
     private var lastCentroid = ScreenPoint(x: 0, y: 0)

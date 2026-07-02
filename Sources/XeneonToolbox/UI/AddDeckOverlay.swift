@@ -67,10 +67,18 @@ struct AddDeckOverlay: View {
         .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
     }
 
+    /// Keys already on the deck, so we never offer to add the same app/action twice.
+    private var existing: Set<String> { Set(deck.actions.map(\.key)) }
+
+    /// Installed apps minus the ones already on the deck.
+    private var availableApps: [String] {
+        apps.filter { !existing.contains("app:\($0)") }
+    }
+
     private var candidates: [DeckAction] {
-        apps.map { DeckAction.app(path: $0) }
-            + DeckSystemAction.allCases.map { DeckAction.system($0) }
-            + DeckMediaAction.allCases.map { DeckAction.media($0) }
+        availableApps.map { DeckAction.app(path: $0) }
+            + DeckSystemAction.allCases.map { DeckAction.system($0) }.filter { !existing.contains($0.key) }
+            + DeckMediaAction.allCases.map { DeckAction.media($0) }.filter { !existing.contains($0.key) }
     }
 
     private var searchResults: some View {
@@ -98,9 +106,9 @@ struct AddDeckOverlay: View {
         HStack(spacing: 8) {
             ForEach(Tab.allCases, id: \.self) { t in
                 Button { tab = t } label: {
-                    Text(t.rawValue).font(.deck(15, .semibold))
+                    Text(t.rawValue).font(.deck(16, .semibold))
                         .foregroundStyle(tab == t ? .white : Theme.textSecondary)
-                        .frame(maxWidth: .infinity).frame(height: 46)
+                        .frame(maxWidth: .infinity).frame(height: 52)
                         .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
                             .fill(tab == t ? Theme.battery.opacity(0.9) : Color.white.opacity(0.05)))
                         .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
@@ -112,19 +120,25 @@ struct AddDeckOverlay: View {
     @ViewBuilder private var content: some View {
         switch tab {
         case .apps:
-            ScrollView(showsIndicators: false) {
-                LazyVGrid(columns: cols, spacing: 12) {
-                    ForEach(apps, id: \.self) { actionCell(.app(path: $0)) }
-                }.padding(.vertical, 2)
+            if availableApps.isEmpty {
+                allAddedState("Every installed app is already on your deck.")
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVGrid(columns: cols, spacing: 12) {
+                        ForEach(availableApps, id: \.self) { actionCell(.app(path: $0)) }
+                    }.padding(.vertical, 2)
+                }
             }
         case .custom:
             CustomActionForm(deck: deck, onAdded: onClose)
         case .website:
             WebsiteForm(deck: deck, onAdded: onClose)
         case .system:
-            actionList(DeckSystemAction.allCases.map { DeckAction.system($0) })
+            actionList(DeckSystemAction.allCases.map { DeckAction.system($0) }.filter { !existing.contains($0.key) },
+                       emptyNote: "Every system action is already on your deck.")
         case .media:
-            actionList(DeckMediaAction.allCases.map { DeckAction.media($0) })
+            actionList(DeckMediaAction.allCases.map { DeckAction.media($0) }.filter { !existing.contains($0.key) },
+                       emptyNote: "Every media action is already on your deck.")
         }
     }
 
@@ -144,7 +158,17 @@ struct AddDeckOverlay: View {
         }.buttonStyle(.pressable)
     }
 
-    private func actionList(_ items: [DeckAction]) -> some View {
+    private func allAddedState(_ note: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill").font(.system(size: 32)).foregroundStyle(Theme.battery)
+            Text(note).font(.deck(15)).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder private func actionList(_ items: [DeckAction], emptyNote: String) -> some View {
+        if items.isEmpty {
+            allAddedState(emptyNote)
+        } else {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 10) {
                 ForEach(items, id: \.key) { item in
@@ -164,10 +188,12 @@ struct AddDeckOverlay: View {
                 }
             }.frame(maxWidth: 620).frame(maxWidth: .infinity)
         }
+        }
     }
 }
 
-/// Renders the right icon for any deck action: uploaded image → app icon → SF Symbol.
+/// Renders the right icon for any deck action: uploaded image → app icon →
+/// website favicon → SF Symbol.
 struct DeckActionIcon: View {
     let action: DeckAction
     var size: CGFloat = 46
@@ -177,6 +203,17 @@ struct DeckActionIcon: View {
                 .frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
         } else if let img = action.appIcon {
             Image(nsImage: img).resizable().interpolation(.high).frame(width: size, height: size)
+        } else if action.kind == .url, let favicon = WebController.faviconURL(action.target) {
+            AsyncImage(url: favicon) { phase in
+                if let img = phase.image {
+                    img.resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                        .frame(width: size * 0.72, height: size * 0.72)
+                        .clipShape(RoundedRectangle(cornerRadius: size * 0.16, style: .continuous))
+                } else {
+                    Image(systemName: "globe").font(.system(size: size * 0.5, weight: .semibold)).foregroundStyle(Theme.battery)
+                }
+            }
+            .frame(width: size, height: size)
         } else {
             Image(systemName: action.symbol ?? "app.dashed").font(.system(size: size * 0.5, weight: .semibold))
                 .foregroundStyle(Theme.battery).frame(width: size, height: size)

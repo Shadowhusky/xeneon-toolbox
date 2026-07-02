@@ -3,9 +3,24 @@ import SwiftUI
 import ApplicationServices
 import XeneonTouchDriver
 
-final class KeyableWindow: NSWindow {
+/// A non-activating kiosk panel. Being an `NSPanel` with `.nonactivatingPanel` lets
+/// a tap operate the Edge UI *without* making Xeneon Toolbox the active app — so a
+/// glance at the panel while you're coding on the main display doesn't steal focus.
+/// Paired with `becomesKeyOnlyIfNeeded`, only a control that genuinely needs the
+/// keyboard (a text field) pulls focus, at which point `becomeKey` brings the app
+/// forward so typing actually lands.
+final class KeyableWindow: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    // becomesKeyOnlyIfNeeded means this only fires when a text field is tapped, so
+    // activating here is exactly "the user wants to type" — not every stray tap.
+    override func becomeKey() {
+        super.becomeKey()
+        if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+    }
+
+
     // A touchscreen deck has no keyboard chrome; if a keystroke reaches the window
     // unhandled (no text field or game focused), swallow it instead of letting
     // macOS sound the system alert beep. Menu shortcuts (⌘C etc.) use a separate
@@ -17,16 +32,25 @@ final class KeyableWindow: NSWindow {
 /// touches don't get "eaten" as a mere focus click (the refocus-with-mouse bug).
 final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    // NSHostingView returns true here, which made EVERY tap key the panel (and
+    // KeyableWindow.becomeKey then activated the app — stealing focus from
+    // whatever you were typing in on another screen). Buttons/tiles/gestures all
+    // work without key status; SwiftUI text fields explicitly request key when
+    // focused, which still lands in becomeKey and activates just-in-time.
+    override var needsPanelToBecomeKey: Bool { false }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var window: NSWindow?
+    private var window: KeyableWindow?
     private let model = ToolboxModel()
     private var noNapToken: NSObjectProtocol?
     private var devMode = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        CrashReporter.install()
+        let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        AppLog.info("lifecycle", "launched v\(ver) pid=\(ProcessInfo.processInfo.processIdentifier)")
         installMainMenu()
 
         // Touch injection needs Accessibility; prompt for it on launch so a new
@@ -59,8 +83,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // is actually connected, whether to pin it to the panel as a kiosk or leave
         // it a normal movable/closable window.
         let initialFrame = (edgeScreen() ?? NSScreen.main)?.frame ?? NSRect(x: 0, y: 0, width: 2560, height: 720)
+        // .nonactivatingPanel must be present at creation — the window server bakes
+        // the activation behavior into the window; adding the flag to styleMask
+        // later does not stop clicks from activating the app.
         let win = KeyableWindow(contentRect: initialFrame,
-                                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                styleMask: [.titled, .closable, .miniaturizable, .resizable,
+                                            .fullSizeContentView, .nonactivatingPanel],
                                 backing: .buffered, defer: false)
         win.title = "Xeneon Toolbox"
         win.titlebarAppearsTransparent = true
@@ -76,6 +104,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         fputs("WINDOW_ID=\(win.windowNumber)\n", stderr)
 
+        if ProcessInfo.processInfo.environment["XENEON_WINDIAG"] != nil {
+            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak win] _ in
+                Task { @MainActor in
+                    guard let win else { return }
+                    fputs("DIAG vis=\(win.isVisible) key=\(win.isKeyWindow) active=\(NSApp.isActive) hidesOnDeactivate=\(win.hidesOnDeactivate) level=\(win.level.rawValue) responder=\(type(of: win.firstResponder as Any))\n", stderr)
+                }
+            }
+        }
+
         // Displays can be added, removed, or rearranged at runtime, and on
         // sleep/wake macOS may move the window to another screen. Re-place the
         // window whenever that happens so the kiosk follows the Edge back and is
@@ -84,10 +121,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
 
+        // Closing OUR window (the titled no-Edge mode has a close button) quits the
+        // app — the panel-safe replacement for terminate-after-last-window-closed.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(mainWindowClosed),
+            name: NSWindow.willCloseNotification, object: win)
+
         model.onAppear()
+
+        // Dev hooks: exercise the restore→relaunch flow / the crash reporter.
+        if ProcessInfo.processInfo.environment["XENEON_TEST_RELAUNCH"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { ConfigBackup.relaunch() }
+        }
+        if ProcessInfo.processInfo.environment["XENEON_TEST_CRASH"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                let empty: [Int] = []
+                _ = empty[1]   // deliberate crash to test the reporter
+            }
+        }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    // MUST be false: the kiosk is an NSPanel, and panels don't count as windows in
+    // AppKit's "last window closed" bookkeeping. With true, any transient real
+    // window closing (e.g. the input-method window a keystroke in a text field
+    // spawns) reads as "last window closed" and silently terminates the app.
+    // Quitting when OUR window closes is handled by the willClose observer below.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     // Re-seize the digitizer whenever the app regains focus, so tapping back into
     // it from another screen re-engages touch immediately.
@@ -109,24 +168,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let win = window else { return }
 
         if devMode {
+            stopYieldWatch()
+            win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView, .nonactivatingPanel]
+            win.becomesKeyOnlyIfNeeded = false
+            win.isFloatingPanel = false
             win.level = .normal
             win.makeKeyAndOrderFront(nil)
             return
         }
 
         if let edge = edgeScreen() {
-            win.styleMask = [.borderless]
-            win.collectionBehavior = [.canJoinAllSpaces, .stationary]
-            win.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
+            // Non-activating kiosk: a tap drives the panel without making us the
+            // active app, so it never yanks focus off whatever you're doing on the
+            // main display. becomesKeyOnlyIfNeeded means only a text field pulls
+            // focus (see KeyableWindow.becomeKey); plain buttons/tiles never do.
+            win.styleMask = [.borderless, .nonactivatingPanel]
+            win.becomesKeyOnlyIfNeeded = true
+            win.isFloatingPanel = true
+            win.hidesOnDeactivate = false   // stay lit on the Edge while another app is focused
+            // No .stationary: the window participates in Mission Control, so the
+            // Edge screen's windows can be seen and switched like any other.
+            win.collectionBehavior = [.canJoinAllSpaces]
+            win.level = yielding ? .normal : Self.kioskLevel
             win.setFrame(edge.frame, display: true)
             NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
-            win.makeKeyAndOrderFront(nil)
+            // Show without stealing activation — but never jump above a window the
+            // user is actively using on the Edge.
+            if !behindActiveApp { win.orderFrontRegardless() }
+            startYieldWatch()
         } else {
+            stopYieldWatch()
             // No Edge connected: restore a normal titled window centered on the main
             // display, with a visible title and a close button, so it can always be
             // moved and quit. It re-pins to the Edge automatically once it appears.
             NSApp.presentationOptions = []
-            win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView, .nonactivatingPanel]
+            win.becomesKeyOnlyIfNeeded = false
+            win.isFloatingPanel = false
             win.collectionBehavior = [.managed]
             win.level = .normal
             win.titleVisibility = .visible
@@ -143,9 +221,161 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         placeWindow()
     }
 
+    @objc private func mainWindowClosed(_ note: Notification) {
+        guard !quitting else { return }
+        NSApp.terminate(nil)
+    }
+
+    // MARK: - Kiosk auto-yield
+    //
+    // The kiosk normally sits above the menu bar so the Edge is a clean panel. But
+    // pinned there it buries any window you drag onto the Edge screen and makes
+    // switching apps on it impossible. So we watch for another app's window on the
+    // Edge: when one appears, the kiosk drops to normal level (that window can sit
+    // above it, Mission Control can arrange it); when the screen is ours again, it
+    // returns to kiosk level. Tapping a visible part of the yielded kiosk raises
+    // it (see KeyableWindow.sendEvent) without stealing focus.
+
+    static let kioskLevel = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
+    private var yielding = false            // a window shares the Edge → normal level, pinned behind
+    private var behindActiveApp = false     // mirror of yielding, read by placeWindow
+    private var hiddenForFullscreen = false // a fullscreen app owns the Edge → panel ordered out
+    private var yieldTimer: Timer?
+
+    private func startYieldWatch() {
+        guard yieldTimer == nil else { return }
+        let t = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.updateYield() }
+        }
+        t.tolerance = 0.25
+        RunLoop.main.add(t, forMode: .common)
+        yieldTimer = t
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(activeAppChanged),
+            name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        // Space switches re-insert a canJoinAllSpaces window at the front of its
+        // level — re-pin immediately, not a second later.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(activeAppChanged),
+            name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        updateYield()
+    }
+
+    private func stopYieldWatch() {
+        yieldTimer?.invalidate(); yieldTimer = nil
+        NSWorkspace.shared.notificationCenter.removeObserver(
+            self, name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.removeObserver(
+            self, name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        yielding = false
+        behindActiveApp = false
+        hiddenForFullscreen = false
+    }
+
+    @objc private func activeAppChanged(_ note: Notification) {
+        Task { @MainActor in self.updateYield() }
+    }
+
+    private func updateYield() {
+        guard let win = window, !devMode, edgeScreen() != nil,
+              let edge = Self.edgeDisplayBoundsCG() else { return }
+
+        // Desktop metaphor: a window placed on the Edge stays VISIBLE above the
+        // panel — even while its app isn't frontmost — so a video or reference
+        // window keeps showing while you work elsewhere. While any such window
+        // exists the panel is the screen's backdrop (normal level, kept at the
+        // BACK); close or move the window away and the full-bleed above-menu-bar
+        // kiosk returns automatically. The back-pinning must be re-asserted on
+        // every pass: Space switches and window switches re-insert a
+        // canJoinAllSpaces window at the front of its level, which is exactly the
+        // "panel floats over the app after I switch windows" bug.
+        let state = Self.edgeOccupancy(edge)
+
+        // An app FULLSCREEN on the Edge (its own Space) owns the whole screen:
+        // there's no window stack to sit behind there — a canJoinAllSpaces panel
+        // would float on top of it — so hide the panel entirely until the Edge
+        // leaves that Space.
+        let hide = state == .fullscreen
+        if hide != hiddenForFullscreen {
+            hiddenForFullscreen = hide
+            AppLog.info("yield", hide ? "fullscreen app owns the Edge — panel hidden" : "fullscreen gone — panel back")
+            if hide { win.orderOut(nil) } else { win.order(.below, relativeTo: 0) }
+        }
+        guard !hide else { return }
+
+        let shouldYield = state == .shared
+        if ProcessInfo.processInfo.environment["XENEON_WINDIAG"] != nil {
+            fputs("DIAG yield state=\(state) yielding=\(yielding)\n", stderr)
+        }
+        if shouldYield == yielding {
+            if yielding { win.order(.below, relativeTo: 0) }   // stay pinned behind
+            return
+        }
+        yielding = shouldYield
+        behindActiveApp = shouldYield
+        AppLog.info("yield", shouldYield ? "window on Edge — panel drops behind" : "Edge clear — kiosk restored")
+        if shouldYield {
+            win.level = .normal
+            win.order(.below, relativeTo: 0)   // sit behind the Edge's windows
+        } else {
+            win.level = Self.kioskLevel
+            win.orderFrontRegardless()
+        }
+    }
+
+    /// The Edge display's bounds in CG (top-left origin) global coordinates —
+    /// the space CGWindowList reports window bounds in.
+    private static func edgeDisplayBoundsCG() -> CGRect? {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var n: UInt32 = 0
+        CGGetActiveDisplayList(16, &ids, &n)
+        for i in 0..<Int(n) {
+            let b = CGDisplayBounds(ids[i])
+            if abs(b.width - 2560) < 2, abs(b.height - 720) < 2 { return b }
+        }
+        return nil
+    }
+
+    enum EdgeOccupancy { case free, shared, fullscreen }
+
+    /// What other apps are doing on the Edge: nothing, sharing it with ordinary
+    /// windows, or owning it outright with a (near-)fullscreen window. Layer 0
+    /// filters the menu bar, Dock, and system chrome.
+    private static func edgeOccupancy(_ edge: CGRect) -> EdgeOccupancy {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return .free
+        }
+        let myPID = Int(ProcessInfo.processInfo.processIdentifier)
+        let edgeArea = edge.width * edge.height
+        var occupancy = EdgeOccupancy.free
+        for w in list {
+            guard (w[kCGWindowLayer as String] as? Int) == 0,
+                  let pid = w[kCGWindowOwnerPID as String] as? Int, pid != myPID,
+                  let bd = w[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
+            let r = CGRect(x: bd["X"] ?? 0, y: bd["Y"] ?? 0,
+                           width: bd["Width"] ?? 0, height: bd["Height"] ?? 0)
+            guard r.width > 1, r.height > 1 else { continue }   // ghost/ornament windows
+            let inter = r.intersection(edge)
+            guard !inter.isNull else { continue }
+            let area = inter.width * inter.height
+            if area > edgeArea * 0.95 { return .fullscreen }   // owns the whole screen
+            if area > 20_000 { occupancy = .shared }           // ignore slivers
+        }
+        return occupancy
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        AppLog.info("lifecycle", "clean exit")
+        CrashReporter.markCleanExit()
         model.restoreBacklightOnQuit()   // don't leave the Edge dark if we quit while asleep
     }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        quitting = true   // so the window closing during teardown doesn't re-enter terminate
+        return .terminateNow
+    }
+    private var quitting = false
 
     private func renderOffscreenThenExit(_ spec: String) {
         let parts = spec.components(separatedBy: "@")

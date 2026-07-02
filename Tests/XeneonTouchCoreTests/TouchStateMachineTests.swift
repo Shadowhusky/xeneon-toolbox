@@ -95,6 +95,43 @@ final class TouchStateMachineTests: XCTestCase {
         XCTAssertEqual(sm.reset(), [])
     }
 
+    // MARK: drag-anywhere (edit-mode tile reordering)
+
+    // Normally only clearly-horizontal moves become drags (anything else scrolls,
+    // and no press is ever sent). Reordering a 2-D grid needs vertical/diagonal
+    // drags, so edit mode flips this switch: every direction is press + drag.
+
+    func testDragAnywhereTurnsVerticalMoveIntoDrag() {
+        var sm = TouchStateMachine()
+        sm.dragAnywhere = true
+        _ = sm.update(contact: true, point: a)
+        XCTAssertEqual(sm.update(contact: true, point: vUp), [.press(a), .drag(vUp)])
+    }
+
+    func testDragAnywhereReleasesOnContactEnd() {
+        var sm = TouchStateMachine()
+        sm.dragAnywhere = true
+        _ = sm.update(contact: true, point: a)
+        _ = sm.update(contact: true, point: vUp)
+        XCTAssertEqual(sm.update(contact: false, point: nil), [.release(vUp)])
+    }
+
+    func testDragAnywhereStillTapsWithinSlop() {
+        var sm = TouchStateMachine()
+        sm.dragAnywhere = true
+        _ = sm.update(contact: true, point: a)
+        XCTAssertEqual(sm.update(contact: false, point: nil), [.press(a), .release(a)])
+    }
+
+    func testDragAnywhereOffVerticalMoveStillScrolls() {
+        var sm = TouchStateMachine()
+        sm.dragAnywhere = false
+        _ = sm.update(contact: true, point: a)
+        XCTAssertEqual(sm.update(contact: true, point: vUp),
+                       [.scroll(dx: 0, dy: 0, phase: .began),
+                        .scroll(dx: 5, dy: 30, phase: .changed)])
+    }
+
     // MARK: sequences
 
     func testTapThenSecondGestureStartsFresh() {

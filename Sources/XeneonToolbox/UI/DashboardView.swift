@@ -58,8 +58,12 @@ struct DashboardView: View {
             default: break
             }
             if ProcessInfo.processInfo.environment["XENEON_EDIT"] != nil { editing = true }
+            model.setReorderDragging(editing)
         }
-        .onDisappear { close(); editing = false }
+        // In edit mode the driver treats any finger move as a mouse drag, so tiles
+        // can be grabbed without the gesture misclassifying as a scroll.
+        .onChange(of: editing) { model.setReorderDragging(editing) }
+        .onDisappear { model.setReorderDragging(false); close(); editing = false }
     }
 
     // MARK: - Tiles

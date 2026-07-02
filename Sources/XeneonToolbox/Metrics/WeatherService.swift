@@ -1,4 +1,48 @@
 import Foundation
+import CoreLocation
+
+/// One-shot CoreLocation fix. On a Mac this resolves via Wi-Fi positioning
+/// (typically ~50 m) — far more accurate than IP geolocation, which only finds
+/// the ISP's endpoint. Resolves nil silently when denied or unavailable so the
+/// caller can fall through to IP.
+private final class SystemLocator: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private var continuation: CheckedContinuation<CLLocation?, Never>?
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyKilometer
+    }
+
+    func locate() async -> CLLocation? {
+        let status = manager.authorizationStatus
+        guard status != .denied, status != .restricted else { return nil }
+        guard continuation == nil else { return nil }   // a fix is already in flight
+        return await withCheckedContinuation { (cont: CheckedContinuation<CLLocation?, Never>) in
+            continuation = cont
+            manager.requestLocation()   // prompts for consent on first use
+            // If CoreLocation never calls back (consent prompt pending, services
+            // off), resume with nil so the weather refresh falls through to the
+            // IP path instead of hanging forever. finish() ignores double calls.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                self?.finish(nil)
+            }
+        }
+    }
+
+    private func finish(_ loc: CLLocation?) {
+        continuation?.resume(returning: loc)
+        continuation = nil
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        finish(locations.first)
+    }
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        finish(nil)
+    }
+}
 
 struct DayForecast: Equatable, Identifiable {
     let date: Date
@@ -72,12 +116,61 @@ struct Weather: Equatable {
     }
 }
 
+/// A user-chosen weather location (IP geolocation is only ISP-accurate; this lets
+/// the user pin their real city from Settings).
+struct WeatherLocation: Codable, Equatable, Identifiable {
+    let name: String
+    let region: String    // "admin1, country" for disambiguation
+    let lat: Double
+    let lon: Double
+    var id: String { "\(lat),\(lon)" }
+}
+
 /// Fetches current weather + a short forecast with no API key: IP geolocation
 /// (ipapi.co) + the free Open-Meteo forecast. Refreshes every 15 minutes.
 @MainActor
 final class WeatherService: ObservableObject {
     @Published private(set) var weather: Weather?
+    @Published private(set) var customPlace: WeatherLocation?
     private var timer: Timer?
+    private static let placeKey = "weather.place.v1"
+
+    init() {
+        if let data = AppDefaults.shared.data(forKey: Self.placeKey) {
+            customPlace = try? JSONDecoder().decode(WeatherLocation.self, from: data)
+        }
+    }
+
+    /// Pin the weather to a chosen city (nil returns to automatic IP location).
+    func setPlace(_ place: WeatherLocation?) {
+        customPlace = place
+        if let place, let data = try? JSONEncoder().encode(place) {
+            AppDefaults.shared.set(data, forKey: Self.placeKey)
+        } else {
+            AppDefaults.shared.removeObject(forKey: Self.placeKey)
+        }
+        weather = nil
+        Task { await refresh() }
+    }
+
+    /// City search via Open-Meteo's free geocoding (no key).
+    static func searchCities(_ query: String) async -> [WeatherLocation] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard q.count >= 2,
+              let escaped = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://geocoding-api.open-meteo.com/v1/search?name=\(escaped)&count=6&language=en&format=json"),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = json["results"] as? [[String: Any]] else { return [] }
+        return results.compactMap { r in
+            guard let name = r["name"] as? String,
+                  let lat = r["latitude"] as? Double,
+                  let lon = r["longitude"] as? Double else { return nil }
+            let region = [r["admin1"] as? String, r["country"] as? String]
+                .compactMap { $0 }.joined(separator: ", ")
+            return WeatherLocation(name: name, region: region, lat: lat, lon: lon)
+        }
+    }
 
     func start() {
         guard timer == nil else { return }
@@ -92,6 +185,8 @@ final class WeatherService: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        retryTimer?.invalidate()
+        retryTimer = nil
     }
 
     func refresh() async {
@@ -101,7 +196,7 @@ final class WeatherService: ObservableObject {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let cur = json["current"] as? [String: Any],
               let temp = cur["temperature_2m"] as? Double,
-              let code = cur["weather_code"] as? Int else { return }
+              let code = cur["weather_code"] as? Int else { scheduleRetry(); return }
 
         var w = Weather(tempC: temp, code: code, city: loc.city)
         w.humidity = (cur["relative_humidity_2m"] as? Double).map { Int($0.rounded()) } ?? (cur["relative_humidity_2m"] as? Int)
@@ -124,11 +219,89 @@ final class WeatherService: ObservableObject {
         weather = w
     }
 
+    /// A failed launch-time fetch (offline, rate-limited geolocation) used to mean
+    /// "Weather unavailable" for the full 15-minute cycle. Retry in a minute
+    /// instead, until the first success.
+    private var retryTimer: Timer?
+    private func scheduleRetry() {
+        AppLog.error("weather", "refresh failed (geolocation or forecast fetch) — retrying in 60s")
+        guard weather == nil, retryTimer == nil else { return }
+        let t = Timer(timeInterval: 60, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.retryTimer = nil
+                await self?.refresh()
+            }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        retryTimer = t
+    }
+
+    // MARK: - Geolocation
+
+    private struct GeoCache: Codable {
+        let lat: Double, lon: Double
+        let city: String
+        let at: Date
+    }
+    private static let geoCacheKey = "weather.geo.v1"
+
+    private let locator = SystemLocator()
+
+    /// The Mac's location, best source first: the user's pinned city, then
+    /// CoreLocation (Wi-Fi positioning, ~50 m — IP lookup only finds the ISP's
+    /// endpoint), then a day-long cache, then IP providers. The cache also stops
+    /// the free IP services rate-limiting us (which used to kill weather
+    /// entirely); a stale location beats showing nothing.
     private func geolocate() async -> (lat: Double, lon: Double, city: String)? {
-        guard let url = URL(string: "https://ipapi.co/json/"),
-              let (data, _) = try? await URLSession.shared.data(from: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let lat = json["latitude"] as? Double, let lon = json["longitude"] as? Double else { return nil }
-        return (lat, lon, (json["city"] as? String) ?? "")
+        if let p = customPlace { return (p.lat, p.lon, p.name) }   // the user's pinned city
+        if let loc = await locator.locate() {
+            let coord = loc.coordinate
+            let city = await Self.cityName(for: loc)
+                ?? Self.loadGeoCache().map(\.city) ?? ""
+            let c = GeoCache(lat: coord.latitude, lon: coord.longitude, city: city, at: Date())
+            if let data = try? JSONEncoder().encode(c) { AppDefaults.shared.set(data, forKey: Self.geoCacheKey) }
+            return (coord.latitude, coord.longitude, city)
+        }
+        if let c = Self.loadGeoCache(), Date().timeIntervalSince(c.at) < 86_400 {
+            return (c.lat, c.lon, c.city)
+        }
+        if let fresh = await fetchLocation() {
+            let c = GeoCache(lat: fresh.lat, lon: fresh.lon, city: fresh.city, at: Date())
+            if let data = try? JSONEncoder().encode(c) { AppDefaults.shared.set(data, forKey: Self.geoCacheKey) }
+            return fresh
+        }
+        // Everything down or rate-limited — a stale location beats no weather.
+        if let c = Self.loadGeoCache() { return (c.lat, c.lon, c.city) }
+        return nil
+    }
+
+    /// Reverse-geocode the neighbourhood/city name for a CoreLocation fix.
+    private static func cityName(for location: CLLocation) async -> String? {
+        let placemarks = try? await CLGeocoder().reverseGeocodeLocation(location)
+        let p = placemarks?.first
+        return p?.locality ?? p?.subLocality ?? p?.administrativeArea
+    }
+
+    private static func loadGeoCache() -> GeoCache? {
+        guard let data = AppDefaults.shared.data(forKey: geoCacheKey) else { return nil }
+        return try? JSONDecoder().decode(GeoCache.self, from: data)
+    }
+
+    private func fetchLocation() async -> (lat: Double, lon: Double, city: String)? {
+        if let url = URL(string: "https://ipapi.co/json/"),
+           let (data, _) = try? await URLSession.shared.data(from: url),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let lat = json["latitude"] as? Double, let lon = json["longitude"] as? Double {
+            return (lat, lon, (json["city"] as? String) ?? "")
+        }
+        // Fallback provider (also free / keyless) in case ipapi.co is rate-limited.
+        if let url = URL(string: "https://ipwho.is/"),
+           let (data, _) = try? await URLSession.shared.data(from: url),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           (json["success"] as? Bool) != false,
+           let lat = json["latitude"] as? Double, let lon = json["longitude"] as? Double {
+            return (lat, lon, (json["city"] as? String) ?? "")
+        }
+        return nil
     }
 }

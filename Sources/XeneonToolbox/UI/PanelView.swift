@@ -46,9 +46,11 @@ struct RootView: View {
                 VStack(spacing: 0) {
                     content
                         .id(model.route)
+                        // Direction-aware paging: the new page slides in from the
+                        // side you swiped toward — like turning a real page.
                         .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .offset(x: 26)),
-                            removal: .opacity.combined(with: .offset(x: -26))))
+                            insertion: .move(edge: model.navDirection >= 0 ? .trailing : .leading).combined(with: .opacity),
+                            removal: .move(edge: model.navDirection >= 0 ? .leading : .trailing).combined(with: .opacity)))
                         .padding(contentInset)
                     Spacer(minLength: 0)
                 }
@@ -76,6 +78,7 @@ struct RootView: View {
             }
         }
         .overlay { UpdateGate(updater: model.updater, fullscreen: model.fullscreen) }
+        .overlay { if model.crashPrompt != nil { crashReportPrompt } }
         // First-run coach marks for the fullscreen gestures. Sits BELOW the shade /
         // control-centre overlays so a gesture the user actually performs slides in
         // above the mask (visible), rather than being hidden behind it.
@@ -93,6 +96,40 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.3), value: model.fullscreen)
         .animation(.easeInOut(duration: 0.25), value: model.showSettings)
         .animation(.easeInOut(duration: 0.3), value: model.showFsTutorial)
+    }
+
+    /// One-time prompt after a crash: open a prefilled GitHub issue with the
+    /// report so any user can send it in a tap.
+    private var crashReportPrompt: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { model.dismissCrashReport() }
+            VStack(spacing: 14) {
+                Image(systemName: "ladybug.fill").font(.system(size: 32)).foregroundStyle(Theme.batteryLow)
+                Text("The app crashed last time").font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
+                Text("A crash report was saved. Sending it (opens a prefilled GitHub issue) helps get the bug fixed — nothing is sent without you.")
+                    .font(.deck(14)).foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
+                    Button { model.dismissCrashReport() } label: {
+                        Text("Not now").font(.deck(16, .semibold)).foregroundStyle(Theme.textSecondary)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(0.06)))
+                            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    }.buttonStyle(.pressable)
+                    Button { model.sendCrashReport() } label: {
+                        Text("Send report").font(.deck(16, .bold)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Theme.accent))
+                            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    }.buttonStyle(.pressable)
+                }
+            }
+            .padding(26).frame(width: 520)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
+            .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
+        }
+        .transition(.opacity)
     }
 
     @ViewBuilder private var controlCenterOverlay: some View {
@@ -158,7 +195,7 @@ struct RootView: View {
         case .clock: ClockAppView(store: model.worldClocks, exportMode: model.exportMode)
         case .tasks: TasksView(todos: model.todos, exportMode: model.exportMode)
         case .games: GamesView(model: model)
-        case .web: BrowserView(model: model, store: model.webApps, web: model.web)
+        case .web: BrowserView(model: model, web: model.web)
         case .chat: ChatView(model: model)
         }
     }
@@ -179,7 +216,7 @@ struct NavRail: View {
 
     @ViewBuilder private var navButtons: some View {
         VStack(spacing: 7) {
-            ForEach(AppRoute.allCases) { r in
+            ForEach(AppRoute.tabs) { r in
                 NavButton(route: r, selected: route == r,
                           badge: r == .tasks ? openTasks : 0,
                           badgeUrgent: r == .tasks && hasOverdue) {
@@ -215,10 +252,10 @@ struct NavRail: View {
                     .frame(height: 1).padding(.horizontal, 18).padding(.bottom, 2)
                 HStack(spacing: 7) {
                     Image(systemName: touchActive ? "hand.tap.fill" : "hand.tap")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(touchActive ? Theme.battery : Theme.textFaint)
                     Text(touchActive ? "Touch on" : "Touch off")
-                        .font(.deck(11, .semibold)).foregroundStyle(touchActive ? Theme.battery : Theme.textFaint)
+                        .font(.deck(12, .semibold)).foregroundStyle(touchActive ? Theme.battery : Theme.textFaint)
                 }
                 HStack(spacing: 9) {
                     railTile("Full screen", "arrow.up.left.and.arrow.down.right", Theme.accent, action: onFullscreen)
@@ -230,18 +267,18 @@ struct NavRail: View {
                 }
                 Button { NSApplication.shared.terminate(nil) } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "power").font(.system(size: 12, weight: .bold))
-                        Text("Quit").font(.deck(11, .semibold))
+                        Image(systemName: "power").font(.system(size: 13, weight: .bold))
+                        Text("Quit").font(.deck(12.5, .semibold))
                     }
                     .foregroundStyle(Theme.textFaint)
-                    .frame(maxWidth: .infinity).frame(height: 34)
+                    .frame(maxWidth: .infinity).frame(height: 40)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 13).padding(.top, 9).padding(.bottom, 14)
+            .padding(.horizontal, 13).padding(.top, 9).padding(.bottom, 12)
         }
-        .frame(width: 172)
+        .frame(width: 188)
         .frame(maxHeight: .infinity)
         .background(Theme.backgroundEdge)
         .overlay(alignment: .trailing) {
@@ -269,11 +306,11 @@ struct NavRail: View {
     private func railTile(_ label: String, _ icon: String, _ tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 18, weight: .semibold)).foregroundStyle(tint)
-                Text(label).font(.deck(10.5, .semibold)).foregroundStyle(Theme.textSecondary)
+                Image(systemName: icon).font(.system(size: 19, weight: .semibold)).foregroundStyle(tint)
+                Text(label).font(.deck(11.5, .semibold)).foregroundStyle(Theme.textSecondary)
                     .lineLimit(1).minimumScaleFactor(0.8)
             }
-            .frame(maxWidth: .infinity).frame(height: 58)
+            .frame(maxWidth: .infinity).frame(height: 62)
             .background(RoundedRectangle(cornerRadius: 15, style: .continuous).fill(Color.white.opacity(0.06)))
             .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
@@ -295,8 +332,8 @@ private struct NavButton: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: route.icon)
-                    .font(.system(size: 20, weight: .semibold))
-                    .frame(width: 26)
+                    .font(.system(size: 21, weight: .semibold))
+                    .frame(width: 27)
                     .overlay(alignment: .topTrailing) {
                         if badge > 0 {
                             Text("\(badge)")
@@ -306,14 +343,14 @@ private struct NavButton: View {
                                 .offset(x: 13, y: -9)
                         }
                     }
-                Text(route.title).font(.deck(15, .semibold)).tracking(0.2)
+                Text(route.title).font(.deck(16, .semibold)).tracking(0.2)
                     .lineLimit(1).minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(selected ? accent : Theme.textSecondary)
             .shadow(color: selected ? accent.opacity(0.5) : .clear, radius: 8)
             .padding(.horizontal, 15)
-            .frame(height: 50)
+            .frame(height: 56)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)

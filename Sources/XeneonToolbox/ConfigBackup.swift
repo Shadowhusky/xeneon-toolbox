@@ -42,8 +42,10 @@ enum ConfigBackup {
         guard let data = try? Data(contentsOf: backupURL),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let values = root["values"] as? [String: Any] else {
+            AppLog.error("config", "restore failed — no readable backup at \(backupURL.path)")
             return .fail("No backup found")
         }
+        AppLog.info("config", "restoring \(values.count) keys from \(backupURL.path)")
         for (k, v) in values {
             if let wrap = v as? [String: Any], let b64 = wrap["__data__"] as? String, let d = Data(base64Encoded: b64) {
                 AppDefaults.shared.set(d, forKey: k)
@@ -54,11 +56,29 @@ enum ConfigBackup {
         return .ok("Restored — relaunching…")
     }
 
+    /// Quit and come back with the restored configuration. The reopen runs in a
+    /// detached shell with a short delay so it fires AFTER this instance is gone —
+    /// `open` on a still-terminating app silently no-ops, which left the panel
+    /// black and read as a crash. Handles both the .app bundle and a bare dev
+    /// binary (which the old version couldn't relaunch at all).
     static func relaunch() {
-        let path = Bundle.main.bundlePath
-        if path.hasSuffix(".app") {
-            let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/open"); p.arguments = [path]; try? p.run()
+        let bundle = Bundle.main.bundlePath
+        let cmd: String
+        if bundle.hasSuffix(".app") {
+            cmd = "sleep 0.6; /usr/bin/open '\(bundle.replacingOccurrences(of: "'", with: "'\\''"))'"
+        } else if let exe = Bundle.main.executablePath {
+            cmd = "sleep 0.6; '\(exe.replacingOccurrences(of: "'", with: "'\\''"))' >/dev/null 2>&1 &"
+        } else {
+            NSApp.terminate(nil); return
         }
+        AppLog.info("config", "relaunching after restore")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", cmd]
+        var env = ProcessInfo.processInfo.environment
+        env.removeValue(forKey: "XENEON_TEST_RELAUNCH")   // dev hook must not loop
+        p.environment = env
+        try? p.run()
         NSApp.terminate(nil)
     }
 }

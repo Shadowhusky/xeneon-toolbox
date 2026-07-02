@@ -16,7 +16,9 @@ final class GameWebView: WKWebView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        grabFocus()
+        // A deliberate tap on the page/game — taking focus is intended (games
+        // need the keyboard immediately).
+        grabFocus(userInitiated: true)
         super.mouseDown(with: event)
     }
 
@@ -33,11 +35,17 @@ final class GameWebView: WKWebView {
         super.scrollWheel(with: event)
     }
 
-    func grabFocus() {
+    /// Take keyboard focus for the page. Only a user-initiated grab (a tap on the
+    /// web view) may activate the app — a page finishing a load in the background
+    /// must never yank focus from whatever the user is typing in elsewhere. Never
+    /// reorders the window: an orderFront here would hop the panel over a window
+    /// the user has sharing the Edge.
+    func grabFocus(userInitiated: Bool = false) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.window else { return }
-            NSApp.activate(ignoringOtherApps: true)
-            if !window.isKeyWindow { window.makeKeyAndOrderFront(nil) }
+            guard userInitiated || NSApp.isActive else { return }
+            if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+            if !window.isKeyWindow { window.makeKey() }
             window.makeFirstResponder(self)
         }
     }

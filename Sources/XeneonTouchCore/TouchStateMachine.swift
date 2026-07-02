@@ -43,6 +43,13 @@ public struct TouchStateMachine: Sendable {
     private var last: ScreenPoint?
     private let tapSlop: Double
 
+    /// When set (edit-mode tile reordering), ANY movement past the slop becomes a
+    /// press + drag, regardless of direction. The default classification sends
+    /// vertical/diagonal moves as scroll events with no press at all — which makes
+    /// dragging a tile around a 2-D grid impossible. Edit surfaces don't scroll,
+    /// so nothing is lost while it's on. Affects only newly-classified gestures.
+    public var dragAnywhere = false
+
     /// `tapSlop` is the movement (in screen px) tolerated before a contact stops
     /// counting as a tap and is classified as a scroll or drag.
     public init(tapSlop: Double = 10) {
@@ -73,7 +80,7 @@ public struct TouchStateMachine: Sendable {
             let prev = last ?? s
             // Bias toward scrolling — only a clearly-horizontal drag grabs a
             // control (e.g. the brightness slider); everything else scrolls.
-            if abs(dx) > abs(dy) * 1.4 {
+            if dragAnywhere || abs(dx) > abs(dy) * 1.4 {
                 phase = .dragging
                 last = p
                 return [.press(s), .drag(p)]
