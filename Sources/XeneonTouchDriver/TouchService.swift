@@ -608,6 +608,17 @@ public final class TouchService: @unchecked Sendable {
         didSet { lock.withLock { driver?.dragAnywhereEnabled = dragAnywhereEnabled } }
     }
 
+    /// Release anything the pointer state machine is still holding (a mouse
+    /// button left down by a missed touch-up, a half-open scroll). Runs on the
+    /// driver's own thread. Call when the UI changes interaction modes so a
+    /// stuck press can never deaden the whole panel.
+    public func flushPointer() {
+        let (drv, rl): (TouchDriver?, CFRunLoop?) = lock.withLock { (driver, runLoop) }
+        guard let drv, let rl else { return }
+        CFRunLoopPerformBlock(rl, CFRunLoopMode.commonModes.rawValue) { drv.releaseHeld() }
+        CFRunLoopWakeUp(rl)
+    }
+
     private let config: TouchServiceConfig
     private let lock = NSLock()
     private var running = false

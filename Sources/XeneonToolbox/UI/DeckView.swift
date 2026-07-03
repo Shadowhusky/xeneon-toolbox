@@ -48,7 +48,7 @@ struct DeckView: View {
                                 if editing && dragging != action.id { removeBadge(action.id) }
                             }
                     }
-                    if editing { AddTile { showAdd = true } }
+                    if editing { AddTile { withAnimation(.easeInOut(duration: 0.2)) { showAdd = true } } }
                 }
                 .coordinateSpace(name: space)
                 .onPreferenceChange(DeckFrameKey.self) { frames = $0 }
@@ -62,21 +62,28 @@ struct DeckView: View {
             .scrollDisabled(editing)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .overlay { if showAdd { AddDeckOverlay(deck: deck) { showAdd = false } } }
+        // The Add overlay unmounts INSTANTLY (no removal transition): an implicit
+        // `.animation(value: showAdd)` used to drive its fade-out, and when
+        // `deck.add` reshaped the grid in the same update the removal could stall
+        // — leaving the dimming backdrop invisible but still hit-testable over
+        // the whole page ("stuck deck" — can't tap Done, can't drag).
+        .overlay { if showAdd { AddDeckOverlay(deck: deck) { showAdd = false }.transition(.opacity) } }
         .overlay { if showSortMenu { sortMenu } }
         .overlay { if let p = pending { confirmModal(p) } }
         .animation(.easeInOut(duration: 0.2), value: editing)
-        .animation(.easeInOut(duration: 0.2), value: showAdd)
         .onAppear {
             if ProcessInfo.processInfo.environment["XENEON_DECK_EDIT"] != nil { editing = true }
             if ProcessInfo.processInfo.environment["XENEON_DECK_ADD"] != nil { editing = true; showAdd = true }
             syncReorderDragging()
         }
         // While editing (and no overlay needs to scroll), the touch driver treats
-        // any finger move as a mouse drag so tiles can be dragged in 2-D.
-        .onChange(of: editing) { syncReorderDragging() }
-        .onChange(of: showAdd) { syncReorderDragging() }
-        .onDisappear { model.setReorderDragging(false) }
+        // any finger move as a mouse drag so tiles can be dragged in 2-D. Any
+        // mode change also abandons an in-flight reorder drag — a gesture
+        // cancelled by an overlay appearing never calls onEnded, and a stale
+        // `dragging` id would wedge the grid.
+        .onChange(of: editing) { dragging = nil; syncReorderDragging() }
+        .onChange(of: showAdd) { dragging = nil; syncReorderDragging() }
+        .onDisappear { dragging = nil; model.setReorderDragging(false) }
         // Dock-style running indicators on app tiles.
         .task { refreshRunning() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)) { _ in refreshRunning() }
@@ -104,7 +111,7 @@ struct DeckView: View {
     }
 
     private func deckButton(_ label: String, _ icon: String, tint: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button(action: { AppLog.info("deck", "header button: \(label)"); action() }) {
             HStack(spacing: 7) {
                 Image(systemName: icon).font(.system(size: 13, weight: .bold))
                 Text(label).font(.deck(14, .semibold))
