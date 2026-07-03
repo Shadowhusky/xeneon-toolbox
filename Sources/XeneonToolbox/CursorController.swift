@@ -47,6 +47,9 @@ final class CursorController {
     private func handle(_ event: NSEvent) {
         let tag = event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0
         if tag == kXeneonTouchEventTag { hide() } else { show() }
+        if ProcessInfo.processInfo.environment["XENEON_INPUTDIAG"] != nil, event.type == .leftMouseDown {
+            AppLog.info("input", "mouseDown window=\(event.windowNumber) loc=\(Int(event.locationInWindow.x)),\(Int(event.locationInWindow.y))")
+        }
     }
 
     private func hide() {

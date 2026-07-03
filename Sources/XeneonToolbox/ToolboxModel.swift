@@ -454,7 +454,12 @@ final class ToolboxModel: ObservableObject {
     /// as a mouse drag — its default classification turns vertical/diagonal moves
     /// into scroll events with no press, which makes 2-D drag-to-reorder
     /// impossible. Views enable this for exactly as long as they're editing.
-    func setReorderDragging(_ on: Bool) { touch.dragAnywhereEnabled = on }
+    /// Mode changes also flush any held press so a missed touch-up can never
+    /// leave the panel with a phantom button down (everything reads as dead).
+    func setReorderDragging(_ on: Bool) {
+        touch.dragAnywhereEnabled = on
+        touch.flushPointer()
+    }
 
     func toggleFullscreen() { fullscreen.toggle() }
 
