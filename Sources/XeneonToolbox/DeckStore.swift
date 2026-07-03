@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-enum DeckKind: String, Codable { case app, url, system, media, command, webhook
-    var order: Int { switch self { case .app: 0; case .url: 1; case .command: 2; case .webhook: 3; case .system: 4; case .media: 5 } }
-    var groupLabel: String { switch self { case .app: "App"; case .url: "Website"; case .command: "Command"; case .webhook: "Webhook"; case .system: "System"; case .media: "Media" } }
+enum DeckKind: String, Codable { case app, url, system, media, command, webhook, keystroke, multi
+    var order: Int { switch self { case .multi: 0; case .app: 1; case .url: 2; case .keystroke: 3; case .command: 4; case .webhook: 5; case .system: 6; case .media: 7 } }
+    var groupLabel: String { switch self { case .app: "App"; case .url: "Website"; case .command: "Command"; case .webhook: "Webhook"; case .system: "System"; case .media: "Media"; case .keystroke: "Hotkey"; case .multi: "Multi" } }
 }
 
 enum DeckSort: String, CaseIterable, Identifiable {
@@ -68,6 +68,9 @@ struct DeckAction: Codable, Identifiable, Equatable {
     var tint: String? = nil
     var httpMethod: String? = nil      // webhook: GET / POST
     var httpBody: String? = nil        // webhook: optional request body
+    var keyCode: Int? = nil            // keystroke: virtual key code
+    var modifiers: UInt? = nil         // keystroke: NSEvent.ModifierFlags raw value
+    var steps: [DeckAction]? = nil     // multi: actions run in order (snapshots, never .multi)
 
     static func app(path: String) -> DeckAction {
         DeckAction(kind: .app, label: appName(path), target: path)
@@ -86,6 +89,14 @@ struct DeckAction: Codable, Identifiable, Equatable {
     }
     static func webhook(_ url: String, method: String, body: String?, label: String, symbol: String, iconPath: String?) -> DeckAction {
         DeckAction(kind: .webhook, label: label, target: url, symbol: symbol, iconPath: iconPath, httpMethod: method, httpBody: body)
+    }
+    static func keystroke(keyCode: Int, modifiers: UInt, display: String, label: String, symbol: String, iconPath: String?) -> DeckAction {
+        DeckAction(kind: .keystroke, label: label, target: display, symbol: symbol, iconPath: iconPath,
+                   keyCode: keyCode, modifiers: modifiers)
+    }
+    static func multi(_ steps: [DeckAction], label: String) -> DeckAction {
+        DeckAction(kind: .multi, label: label, target: "\(steps.count) steps", symbol: "square.stack.3d.down.right.fill",
+                   steps: steps.filter { $0.kind != .multi })   // no nesting — keeps runs finite
     }
 
     /// A stable key for lists (paths and raw values are unique per kind).

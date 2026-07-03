@@ -52,9 +52,11 @@ apps built for the strip. While the app runs, the panel just works:
   positioning (with IP fallback), or **pin your exact city** in Settings.
 - **Deck** — a Stream-Deck-style page of big, tappable tiles that quick-launch
   apps (with their real icons), open websites (with their real favicons) in the
-  built-in browser, run shell commands or webhooks, and control media. Search to
-  add — anything already on the deck is filtered out — drag to reorder, sort, and
-  give any tile a custom SF Symbol or an uploaded image.
+  built-in browser, fire **keyboard shortcuts** into whatever app is active, run
+  shell commands or webhooks, and control media. **Multi tiles** run a sequence
+  of other tiles in one tap. Search to add — anything already on the deck is
+  filtered out — drag to reorder, sort, and give any tile a custom SF Symbol or
+  an uploaded image.
 - **Control Centre** — swipe down from the top-right — from the full UI or the
   ambient screen — for **Wi-Fi, Bluetooth, Focus and appearance controls** with
   macOS semantics: tap the icon to toggle, tap the tile to pick a network,
@@ -81,8 +83,9 @@ apps built for the strip. While the app runs, the panel just works:
   your system, drive the app, search the web, manage tasks, and render results as
   cards, tables, charts, or images.
 - **Games** — full web games embedded for the Edge.
-- **Ambient modes** — a minimal clock-and-vitals view (with now-playing) and a
-  power-saving sleep mode; dim or switch the screen off entirely to save power.
+- **Ambient modes** — a minimal clock-and-vitals view with current weather, your
+  **next calendar event**, and now-playing; plus a power-saving sleep mode — dim
+  or switch the screen off entirely to save power.
 - **Remote control** — drive the Edge from any phone or PC browser on the same
   network: switch pages, rest/wake, set brightness, and talk to the assistant
   (with a voice button). On by default; toggle it in Settings.
@@ -99,12 +102,14 @@ apps built for the strip. While the app runs, the panel just works:
 
 A Stream-Deck-style launcher: big tiles that open apps (with their real macOS
 icons and a dock-style dot on the ones already running), launch websites (with
-their real favicons) in the built-in browser, run shell commands or webhooks, or
-control media. The grid scrolls when your deck outgrows the panel. Tap **Edit**
-to drag tiles into any order or remove them, **Sort** alphabetically or by type
-(with a confirmation before it replaces a hand-arranged order), and **Add** from
-a searchable picker that hides what's already on the deck — including custom
-actions with an SF Symbol or your own uploaded icon.
+their real favicons) in the built-in browser, fire **recorded keyboard
+shortcuts** system-wide, run shell commands or webhooks, or control media.
+**Multi tiles** chain your other tiles into one tap — pick them in the order
+they should run. The grid scrolls when your deck outgrows the panel. Tap
+**Edit** to drag tiles into any order or remove them, **Sort** alphabetically or
+by type (with a confirmation before it replaces a hand-arranged order), and
+**Add** from a searchable picker that hides what's already on the deck —
+including custom actions with an SF Symbol or your own uploaded icon.
 
 ![Deck](docs/img/deck.png)
 

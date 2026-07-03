@@ -61,6 +61,7 @@ final class ToolboxModel: ObservableObject {
     let media = MediaController()
     let dashboardLayout = DashboardLayout()
     let deck = DeckStore()
+    let calendar = CalendarService()
     let systemToggles = SystemToggles()
     let canControlBacklight = Backlight.isAvailable
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
@@ -181,6 +182,19 @@ final class ToolboxModel: ObservableObject {
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }
             URLSession.shared.dataTask(with: req).resume()
+        case .keystroke:
+            guard let code = action.keyCode else { return }
+            KeyCombo.post(keyCode: CGKeyCode(code), modifiers: action.modifiers ?? 0)
+        case .multi:
+            // Run the sequence with a beat between steps so each lands (apps
+            // need a moment to activate before hotkeys/media hit them).
+            let steps = (action.steps ?? []).filter { $0.kind != .multi }
+            Task { @MainActor in
+                for step in steps {
+                    runDeck(step)
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                }
+            }
         }
     }
 
@@ -237,10 +251,56 @@ final class ToolboxModel: ObservableObject {
     private lazy var touch: TouchService = makeTouch()
     private let cursor = CursorController()
     private var retryTimer: Timer?
+    private var healthTimer: Timer?
+    private var wakeObservers: [NSObjectProtocol] = []
+
+    /// Locking the Mac silently invalidates the HID seize: after unlock the
+    /// manager is open but dead and touch sits in "Searching" forever. The app
+    /// never activates (by design), so the old did-become-active reacquire can't
+    /// save it — listen for unlock/wake directly, and back it with a watchdog
+    /// that reacquires whenever touch stays wanted-but-missing.
+    private func startTouchRecovery() {
+        guard wakeObservers.isEmpty else { return }
+        let unlockName = Notification.Name("com.apple.screenIsUnlocked")
+        wakeObservers.append(DistributedNotificationCenter.default().addObserver(
+            forName: unlockName, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                AppLog.info("touch", "screen unlocked — reacquiring digitizer")
+                self?.reacquireSoon()
+            }
+        })
+        wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                AppLog.info("touch", "displays woke — reacquiring digitizer")
+                self?.reacquireSoon()
+            }
+        })
+        let t = Timer(timeInterval: 12, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.touchOn, !self.edgeDetected else { return }
+                AppLog.info("touch", "watchdog: still searching — reacquiring digitizer")
+                self.reacquireTouch()
+            }
+        }
+        t.tolerance = 3
+        RunLoop.main.add(t, forMode: .common)
+        healthTimer = t
+    }
+
+    /// Give USB a beat to settle after wake before reopening the device.
+    private func reacquireSoon() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.reacquireTouch()
+        }
+    }
 
     private func makeTouch() -> TouchService {
         let t = TouchService(config: TouchServiceConfig(flipX: flipX, flipY: flipY, swapXY: swapXY, preferSeize: true))
-        t.onPresenceChanged = { [weak self] present in Task { @MainActor in self?.edgeDetected = present } }
+        t.onPresenceChanged = { [weak self] present in Task { @MainActor in
+            if self?.edgeDetected != present { AppLog.info("touch", present ? "digitizer connected" : "digitizer lost") }
+            self?.edgeDetected = present
+        } }
         t.onShadePull = { [weak self] frac, phase in Task { @MainActor in self?.handleShadePull(frac, phase) } }
         t.onControlPull = { [weak self] frac, phase in Task { @MainActor in self?.handleControlPull(frac, phase) } }
         t.onBottomPull = { [weak self] frac, phase in Task { @MainActor in self?.handleBottomPull(frac, phase) } }
@@ -392,6 +452,8 @@ final class ToolboxModel: ObservableObject {
         metrics.start()
         weather.start()
         todos.start()
+        calendar.start()
+        startTouchRecovery()
         media.start()
         startTouch()
         if remoteEnabled { remote.start() }
