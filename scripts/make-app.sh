@@ -37,8 +37,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleExecutable</key><string>$BIN_NAME</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.7.2</string>
-    <key>CFBundleVersion</key><string>10</string>
+    <key>CFBundleShortVersionString</key><string>1.8.0</string>
+    <key>CFBundleVersion</key><string>11</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
@@ -58,6 +58,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSLocationWhenInUseUsageDescription</key><string>Xeneon Toolbox uses your approximate location to show local weather and nearby Wi-Fi network names.</string>
     <key>NSAppleEventsUsageDescription</key><string>Xeneon Toolbox controls Music/Spotify playback, system volume, and appearance via Apple Events.</string>
     <key>NSBluetoothAlwaysUsageDescription</key><string>Xeneon Toolbox lists your paired Bluetooth devices so you can connect or disconnect them from the Control Centre.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key><string>Xeneon Toolbox shows your next calendar event on the ambient screen.</string>
 </dict>
 </plist>
 PLIST

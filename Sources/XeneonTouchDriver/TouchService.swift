@@ -419,14 +419,34 @@ final class TouchDriver: @unchecked Sendable {
 
     // MARK: - Event injection
 
+    // Where a hover .move would have put the cursor. Standalone moves are NOT
+    // posted: a background app can't keep the cursor hidden while it's moving
+    // (the WindowServer re-shows it on every motion), so the finger no longer
+    // drags a visible arrow around. Clicks carry their own position; scroll
+    // bursts get ONE position sync first so they dispatch to the right window.
+    private var pendingCursorSync: ScreenPoint?
+
     private func post(_ action: PointerAction) {
         switch action {
-        case .move(let p):    postMouse(.mouseMoved, p)
-        case .press(let p):   postMouse(.leftMouseDown, p)
+        case .move(let p):
+            pendingCursorSync = p
+        case .press(let p):
+            pendingCursorSync = nil
+            postMouse(.leftMouseDown, p)
         case .drag(let p):    postMouse(.leftMouseDragged, p)
         case .release(let p): postMouse(.leftMouseUp, p)
-        case .scroll(let dx, let dy, let phase): handleScroll(dx: dx, dy: dy, phase: phase)
-        case .zoom(let delta, let center): postZoom(delta, center: center)
+        case .scroll(let dx, let dy, let phase):
+            if phase == .began, let sync = pendingCursorSync {
+                postMouse(.mouseMoved, sync)   // scrolls follow the pointer — place it once
+                pendingCursorSync = nil
+            }
+            handleScroll(dx: dx, dy: dy, phase: phase)
+        case .zoom(let delta, let center):
+            if let sync = pendingCursorSync {
+                postMouse(.mouseMoved, sync)
+                pendingCursorSync = nil
+            }
+            postZoom(delta, center: center)
         }
     }
 

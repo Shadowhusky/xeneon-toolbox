@@ -9,6 +9,7 @@ struct MinimalView: View {
     @ObservedObject var todos: TodoStore
     @ObservedObject var media: MediaController
     var weather: Weather? = nil
+    var nextEvent: CalendarService.NextEvent? = nil
     var showNowPlaying = true
     var onHideNowPlaying: () -> Void = {}
 
@@ -69,6 +70,7 @@ struct MinimalView: View {
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 24) {
             if let w = weather { weatherLine(w) }
+            if let e = nextEvent { eventLine(e) }
             vital("cpu.fill", Fmt.percent(metrics.snap.cpu), "CPU", Theme.cpu)
             vital("memorychip.fill", Fmt.percent(metrics.snap.memFraction), "MEM", Theme.memory)
             if let b = metrics.snap.battery {
@@ -92,6 +94,21 @@ struct MinimalView: View {
                 Text(w.condition).font(.deck(15, .semibold)).foregroundStyle(.white.opacity(0.5))
                 if !w.city.isEmpty { Text(w.city).font(.deck(12)).foregroundStyle(.white.opacity(0.28)) }
             }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// The current or next calendar event — the piece of glanceable info an
+    /// always-on display earns its keep with.
+    private func eventLine(_ e: CalendarService.NextEvent) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: "calendar").font(.system(size: 26, weight: .bold))
+                .foregroundStyle(Theme.netUp.opacity(0.7)).frame(width: 34)
+            Text(e.timeLabel).font(.readout(e.isNow ? 30 : 42, .semibold))
+                .foregroundStyle(e.isNow ? Theme.netUp : .white.opacity(0.92))
+                .frame(width: 132, alignment: .leading)
+            Text(e.title).font(.deck(15, .semibold)).foregroundStyle(.white.opacity(0.5))
+                .lineLimit(1).minimumScaleFactor(0.8)
             Spacer(minLength: 0)
         }
     }

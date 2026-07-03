@@ -8,7 +8,7 @@ struct AddDeckOverlay: View {
     @ObservedObject var deck: DeckStore
     var onClose: () -> Void
 
-    enum Tab: String, CaseIterable { case apps = "Apps", custom = "Custom", website = "Website", system = "System", media = "Media" }
+    enum Tab: String, CaseIterable { case apps = "Apps", custom = "Custom", website = "Website", system = "System", media = "Media", multi = "Multi" }
     @State private var tab: Tab = .apps
     @State private var query = ""
     @State private var apps: [String] = []
@@ -139,6 +139,8 @@ struct AddDeckOverlay: View {
         case .media:
             actionList(DeckMediaAction.allCases.map { DeckAction.media($0) }.filter { !existing.contains($0.key) },
                        emptyNote: "Every media action is already on your deck.")
+        case .multi:
+            MultiActionForm(deck: deck, onAdded: onClose)
         }
     }
 
@@ -253,6 +255,73 @@ private struct WebsiteForm: View {
             Spacer()
         }
         .frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity, alignment: .center)
+    }
+}
+
+/// Compose a Multi tile: tap existing deck tiles in the order they should run.
+/// One tap on the result runs the whole sequence — a Stream-Deck Multi Action.
+private struct MultiActionForm: View {
+    @ObservedObject var deck: DeckStore
+    var onAdded: () -> Void
+    @State private var label = ""
+    @State private var stepKeys: [String] = []   // selection, in run order
+
+    private let cols = [GridItem(.adaptive(minimum: 150, maximum: 190), spacing: 10)]
+    private var candidates: [DeckAction] { deck.actions.filter { $0.kind != .multi } }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    DeckField(label: "Label", text: $label, placeholder: "Start work")
+                    Text("TAP TILES IN THE ORDER THEY SHOULD RUN")
+                        .font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+                    LazyVGrid(columns: cols, spacing: 10) {
+                        ForEach(candidates, id: \.key) { action in
+                            stepCell(action)
+                        }
+                    }
+                    if candidates.isEmpty {
+                        Text("Add some tiles to the deck first — a Multi runs them in sequence.")
+                            .font(.deck(13)).foregroundStyle(Theme.textFaint)
+                    }
+                }
+                .frame(maxWidth: 900).frame(maxWidth: .infinity)
+                .padding(.bottom, 4)
+            }
+            AddButton(enabled: !label.isEmpty && stepKeys.count >= 2) {
+                let byKey = Dictionary(uniqueKeysWithValues: candidates.map { ($0.key, $0) })
+                let steps = stepKeys.compactMap { byKey[$0] }
+                deck.add(.multi(steps, label: label))
+                onAdded()
+            }
+            .frame(maxWidth: 620).frame(maxWidth: .infinity)
+        }
+    }
+
+    private func stepCell(_ action: DeckAction) -> some View {
+        let order = stepKeys.firstIndex(of: action.key)
+        return Button {
+            if let i = order { stepKeys.remove(at: i) } else { stepKeys.append(action.key) }
+        } label: {
+            HStack(spacing: 8) {
+                DeckActionIcon(action: action, size: 30)
+                Text(action.label).font(.deck(13, .semibold)).foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1).minimumScaleFactor(0.75)
+                Spacer(minLength: 0)
+                if let i = order {
+                    Text("\(i + 1)").font(.readout(13, .bold)).foregroundStyle(.white)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(Theme.battery))
+                }
+            }
+            .padding(.horizontal, 10).frame(height: 52)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(order != nil ? Theme.battery.opacity(0.14) : Color.white.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(order != nil ? Theme.battery.opacity(0.5) : Theme.stroke, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }.buttonStyle(.pressable)
     }
 }
 

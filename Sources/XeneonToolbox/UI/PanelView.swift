@@ -11,7 +11,7 @@ struct RootView: View {
             switch model.displayMode {
             case .full: fullUI
             case .minimal:
-                MinimalView(metrics: metrics, todos: model.todos, media: model.media, weather: model.weather.weather,
+                MinimalView(metrics: metrics, todos: model.todos, media: model.media, weather: model.weather.weather, nextEvent: model.calendar.next,
                             showNowPlaying: model.showNowPlaying, onHideNowPlaying: { model.showNowPlaying = false })
                     .contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
             case .sleep:
@@ -147,7 +147,7 @@ struct RootView: View {
 
     @ViewBuilder private func minimalPullOverlay(_ frac: CGFloat) -> some View {
         GeometryReader { geo in
-            MinimalView(metrics: metrics, todos: model.todos, media: model.media, weather: model.weather.weather,
+            MinimalView(metrics: metrics, todos: model.todos, media: model.media, weather: model.weather.weather, nextEvent: model.calendar.next,
                         showNowPlaying: model.showNowPlaying, onHideNowPlaying: { model.showNowPlaying = false })
                 .frame(width: geo.size.width, height: geo.size.height)
                 .background(Color.black)

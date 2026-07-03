@@ -8,8 +8,8 @@ struct CustomActionForm: View {
     @ObservedObject var deck: DeckStore
     var onAdded: () -> Void
 
-    enum Mode: String, CaseIterable { case command = "Command", webhook = "Webhook" }
-    @State private var mode: Mode = .command
+    enum Mode: String, CaseIterable { case hotkey = "Hotkey", command = "Command", webhook = "Webhook" }
+    @State private var mode: Mode = .hotkey
     @State private var label = ""
     @State private var command = ""
     @State private var url = ""
@@ -17,14 +17,23 @@ struct CustomActionForm: View {
     @State private var httpBody = ""
     @State private var symbol = "bolt.fill"
     @State private var iconPath: String?
+    @State private var recording = false
+    @State private var capturedKey: Int?
+    @State private var capturedModifiers: NSEvent.ModifierFlags = []
+    @State private var keyMonitor: Any?
 
-    private let symbols = ["bolt.fill", "terminal.fill", "globe", "link", "bell.fill", "gearshape.fill",
+    private let symbols = ["keyboard", "bolt.fill", "terminal.fill", "globe", "link", "bell.fill", "gearshape.fill",
                            "play.fill", "arrow.clockwise", "command", "paperplane.fill", "lightbulb.fill",
                            "lock.fill", "camera.fill", "folder.fill", "music.note", "video.fill",
                            "star.fill", "flame.fill", "power", "hammer.fill"]
 
     private var canAdd: Bool {
-        !label.isEmpty && (mode == .command ? !command.isEmpty : !url.isEmpty)
+        guard !label.isEmpty else { return false }
+        switch mode {
+        case .command: return !command.isEmpty
+        case .webhook: return !url.isEmpty
+        case .hotkey: return capturedKey != nil
+        }
     }
 
     var body: some View {
@@ -33,13 +42,18 @@ struct CustomActionForm: View {
                 VStack(alignment: .leading, spacing: 14) {
                     modeToggle
                     DeckField(label: "Label", text: $label, placeholder: "My Action")
-                    if mode == .command {
+                    switch mode {
+                    case .command:
                         DeckField(label: "Command", text: $command, placeholder: "open -a Music")
                         Text("Runs through /bin/sh on the Mac.").font(.deck(12)).foregroundStyle(Theme.textFaint)
-                    } else {
+                    case .webhook:
                         DeckField(label: "URL", text: $url, placeholder: "https://hooks.example.com/…")
                         methodToggle
                         if method == "POST" { DeckField(label: "Body (JSON, optional)", text: $httpBody, placeholder: "{ \"key\": \"value\" }") }
+                    case .hotkey:
+                        hotkeyRecorder
+                        Text("Fires the shortcut in whatever app is active — like a Stream Deck hotkey.")
+                            .font(.deck(12)).foregroundStyle(Theme.textFaint)
                     }
                     iconPicker
                 }
@@ -48,13 +62,74 @@ struct CustomActionForm: View {
             }
             // Pinned so it's always reachable regardless of scroll position.
             AddButton(enabled: canAdd) {
-                let action: DeckAction = mode == .command
-                    ? .command(command, label: label, symbol: symbol, iconPath: iconPath)
-                    : .webhook(url, method: method, body: httpBody.isEmpty ? nil : httpBody, label: label, symbol: symbol, iconPath: iconPath)
+                let action: DeckAction
+                switch mode {
+                case .command:
+                    action = .command(command, label: label, symbol: symbol, iconPath: iconPath)
+                case .webhook:
+                    action = .webhook(url, method: method, body: httpBody.isEmpty ? nil : httpBody, label: label, symbol: symbol, iconPath: iconPath)
+                case .hotkey:
+                    guard let key = capturedKey else { return }
+                    let mods = capturedModifiers.intersection(.deviceIndependentFlagsMask)
+                    action = .keystroke(keyCode: key, modifiers: UInt(mods.rawValue),
+                                        display: KeyCombo.display(keyCode: key, modifiers: mods),
+                                        label: label, symbol: symbol, iconPath: iconPath)
+                }
                 deck.add(action); onAdded()
             }
             .frame(maxWidth: 620).frame(maxWidth: .infinity)
         }
+        .onDisappear { stopRecording() }
+    }
+
+    // MARK: Hotkey recorder
+
+    private var hotkeyRecorder: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("SHORTCUT").font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+            Button {
+                recording ? stopRecording() : startRecording()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: recording ? "record.circle" : "keyboard")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(recording ? Theme.batteryLow : Theme.textSecondary)
+                    if let key = capturedKey, !recording {
+                        Text(KeyCombo.display(keyCode: key, modifiers: capturedModifiers.intersection(.deviceIndependentFlagsMask)))
+                            .font(.readout(20, .bold)).foregroundStyle(Theme.textPrimary)
+                    } else {
+                        Text(recording ? "Press a shortcut on your keyboard…" : "Tap, then press the shortcut")
+                            .font(.deck(15)).foregroundStyle(recording ? Theme.textPrimary : Theme.textFaint)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14).frame(height: 52)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(recording ? Theme.batteryLow.opacity(0.12) : Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(recording ? Theme.batteryLow.opacity(0.6) : Theme.stroke, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }.buttonStyle(.pressable)
+        }
+    }
+
+    private func startRecording() {
+        recording = true
+        // The kiosk deliberately never activates itself — but capturing keys
+        // needs keyboard focus, so this is one of the few moments we take it.
+        NSApp.activate(ignoringOtherApps: true)
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            capturedKey = Int(event.keyCode)
+            capturedModifiers = event.modifierFlags
+            if label.isEmpty { label = KeyCombo.keyName(Int(event.keyCode)) }
+            stopRecording()
+            return nil   // swallow — don't let the shortcut act on the app
+        }
+    }
+
+    private func stopRecording() {
+        recording = false
+        if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
     }
 
     private var modeToggle: some View {

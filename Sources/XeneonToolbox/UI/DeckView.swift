@@ -272,6 +272,8 @@ private struct DeckTile: View {
         case .media: return Theme.memory
         case .command: return Theme.gpu
         case .webhook: return Theme.netUp
+        case .keystroke: return Theme.battery
+        case .multi: return Theme.memory
         }
     }
 
