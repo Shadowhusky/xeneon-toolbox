@@ -12,6 +12,7 @@ struct MinimalView: View {
     var nextEvent: CalendarService.NextEvent? = nil
     var showNowPlaying = true
     var onHideNowPlaying: () -> Void = {}
+    var onOpenAgenda: () -> Void = {}
 
     private var nextReminder: TodoItem? {
         todos.items.filter { !$0.done && $0.dueAt != nil }
@@ -99,18 +100,22 @@ struct MinimalView: View {
     }
 
     /// The current or next calendar event — the piece of glanceable info an
-    /// always-on display earns its keep with.
+    /// always-on display earns its keep with. Tap it for today's full agenda
+    /// (the Button consumes the tap so the screen doesn't wake to full).
     private func eventLine(_ e: CalendarService.NextEvent) -> some View {
-        HStack(spacing: 16) {
-            Image(systemName: "calendar").font(.system(size: 26, weight: .bold))
-                .foregroundStyle(Theme.netUp.opacity(0.7)).frame(width: 34)
-            Text(e.timeLabel).font(.readout(e.isNow ? 30 : 42, .semibold))
-                .foregroundStyle(e.isNow ? Theme.netUp : .white.opacity(0.92))
-                .frame(width: 132, alignment: .leading)
-            Text(e.title).font(.deck(15, .semibold)).foregroundStyle(.white.opacity(0.5))
-                .lineLimit(1).minimumScaleFactor(0.8)
-            Spacer(minLength: 0)
-        }
+        Button(action: onOpenAgenda) {
+            HStack(spacing: 16) {
+                Image(systemName: "calendar").font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(Theme.netUp.opacity(0.7)).frame(width: 34)
+                Text(e.timeLabel).font(.readout(e.isNow ? 30 : 42, .semibold))
+                    .foregroundStyle(e.isNow ? Theme.netUp : .white.opacity(0.92))
+                    .frame(width: 132, alignment: .leading)
+                Text(e.title).font(.deck(15, .semibold)).foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }.buttonStyle(.plain)
     }
 
     private func vital(_ icon: String, _ value: String, _ label: String, _ color: Color) -> some View {

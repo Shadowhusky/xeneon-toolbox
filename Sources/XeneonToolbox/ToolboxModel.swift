@@ -111,6 +111,7 @@ final class ToolboxModel: ObservableObject {
         didSet { AppDefaults.shared.set(showNowPlaying, forKey: "ui.showNowPlaying") }
     }
     @Published var showSettings = false
+    @Published var showAgenda = false           // today's calendar schedule overlay
     @Published var crashPrompt: CrashReport?   // last session's crash — offer to report it
     var exportMode = false   // static input bar etc. for off-screen mockup renders
 
@@ -443,6 +444,7 @@ final class ToolboxModel: ObservableObject {
         if ProcessInfo.processInfo.environment["XENEON_TUTORIAL"] != nil {
             displayMode = .full; fullscreen = true; showFsTutorial = true
         }
+        if ProcessInfo.processInfo.environment["XENEON_AGENDA"] != nil { showAgenda = true }
         migrateWebAppsToDeck()
     }
 

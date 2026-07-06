@@ -12,7 +12,8 @@ struct RootView: View {
             case .full: fullUI
             case .minimal:
                 MinimalView(metrics: metrics, todos: model.todos, media: model.media, weather: model.weather.weather, nextEvent: model.calendar.next,
-                            showNowPlaying: model.showNowPlaying, onHideNowPlaying: { model.showNowPlaying = false })
+                            showNowPlaying: model.showNowPlaying, onHideNowPlaying: { model.showNowPlaying = false },
+                            onOpenAgenda: { model.showAgenda = true })
                     .contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
             case .sleep:
                 SleepView().contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
@@ -25,7 +26,15 @@ struct RootView: View {
         // Control centre lives at the top level so the top-right pull works from the
         // minimal (ambient) screen too, not just the full UI.
         .overlay { controlCenterOverlay }
+        // Today agenda is top-level so it opens over the ambient screen.
+        .overlay {
+            if model.showAgenda {
+                AgendaView(events: model.calendar.today) { model.showAgenda = false }
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: model.showAgenda)
         .animation(.easeInOut(duration: 0.4), value: model.displayMode)
+        .onChange(of: model.showAgenda) { if model.showAgenda { model.calendar.refresh() } }
     }
 
     private var fullUI: some View {

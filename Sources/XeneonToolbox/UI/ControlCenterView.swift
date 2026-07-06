@@ -117,6 +117,12 @@ struct ControlCenterView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: picker)
         .animation(.easeInOut(duration: 0.2), value: audio.devices)
+        // Switching output can change whether software volume exists (HDMI/DP
+        // outputs have none) — re-check so the slider appears/hides to match.
+        .onChange(of: audio.currentName) {
+            if let v = SystemVolume.level() { volume = Double(v); volumeAvailable = true }
+            else { volumeAvailable = false }
+        }
     }
 
     private var audioSymbol: String {
