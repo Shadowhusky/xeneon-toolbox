@@ -14,39 +14,61 @@ final class AudioOutput: ObservableObject {
 
     @Published private(set) var devices: [Device] = []
     @Published private(set) var currentName: String?
+    @Published private(set) var inputDevices: [Device] = []
+    @Published private(set) var currentInputName: String?
 
     private var listenerInstalled = false
 
     func refresh() {
-        let current = Self.defaultOutputDevice()
-        var out: [Device] = []
-        for id in Self.allDevices() where Self.hasOutput(id) {
-            guard let name = Self.name(id) else { continue }
-            out.append(Device(id: id, name: name, current: id == current, symbol: Self.symbol(for: name)))
-        }
-        devices = out.sorted { ($0.current ? 0 : 1, $0.name) < ($1.current ? 0 : 1, $1.name) }
-        currentName = out.first(where: { $0.current })?.name
+        let curOut = Self.defaultDevice(input: false)
+        devices = Self.list(input: false, current: curOut)
+        currentName = devices.first(where: { $0.current })?.name
+
+        let curIn = Self.defaultDevice(input: true)
+        inputDevices = Self.list(input: true, current: curIn)
+        currentInputName = inputDevices.first(where: { $0.current })?.name
+
         installListener()
     }
 
-    func setDefault(_ device: Device) {
-        AppLog.info("audio", "output → \(device.name)")
+    func setDefault(_ device: Device) { setDefault(device, input: false) }
+    func setDefaultInput(_ device: Device) { setDefault(device, input: true) }
+
+    private func setDefault(_ device: Device, input: Bool) {
+        AppLog.info("audio", "\(input ? "input" : "output") → \(device.name)")
         var id = device.id
         var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mSelector: input ? kAudioHardwarePropertyDefaultInputDevice : kAudioHardwarePropertyDefaultOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil,
                                    UInt32(MemoryLayout<AudioDeviceID>.size), &id)
         refresh()
     }
 
+    private static func list(input: Bool, current: AudioDeviceID) -> [Device] {
+        var out: [Device] = []
+        for id in allDevices() where hasStreams(id, input: input) {
+            guard let name = name(id) else { continue }
+            out.append(Device(id: id, name: name, current: id == current,
+                              symbol: input ? micSymbol(for: name) : symbol(for: name)))
+        }
+        return out.sorted { ($0.current ? 0 : 1, $0.name) < ($1.current ? 0 : 1, $1.name) }
+    }
+
+    private static func micSymbol(for name: String) -> String {
+        let n = name.lowercased()
+        if n.contains("airpod") { return "airpodspro" }
+        if n.contains("built-in") || n.contains("macbook") || n.contains("internal") { return "mic.fill" }
+        return "mic.fill"
+    }
+
     // MARK: - CoreAudio helpers
 
-    private static func defaultOutputDevice() -> AudioDeviceID {
+    private static func defaultDevice(input: Bool) -> AudioDeviceID {
         var id = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
         var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mSelector: input ? kAudioHardwarePropertyDefaultInputDevice : kAudioHardwarePropertyDefaultOutputDevice,
             mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &id)
         return id
@@ -64,10 +86,11 @@ final class AudioOutput: ObservableObject {
         return ids
     }
 
-    private static func hasOutput(_ id: AudioDeviceID) -> Bool {
+    private static func hasStreams(_ id: AudioDeviceID, input: Bool) -> Bool {
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreamConfiguration,
-            mScope: kAudioObjectPropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
+            mScope: input ? kAudioObjectPropertyScopeInput : kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr, size > 0 else { return false }
         let buf = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
@@ -103,11 +126,12 @@ final class AudioOutput: ObservableObject {
     private func installListener() {
         guard !listenerInstalled else { return }
         listenerInstalled = true
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, DispatchQueue.main) { [weak self] _, _ in
-            Task { @MainActor in self?.refresh() }
+        for selector in [kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDefaultInputDevice] {
+            var addr = AudioObjectPropertyAddress(mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, DispatchQueue.main) { [weak self] _, _ in
+                Task { @MainActor in self?.refresh() }
+            }
         }
     }
 }
