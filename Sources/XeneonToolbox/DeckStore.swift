@@ -141,6 +141,18 @@ final class DeckStore: ObservableObject {
     func add(_ a: DeckAction) { actions.append(a); persist() }
     func remove(_ id: DeckAction.ID) { actions.removeAll { $0.id == id }; persist() }
 
+    /// Edit an existing tile in place (rename, re-icon, or fix its target).
+    func update(_ id: DeckAction.ID, label: String, symbol: String?, iconPath: String?, target: String?) {
+        guard let i = actions.firstIndex(where: { $0.id == id }) else { return }
+        var a = actions[i]
+        a.label = label.isEmpty ? a.label : label
+        if let symbol { a.symbol = symbol }
+        a.iconPath = iconPath
+        if let target, !target.isEmpty { a.target = target }
+        actions[i] = a
+        persist()
+    }
+
     /// Move `id` to sit before/after `target` — used by drag-to-reorder.
     func move(_ id: DeckAction.ID, target: DeckAction.ID, before: Bool) {
         guard id != target, let from = actions.firstIndex(where: { $0.id == id }) else { return }
