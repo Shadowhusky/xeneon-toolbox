@@ -13,6 +13,7 @@ struct MinimalView: View {
     var showNowPlaying = true
     var onHideNowPlaying: () -> Void = {}
     var onOpenAgenda: () -> Void = {}
+    var onOpenNowPlaying: () -> Void = {}
 
     private var nextReminder: TodoItem? {
         todos.items.filter { !$0.done && $0.dueAt != nil }
@@ -44,7 +45,7 @@ struct MinimalView: View {
                 .frame(maxHeight: .infinity)
 
                 if playing {
-                    NowPlayingBar(media: media, onHide: onHideNowPlaying)
+                    NowPlayingBar(media: media, onHide: onHideNowPlaying, onExpand: onOpenNowPlaying)
                         .padding(.horizontal, 96)
                         .padding(.bottom, 12)
                 }
