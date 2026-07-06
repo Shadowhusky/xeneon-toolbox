@@ -126,10 +126,10 @@ macOS's own Control Centre: **tap the circular icon to toggle the radio, tap the
 rest of the tile to expand a picker** — nearby Wi-Fi networks (tap to join, tap
 the connected one to disconnect), paired Bluetooth devices (tap to connect or
 disconnect), and your Focus modes. An Appearance tile flips system dark mode,
-and below sit brightness, volume, an **audio-output switcher** (tap to send
-sound to your speakers, AirPods, or headphones), quick actions including
-**Keep Awake** (stop the Mac sleeping, like Amphetamine), a touch toggle,
-and now-playing.
+and below sit brightness, volume, **audio output and input switchers** (tap to
+send sound to your speakers/AirPods/headphones or pick a microphone), quick
+actions including **Keep Awake** (stop the Mac sleeping, like Amphetamine), a
+touch toggle, and now-playing.
 
 Some of it needs one-time grants: allow **Location** for Wi-Fi network names,
 **Full Disk Access** for Focus state, and a Shortcut named "Toggle Focus" (built

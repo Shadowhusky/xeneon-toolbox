@@ -10,7 +10,7 @@ struct ControlCenterView: View {
     @State private var brightness: Double = 90
     @State private var volume: Double = 50
     @State private var volumeAvailable = false
-    private enum Picker { case wifi, bluetooth, focus, audio }
+    private enum Picker { case wifi, bluetooth, focus, audio, audioIn }
     @State private var picker: Picker?
 
     var body: some View {
@@ -90,6 +90,32 @@ struct ControlCenterView: View {
                 }.clipped()
             }
 
+            // Sound input — only when there's more than one microphone to choose.
+            if audio.inputDevices.count > 1 {
+                Button {
+                    if picker == .audioIn { picker = nil } else { picker = .audioIn; audio.refresh() }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "mic.fill").font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Theme.accent).frame(width: 30)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Input").font(.deck(13, .semibold)).foregroundStyle(Theme.textFaint)
+                            Text(audio.currentInputName ?? "—").font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Theme.textFaint).rotationEffect(.degrees(picker == .audioIn ? 180 : 0))
+                    }
+                    .padding(.horizontal, 14).frame(height: 56)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(picker == .audioIn ? 0.11 : 0.07)))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                    .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }.buttonStyle(.pressable)
+                VStack(spacing: 0) {
+                    if picker == .audioIn { audioInPicker.transition(.move(edge: .top).combined(with: .opacity)) }
+                }.clipped()
+            }
+
             HStack(spacing: 12) {
                 actionTile("Minimal", "rectangle.compress.vertical", Theme.accent) { close(); model.setDisplay(.minimal) }
                 actionTile("Sleep", "moon.fill", Theme.time) { close(); model.setDisplay(.sleep) }
@@ -127,6 +153,30 @@ struct ControlCenterView: View {
 
     private var audioSymbol: String {
         audio.devices.first(where: { $0.current })?.symbol ?? "speaker.wave.2.fill"
+    }
+
+    private var audioInPicker: some View {
+        VStack(spacing: 6) {
+            ForEach(audio.inputDevices) { device in
+                Button { audio.setDefaultInput(device); picker = nil } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: device.symbol).font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(device.current ? .blue : Theme.textSecondary).frame(width: 24)
+                        Text(device.name).font(.deck(14, .semibold))
+                            .foregroundStyle(device.current ? .blue : Theme.textPrimary).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if device.current {
+                            Image(systemName: "checkmark.circle.fill").font(.system(size: 14)).foregroundStyle(.blue)
+                        }
+                    }
+                    .padding(.horizontal, 12).frame(height: 44)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(device.current ? Color.blue.opacity(0.16) : Color.white.opacity(0.03)))
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }.buttonStyle(.pressable)
+            }
+        }
+        .padding(.top, 8)
     }
 
     private var audioPicker: some View {
@@ -193,6 +243,7 @@ struct ControlCenterView: View {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(title).font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary)
+                            .lineLimit(1).minimumScaleFactor(0.7)
                         Text(subtitle).font(.deck(12)).foregroundStyle(on ? tint : Theme.textFaint)
                             .lineLimit(1).minimumScaleFactor(0.8)
                     }
