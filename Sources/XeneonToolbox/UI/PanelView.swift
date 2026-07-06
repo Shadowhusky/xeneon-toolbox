@@ -134,7 +134,7 @@ struct RootView: View {
                 Color.black.opacity(0.5 * model.controlExt).ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { model.closeControlCenter() }
-                ControlCenterView(model: model, toggles: model.systemToggles)
+                ControlCenterView(model: model, toggles: model.systemToggles, audio: model.audioOutput)
                     .background(GeometryReader { g in
                         Color.clear.preference(key: CCHeightKey.self, value: g.size.height)
                     })

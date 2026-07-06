@@ -5,10 +5,11 @@ import SwiftUI
 struct ControlCenterView: View {
     @ObservedObject var model: ToolboxModel
     @ObservedObject var toggles: SystemToggles
+    @ObservedObject var audio: AudioOutput
     @State private var brightness: Double = 90
     @State private var volume: Double = 50
     @State private var volumeAvailable = false
-    private enum Picker { case wifi, bluetooth, focus }
+    private enum Picker { case wifi, bluetooth, focus, audio }
     @State private var picker: Picker?
 
     var body: some View {
@@ -62,6 +63,32 @@ struct ControlCenterView: View {
                           onChanged: { SystemVolume.set(Int($0)) })
             }
 
+            // Sound output — the current device, tap to switch (macOS Sound module).
+            if audio.devices.count > 1 {
+                Button {
+                    if picker == .audio { picker = nil } else { picker = .audio; audio.refresh() }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: audioSymbol).font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Theme.accent).frame(width: 30)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Output").font(.deck(13, .semibold)).foregroundStyle(Theme.textFaint)
+                            Text(audio.currentName ?? "—").font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Theme.textFaint).rotationEffect(.degrees(picker == .audio ? 180 : 0))
+                    }
+                    .padding(.horizontal, 14).frame(height: 56)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(picker == .audio ? 0.11 : 0.07)))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                    .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }.buttonStyle(.pressable)
+                VStack(spacing: 0) {
+                    if picker == .audio { audioPicker.transition(.move(edge: .top).combined(with: .opacity)) }
+                }.clipped()
+            }
+
             HStack(spacing: 12) {
                 actionTile("Minimal", "rectangle.compress.vertical", Theme.accent) { close(); model.setDisplay(.minimal) }
                 actionTile("Sleep", "moon.fill", Theme.time) { close(); model.setDisplay(.sleep) }
@@ -83,8 +110,38 @@ struct ControlCenterView: View {
             brightness = Double(model.brightness)
             if let v = SystemVolume.level() { volume = Double(v); volumeAvailable = true }
             toggles.refresh()
+            audio.refresh()
         }
         .animation(.easeInOut(duration: 0.2), value: picker)
+        .animation(.easeInOut(duration: 0.2), value: audio.devices)
+    }
+
+    private var audioSymbol: String {
+        audio.devices.first(where: { $0.current })?.symbol ?? "speaker.wave.2.fill"
+    }
+
+    private var audioPicker: some View {
+        VStack(spacing: 6) {
+            ForEach(audio.devices) { device in
+                Button { audio.setDefault(device); picker = nil } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: device.symbol).font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(device.current ? .blue : Theme.textSecondary).frame(width: 24)
+                        Text(device.name).font(.deck(14, .semibold))
+                            .foregroundStyle(device.current ? .blue : Theme.textPrimary).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if device.current {
+                            Image(systemName: "checkmark.circle.fill").font(.system(size: 14)).foregroundStyle(.blue)
+                        }
+                    }
+                    .padding(.horizontal, 12).frame(height: 44)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(device.current ? Color.blue.opacity(0.16) : Color.white.opacity(0.03)))
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }.buttonStyle(.pressable)
+            }
+        }
+        .padding(.top, 8)
     }
 
     private func togglePicker(_ p: Picker) {
