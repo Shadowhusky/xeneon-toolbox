@@ -112,6 +112,7 @@ final class ToolboxModel: ObservableObject {
     }
     @Published var showSettings = false
     @Published var showAgenda = false           // today's calendar schedule overlay
+    @Published var showNowPlayingFull = false   // full-screen media view
     @Published var crashPrompt: CrashReport?   // last session's crash — offer to report it
     var exportMode = false   // static input bar etc. for off-screen mockup renders
 

@@ -68,7 +68,9 @@ apps built for the strip. While the app runs, the panel just works:
   with a natural page-turn animation (from the normal UI the swipe enters
   fullscreen as it switches); a first-run tutorial teaches them.
 - **Now Playing** — control whatever's playing in Spotify or Music: artwork, a
-  scrubbable progress bar, and play/skip — on the dashboard and the ambient screen.
+  scrubbable progress bar, and play/skip — on the dashboard and the ambient
+  screen. Tap the artwork for a **full-screen player** with big album art and a
+  colour-matched blurred backdrop.
 - **Never steals focus** — tap the Edge while you work; the panel responds (even
   typing into its search fields) without pulling focus from the app you're
   working in on the other screen.

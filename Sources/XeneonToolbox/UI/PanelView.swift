@@ -13,7 +13,7 @@ struct RootView: View {
             case .minimal:
                 MinimalView(metrics: metrics, todos: model.todos, media: model.media, weather: model.weather.weather, nextEvent: model.calendar.next,
                             showNowPlaying: model.showNowPlaying, onHideNowPlaying: { model.showNowPlaying = false },
-                            onOpenAgenda: { model.showAgenda = true })
+                            onOpenAgenda: { model.showAgenda = true }, onOpenNowPlaying: { model.showNowPlayingFull = true })
                     .contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
             case .sleep:
                 SleepView().contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
@@ -32,6 +32,13 @@ struct RootView: View {
                 AgendaView(events: model.calendar.today) { model.showAgenda = false }
             }
         }
+        // Full-screen now-playing, over full UI or ambient.
+        .overlay {
+            if model.showNowPlayingFull, model.media.nowPlaying != nil {
+                NowPlayingFullView(media: model.media) { model.showNowPlayingFull = false }
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: model.showNowPlayingFull)
         .animation(.easeInOut(duration: 0.25), value: model.showAgenda)
         .animation(.easeInOut(duration: 0.4), value: model.displayMode)
         .onChange(of: model.showAgenda) { if model.showAgenda { model.calendar.refresh() } }

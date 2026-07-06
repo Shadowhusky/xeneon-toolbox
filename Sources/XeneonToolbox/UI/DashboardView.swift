@@ -206,7 +206,8 @@ struct DashboardView: View {
             }
             .frame(minHeight: 54)
         } else {
-            NowPlayingBar(media: model.media, compact: true, onHide: { model.showNowPlaying = false })
+            NowPlayingBar(media: model.media, compact: true, onHide: { model.showNowPlaying = false },
+                          onExpand: { model.showNowPlayingFull = true })
         }
     }
 
