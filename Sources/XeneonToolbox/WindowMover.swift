@@ -80,8 +80,9 @@ enum WindowMover {
 
             var sizeValue: CFTypeRef?
             var size = CGSize(width: 800, height: 600)
-            if AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValue) == .success {
-                AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+            if AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValue) == .success,
+               let sv = sizeValue, CFGetTypeID(sv) == AXValueGetTypeID() {
+                AXValueGetValue(sv as! AXValue, .cgSize, &size)
             }
             // Clamp the window to fit, then centre it on the target display.
             let w = min(size.width, display.bounds.width)
