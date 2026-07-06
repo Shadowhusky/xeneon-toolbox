@@ -85,8 +85,8 @@ apps built for the strip. While the app runs, the panel just works:
   cards, tables, charts, or images.
 - **Games** — full web games embedded for the Edge.
 - **Ambient modes** — a minimal clock-and-vitals view with current weather, your
-  **next calendar event**, and now-playing; plus a power-saving sleep mode — dim
-  or switch the screen off entirely to save power.
+  **next calendar event** (tap it for today's full agenda), and now-playing; plus
+  a power-saving sleep mode — dim or switch the screen off entirely to save power.
 - **Remote control** — drive the Edge from any phone or PC browser on the same
   network: switch pages, rest/wake, set brightness, and talk to the assistant
   (with a voice button). On by default; toggle it in Settings.
