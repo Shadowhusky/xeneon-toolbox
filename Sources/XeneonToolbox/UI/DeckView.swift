@@ -88,10 +88,13 @@ struct DeckView: View {
         .onChange(of: model.deckLongPressAt) {
             guard !editing, let pt = model.deckLongPressAt else { return }
             model.deckLongPressAt = nil
-            if let id = globalFrames.first(where: { $0.value.contains(pt) })?.key,
-               let action = deck.actions.first(where: { $0.id == id }), action.kind == .app {
-                screenPickerAction = action
-            }
+            guard let id = globalFrames.first(where: { $0.value.contains(pt) })?.key,
+                  let action = deck.actions.first(where: { $0.id == id }) else { return }
+            // App tiles get the "open on which display" picker; every other kind
+            // just runs — a long-press should never be a dead interaction (the
+            // driver has already swallowed the tap that would have run it).
+            if action.kind == .app { screenPickerAction = action }
+            else { model.runDeck(action) }
         }
         .onAppear {
             if ProcessInfo.processInfo.environment["XENEON_DECK_EDIT"] != nil { editing = true }
