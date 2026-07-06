@@ -39,6 +39,22 @@ enum WindowMover {
         }.sorted { $0.bounds.minX < $1.bounds.minX }
     }
 
+    /// Is the app at `appPath` currently running?
+    static func isRunning(appPath: String) -> Bool { running(appPath) != nil }
+
+    private static func running(_ appPath: String) -> NSRunningApplication? {
+        guard let bundleID = Bundle(url: URL(fileURLWithPath: appPath))?.bundleIdentifier else { return nil }
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
+    }
+
+    /// Quit the app (graceful terminate).
+    static func quit(appPath: String) {
+        if let app = running(appPath) {
+            AppLog.info("deck", "quit '\(appPath)'")
+            app.terminate()
+        }
+    }
+
     /// Open (or focus) the app at `appPath` and place its windows on `display`.
     static func open(appPath: String, on display: Display) {
         let url = URL(fileURLWithPath: appPath)

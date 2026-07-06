@@ -274,6 +274,23 @@ struct DeckView: View {
                             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }.buttonStyle(.pressable)
                     }
+                    if runningApps.contains(action.target) {
+                        Button {
+                            WindowMover.quit(appPath: action.target)
+                            screenPickerAction = nil
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "xmark.circle.fill").font(.system(size: 20, weight: .semibold))
+                                    .foregroundStyle(Theme.batteryLow).frame(width: 30)
+                                Text("Quit \(action.label)").font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 16).frame(height: 60)
+                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.batteryLow.opacity(0.12)))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.batteryLow.opacity(0.4), lineWidth: 1))
+                            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }.buttonStyle(.pressable)
+                    }
                 }
             }
             .padding(24).frame(width: 460)
