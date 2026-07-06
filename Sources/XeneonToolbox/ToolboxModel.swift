@@ -305,6 +305,7 @@ final class ToolboxModel: ObservableObject {
         t.onControlPull = { [weak self] frac, phase in Task { @MainActor in self?.handleControlPull(frac, phase) } }
         t.onBottomPull = { [weak self] frac, phase in Task { @MainActor in self?.handleBottomPull(frac, phase) } }
         t.onSwipeApp = { [weak self] next in Task { @MainActor in self?.handleSwipeApp(next) } }
+        t.onLongPress = { [weak self] p in Task { @MainActor in self?.handleLongPress((x: p.x, y: p.y)) } }
         t.sideSwipeEnabled = true   // side swipes work in the full UI too (auto-enter fullscreen)
         return t
     }
@@ -521,6 +522,31 @@ final class ToolboxModel: ObservableObject {
     func setReorderDragging(_ on: Bool) {
         touch.dragAnywhereEnabled = on
         touch.flushPointer()
+    }
+
+    /// Long-press is detected only while the deck is showing tappable tiles.
+    func setDeckLongPress(_ on: Bool) { touch.longPressEnabled = on }
+
+    /// A deck tile was long-pressed, at a point in Edge-local (window) coordinates.
+    /// DeckView reads this, hit-tests its tile frames, and shows the screen picker.
+    @Published var deckLongPressAt: CGPoint?
+
+    private func handleLongPress(_ screenPoint: (x: Double, y: Double)) {
+        // Driver point is top-left global; the borderless window fills the Edge,
+        // so window-local = point − Edge origin, which matches SwiftUI `.global`.
+        let origin = Self.edgeOrigin()
+        deckLongPressAt = CGPoint(x: screenPoint.x - origin.x, y: screenPoint.y - origin.y)
+    }
+
+    private static func edgeOrigin() -> CGPoint {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        CGGetActiveDisplayList(16, &ids, &count)
+        for i in 0..<Int(count) {
+            let b = CGDisplayBounds(ids[i])
+            if abs(b.width - 2560) < 2, abs(b.height - 720) < 2 { return b.origin }
+        }
+        return .zero
     }
 
     func toggleFullscreen() { fullscreen.toggle() }

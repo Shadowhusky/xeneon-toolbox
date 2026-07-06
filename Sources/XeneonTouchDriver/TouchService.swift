@@ -78,7 +78,38 @@ final class TouchDriver: @unchecked Sendable {
     var onControlPull: ((Double, EdgePhase) -> Void)?  // top-edge pull-down, right third (control centre)
     var onBottomPull: ((Double, EdgePhase) -> Void)?   // bottom-edge pull-up (dismiss / exit)
     var onSwipeApp: ((Bool) -> Void)?                  // side-edge swipe inward — true = next app
+    var onLongPress: ((ScreenPoint) -> Void)?          // finger held still — screen point (top-left global)
     var sideSwipeEnabled = false                       // app-switch swipes (set true in fullscreen)
+    var longPressEnabled = false                       // detect long-press (set true only on the deck)
+
+    // Long-press: a single stationary contact held past `lpDuration` fires
+    // onLongPress and swallows the rest of that touch (no click), for the deck's
+    // "open on which screen" menu. Cheap no-op unless longPressEnabled.
+    private var lpStart: ScreenPoint?
+    private var lpStartTime = 0.0
+    private var lpActive = false
+    private let lpDuration = 0.5
+    private let lpSlop = 16.0
+
+    /// Returns true while a long-press has engaged this contact — the caller then
+    /// swallows the frame so no click/scroll is emitted underneath it.
+    private func feedLongPress(count: Int, point: ScreenPoint?) -> Bool {
+        guard longPressEnabled, onLongPress != nil else { lpStart = nil; lpActive = false; return false }
+        if count != 1 || point == nil { lpStart = nil; lpActive = false; return lpActive }
+        let p = point!
+        let now = CFAbsoluteTimeGetCurrent()
+        if lpActive { return true }
+        guard let s = lpStart else { lpStart = p; lpStartTime = now; return false }
+        if hypot(p.x - s.x, p.y - s.y) > lpSlop { lpStart = nil; return false }   // moved → not a long-press
+        if now - lpStartTime >= lpDuration {
+            lpActive = true
+            for action in machine.reset() { post(action) }        // cancel the pending tap
+            for action in recognizer.reset() { post(action) }
+            onLongPress?(s)
+            return true
+        }
+        return false
+    }
     // Edit-mode reordering: any single-finger move = mouse drag. Like
     // sideSwipeEnabled this is written from the app thread but only *read* on the
     // HID thread (applied to the state machines there, so they're never mutated
@@ -296,6 +327,12 @@ final class TouchDriver: @unchecked Sendable {
         }
         edgeCancelled = false
 
+        if feedLongPress(count: contacts.count, point: contacts.first?.point) {
+            gestureActive = !contacts.isEmpty
+            rearmWatchdog()
+            return
+        }
+
         recognizer.dragAnywhere = dragAnywhereEnabled
         for action in recognizer.update(contacts: contacts) { post(action) }
 
@@ -331,6 +368,11 @@ final class TouchDriver: @unchecked Sendable {
             return
         }
         edgeCancelled = false
+        if feedLongPress(count: decoder.contact ? 1 : 0, point: decoder.contact ? point : nil) {
+            gestureActive = decoder.contact
+            rearmWatchdog()
+            return
+        }
         machine.dragAnywhere = dragAnywhereEnabled
         for action in machine.update(contact: decoder.contact, point: point) { post(action) }
         gestureActive = decoder.contact   // self-cancels when a real release arrives
@@ -474,8 +516,20 @@ final class TouchDriver: @unchecked Sendable {
             break
         }
         let cgPhase: Int64 = phase == .began ? 1 : (phase == .changed ? 2 : 4)
-        emitScroll(dx: dx, dy: dy, scrollPhase: cgPhase, momentumPhase: 0, command: false, moveFirst: true, at: nil)
+        // The scroll's .location moves the visible cursor. During an active scroll
+        // that's the finger point (under the finger, hidden by it). On the closing
+        // .ended event — finger already lifted — route at the off-screen corner so
+        // no arrow is left sitting on screen while momentum coasts.
+        let at: ScreenPoint? = phase == .ended ? parkCorner : nil
+        emitScroll(dx: dx, dy: dy, scrollPhase: cgPhase, momentumPhase: 0, command: false, moveFirst: true, at: at)
         if phase == .ended { startMomentumIfNeeded() }
+    }
+
+    /// The Edge's bottom-right pixel — off-screen enough that the cursor's arrow
+    /// clips out of view. Momentum and gesture-end events route here so no visible
+    /// pointer is stranded when the finger lifts.
+    private var parkCorner: ScreenPoint? {
+        display.map { ScreenPoint(x: $0.x + $0.width - 1, y: $0.y + $0.height - 1) }
     }
 
     /// Pinch → page zoom. The browser's web view treats a Command-modified scroll
@@ -518,13 +572,17 @@ final class TouchDriver: @unchecked Sendable {
             self.momentumVel = (self.momentumVel.x * 0.93, self.momentumVel.y * 0.93)
             let speed = hypot(self.momentumVel.x, self.momentumVel.y)
             let dx = self.momentumVel.x * frame, dy = self.momentumVel.y * frame
+            // Route momentum at the off-screen corner: the finger is gone, so
+            // pinning the scroll's .location (and thus the cursor) at the lift
+            // point would leave a visible arrow coasting on screen.
+            let corner = self.parkCorner
             if speed < 45 {
-                self.emitScroll(dx: dx, dy: dy, scrollPhase: 0, momentumPhase: 3, command: false, moveFirst: false, at: nil)
+                self.emitScroll(dx: dx, dy: dy, scrollPhase: 0, momentumPhase: 3, command: false, moveFirst: false, at: corner)
                 t.invalidate(); self.momentumTimer = nil
                 return
             }
             self.emitScroll(dx: dx, dy: dy, scrollPhase: 0,
-                            momentumPhase: self.momentumFirstFrame ? 1 : 2, command: false, moveFirst: false, at: nil)
+                            momentumPhase: self.momentumFirstFrame ? 1 : 2, command: false, moveFirst: false, at: corner)
             self.momentumFirstFrame = false
         }
         RunLoop.current.add(timer, forMode: .common)
@@ -617,9 +675,15 @@ public final class TouchService: @unchecked Sendable {
     public var onBottomPull: ((Double, EdgePhase) -> Void)?
     /// Called once when a side edge is swiped inward — true = next app (off the main thread).
     public var onSwipeApp: ((Bool) -> Void)?
+    /// Called when a finger is held still on the deck — the screen point (off the main thread).
+    public var onLongPress: ((ScreenPoint) -> Void)?
     /// Enables the left/right edge app-switch swipes (set true only in fullscreen).
     public var sideSwipeEnabled = false {
         didSet { lock.withLock { driver?.sideSwipeEnabled = sideSwipeEnabled } }
+    }
+    /// Enables long-press detection (set true only while the deck is interactive).
+    public var longPressEnabled = false {
+        didSet { lock.withLock { driver?.longPressEnabled = longPressEnabled } }
     }
     /// While a grid is in edit mode, any single-finger move becomes a mouse drag
     /// (instead of vertical/diagonal moves turning into scroll events with no
@@ -667,8 +731,10 @@ public final class TouchService: @unchecked Sendable {
         driver.onControlPull = { [weak self] f, p in self?.onControlPull?(f, p) }
         driver.onBottomPull = { [weak self] f, p in self?.onBottomPull?(f, p) }
         driver.onSwipeApp = { [weak self] next in self?.onSwipeApp?(next) }
+        driver.onLongPress = { [weak self] p in self?.onLongPress?(p) }
         driver.sideSwipeEnabled = sideSwipeEnabled
         driver.dragAnywhereEnabled = dragAnywhereEnabled
+        driver.longPressEnabled = longPressEnabled
         let ctx = Unmanaged.passUnretained(driver).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, deviceMatchedCallback, ctx)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, deviceRemovedCallback, ctx)

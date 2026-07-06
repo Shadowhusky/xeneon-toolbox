@@ -18,7 +18,9 @@ struct DeckView: View {
     @State private var dragPoint: CGPoint = .zero
     @State private var dragGrab: CGSize = .zero
     @State private var frames: [DeckAction.ID: CGRect] = [:]
+    @State private var globalFrames: [DeckAction.ID: CGRect] = [:]
     @State private var runningApps: Set<String> = []
+    @State private var screenPickerAction: DeckAction?
 
     private let space = "deckgrid"
     private let columns = [GridItem(.adaptive(minimum: 178, maximum: 220), spacing: 16)]
@@ -41,7 +43,9 @@ struct DeckView: View {
                             // (a live Button on top) never did — the Button ate the drag.
                             .allowsHitTesting(!editing)
                             .background(GeometryReader { p in
-                                Color.clear.preference(key: DeckFrameKey.self, value: [action.id: p.frame(in: .named(space))])
+                                Color.clear
+                                    .preference(key: DeckFrameKey.self, value: [action.id: p.frame(in: .named(space))])
+                                    .preference(key: DeckGlobalFrameKey.self, value: [action.id: p.frame(in: .global)])
                             })
                             // Remove badge sits OUTSIDE the disabled tile, so it stays tappable.
                             .overlay(alignment: .topTrailing) {
@@ -52,6 +56,7 @@ struct DeckView: View {
                 }
                 .coordinateSpace(name: space)
                 .onPreferenceChange(DeckFrameKey.self) { frames = $0 }
+                .onPreferenceChange(DeckGlobalFrameKey.self) { globalFrames = $0 }
                 .overlay { floatingDragged }
                 .contentShape(Rectangle())
                 // Exactly the dashboard's working pattern: a plain drag, active over the
@@ -70,20 +75,37 @@ struct DeckView: View {
         .overlay { if showAdd { AddDeckOverlay(deck: deck) { showAdd = false }.transition(.opacity) } }
         .overlay { if showSortMenu { sortMenu } }
         .overlay { if let p = pending { confirmModal(p) } }
+        .overlay { if let a = screenPickerAction { screenPicker(a) } }
         .animation(.easeInOut(duration: 0.2), value: editing)
+        .animation(.easeInOut(duration: 0.2), value: screenPickerAction)
+        // A long-press on an app tile (detected by the driver) opens a picker to
+        // choose which display to open/move the app on.
+        .onChange(of: model.deckLongPressAt) {
+            guard !editing, let pt = model.deckLongPressAt else { return }
+            model.deckLongPressAt = nil
+            if let id = globalFrames.first(where: { $0.value.contains(pt) })?.key,
+               let action = deck.actions.first(where: { $0.id == id }), action.kind == .app {
+                screenPickerAction = action
+            }
+        }
         .onAppear {
             if ProcessInfo.processInfo.environment["XENEON_DECK_EDIT"] != nil { editing = true }
             if ProcessInfo.processInfo.environment["XENEON_DECK_ADD"] != nil { editing = true; showAdd = true }
+            if ProcessInfo.processInfo.environment["XENEON_DECK_SCREENPICKER"] != nil {
+                screenPickerAction = deck.actions.first { $0.kind == .app }
+            }
             syncReorderDragging()
+            syncLongPress()
         }
         // While editing (and no overlay needs to scroll), the touch driver treats
         // any finger move as a mouse drag so tiles can be dragged in 2-D. Any
         // mode change also abandons an in-flight reorder drag — a gesture
         // cancelled by an overlay appearing never calls onEnded, and a stale
         // `dragging` id would wedge the grid.
-        .onChange(of: editing) { dragging = nil; syncReorderDragging() }
-        .onChange(of: showAdd) { dragging = nil; syncReorderDragging() }
-        .onDisappear { dragging = nil; model.setReorderDragging(false) }
+        .onChange(of: editing) { dragging = nil; syncReorderDragging(); syncLongPress() }
+        .onChange(of: showAdd) { dragging = nil; syncReorderDragging(); syncLongPress() }
+        .onChange(of: screenPickerAction) { syncLongPress() }
+        .onDisappear { dragging = nil; model.setReorderDragging(false); model.setDeckLongPress(false) }
         // Dock-style running indicators on app tiles.
         .task { refreshRunning() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)) { _ in refreshRunning() }
@@ -201,6 +223,59 @@ struct DeckView: View {
         model.setReorderDragging(editing && !showAdd)
     }
 
+    private func syncLongPress() {
+        model.setDeckLongPress(!editing && !showAdd && screenPickerAction == nil)
+    }
+
+    // MARK: Screen picker (long-press an app tile)
+
+    private func screenPicker(_ action: DeckAction) -> some View {
+        let displays = WindowMover.displays()
+        return ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { screenPickerAction = nil }
+            VStack(spacing: 16) {
+                HStack(spacing: 12) {
+                    DeckActionIcon(action: action, size: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(action.label).font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
+                        Text(runningApps.contains(action.target) ? "Move to display" : "Open on display")
+                            .font(.deck(13)).foregroundStyle(Theme.textSecondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                VStack(spacing: 10) {
+                    ForEach(displays) { d in
+                        Button {
+                            WindowMover.open(appPath: action.target, on: d)
+                            screenPickerAction = nil
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: d.isEdge ? "rectangle.on.rectangle.angled" : "display")
+                                    .font(.system(size: 20, weight: .semibold)).foregroundStyle(Theme.accent).frame(width: 30)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(d.name).font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
+                                    Text("\(Int(d.bounds.width))×\(Int(d.bounds.height))")
+                                        .font(.deck(12)).foregroundStyle(Theme.textFaint)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "arrow.up.forward").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.textFaint)
+                            }
+                            .padding(.horizontal, 16).frame(height: 60)
+                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)))
+                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }.buttonStyle(.pressable)
+                    }
+                }
+            }
+            .padding(24).frame(width: 460)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
+            .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
+        }
+        .transition(.opacity)
+    }
+
     private func refreshRunning() {
         runningApps = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleURL?.path })
     }
@@ -251,6 +326,15 @@ struct DeckView: View {
 }
 
 struct DeckFrameKey: PreferenceKey {
+    static var defaultValue: [DeckAction.ID: CGRect] = [:]
+    static func reduce(value: inout [DeckAction.ID: CGRect], nextValue: () -> [DeckAction.ID: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+/// Tile frames in `.global` (window) coordinates — used to hit-test the driver's
+/// long-press point, which arrives in Edge-local (window) coordinates.
+struct DeckGlobalFrameKey: PreferenceKey {
     static var defaultValue: [DeckAction.ID: CGRect] = [:]
     static func reduce(value: inout [DeckAction.ID: CGRect], nextValue: () -> [DeckAction.ID: CGRect]) {
         value.merge(nextValue()) { _, new in new }

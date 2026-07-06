@@ -54,9 +54,9 @@ apps built for the strip. While the app runs, the panel just works:
   apps (with their real icons), open websites (with their real favicons) in the
   built-in browser, fire **keyboard shortcuts** into whatever app is active, run
   shell commands or webhooks, and control media. **Multi tiles** run a sequence
-  of other tiles in one tap. Search to add — anything already on the deck is
-  filtered out — drag to reorder, sort, and give any tile a custom SF Symbol or
-  an uploaded image.
+  of other tiles in one tap; **long-press an app tile** to open (or move) it on a
+  chosen display. Search to add — anything already on the deck is filtered out —
+  drag to reorder, sort, and give any tile a custom SF Symbol or an uploaded image.
 - **Control Centre** — swipe down from the top-right — from the full UI or the
   ambient screen — for **Wi-Fi, Bluetooth, Focus and appearance controls** with
   macOS semantics: tap the icon to toggle, tap the tile to pick a network,
@@ -105,7 +105,8 @@ icons and a dock-style dot on the ones already running), launch websites (with
 their real favicons) in the built-in browser, fire **recorded keyboard
 shortcuts** system-wide, run shell commands or webhooks, or control media.
 **Multi tiles** chain your other tiles into one tap — pick them in the order
-they should run. The grid scrolls when your deck outgrows the panel. Tap
+they should run. **Long-press an app tile** to pick which display to open it on
+— or move it there if it's already running. The grid scrolls when your deck outgrows the panel. Tap
 **Edit** to drag tiles into any order or remove them, **Sort** alphabetically or
 by type (with a confirmation before it replaces a hand-arranged order), and
 **Add** from a searchable picker that hides what's already on the deck —
