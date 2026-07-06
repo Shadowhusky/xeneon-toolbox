@@ -209,6 +209,16 @@ final class ToolboxModel: ObservableObject {
         case .screenshot: shell("/usr/sbin/screencapture", ["-i", "-c"])   // interactive → clipboard
         case .lockScreen:
             shell("/usr/bin/osascript", ["-e", "tell application \"System Events\" to keystroke \"q\" using {control down, command down}"])
+        case .emptyTrash:
+            shell("/usr/bin/osascript", ["-e", "tell application \"Finder\" to empty trash"])
+        case .screensaver:
+            shell("/usr/bin/open", ["-a", "/System/Library/CoreServices/ScreenSaverEngine.app"])
+        case .darkMode:
+            let isDark = (CFPreferencesCopyValue("AppleInterfaceStyle" as CFString, kCFPreferencesAnyApplication,
+                                                 kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? String) == "Dark"
+            systemToggles.setDarkMode(!isDark)
+        case .keepAwake:
+            keepAwake.toggle()
         case nil: break
         }
     }
