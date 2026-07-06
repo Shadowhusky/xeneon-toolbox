@@ -60,8 +60,9 @@ apps built for the strip. While the app runs, the panel just works:
 - **Control Centre** — swipe down from the top-right — from the full UI or the
   ambient screen — for **Wi-Fi, Bluetooth, Focus and appearance controls** with
   macOS semantics: tap the icon to toggle, tap the tile to pick a network,
-  device, or Focus mode. Plus a brightness slider, volume, quick actions
-  (Minimal / Sleep / Screen off), a touch toggle, and now-playing.
+  device, or Focus mode. Plus a brightness slider, volume, an **audio-output
+  switcher** (speakers / AirPods / headphones), quick actions (Minimal / Sleep /
+  Screen off), a touch toggle, and now-playing.
 - **Touch gestures** — swipe up from the bottom to exit fullscreen, down from the
   top-left for the ambient screen, and in from a side edge to flip between apps
   with a natural page-turn animation (from the normal UI the swipe enters
@@ -122,7 +123,9 @@ macOS's own Control Centre: **tap the circular icon to toggle the radio, tap the
 rest of the tile to expand a picker** — nearby Wi-Fi networks (tap to join, tap
 the connected one to disconnect), paired Bluetooth devices (tap to connect or
 disconnect), and your Focus modes. An Appearance tile flips system dark mode,
-and below sit brightness, volume, quick actions, a touch toggle, and now-playing.
+and below sit brightness, volume, an **audio-output switcher** (tap to send
+sound to your speakers, AirPods, or headphones), quick actions, a touch toggle,
+and now-playing.
 
 Some of it needs one-time grants: allow **Location** for Wi-Fi network names,
 **Full Disk Access** for Focus state, and a Shortcut named "Toggle Focus" (built
