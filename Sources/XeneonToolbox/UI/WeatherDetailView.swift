@@ -8,8 +8,13 @@ struct WeatherDetailView: View {
     var onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            if let w = weather { current(w); Spacer(minLength: 0); forecast(w) }
+        VStack(alignment: .leading, spacing: 20) {
+            if let w = weather {
+                current(w)
+                if !w.hours.isEmpty { hourly(w) }
+                Spacer(minLength: 0)
+                forecast(w)
+            }
             else {
                 VStack(spacing: 12) {
                     Image(systemName: "cloud.slash").font(.system(size: 40)).foregroundStyle(Theme.textFaint)
@@ -18,7 +23,7 @@ struct WeatherDetailView: View {
             }
         }
         .padding(30)
-        .frame(width: 920, height: 470)
+        .frame(width: 920, height: 560)
         .background(RoundedRectangle(cornerRadius: 28, style: .continuous).fill(.ultraThinMaterial))
         .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
         .shadow(color: .black.opacity(0.55), radius: 30, y: 12)
@@ -64,6 +69,26 @@ struct WeatherDetailView: View {
         .padding(.horizontal, 14).frame(height: 40)
         .background(Capsule().fill(Color.white.opacity(0.06)))
         .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
+    }
+
+    private func hourly(_ w: Weather) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("NEXT 12 HOURS").font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+            HStack(spacing: 0) {
+                ForEach(w.hours) { h in
+                    VStack(spacing: 8) {
+                        Text(h.hourLabel).font(.deck(12, .semibold)).foregroundStyle(Theme.textSecondary)
+                        Image(systemName: h.symbol).font(.system(size: 20, weight: .medium))
+                            .symbolRenderingMode(.multicolor).foregroundStyle(Theme.disk).frame(height: 24)
+                        Text(h.temp()).font(.readout(15, .bold)).foregroundStyle(Theme.textPrimary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(0.04)))
+                    .padding(.horizontal, 3)
+                }
+            }
+        }
     }
 
     private func forecast(_ w: Weather) -> some View {
