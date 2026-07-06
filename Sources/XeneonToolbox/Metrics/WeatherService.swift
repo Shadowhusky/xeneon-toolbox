@@ -63,6 +63,19 @@ struct DayForecast: Equatable, Identifiable {
     }
 }
 
+struct HourForecast: Equatable, Identifiable {
+    let date: Date
+    let code: Int
+    let tempC: Double
+    var id: Double { date.timeIntervalSince1970 }
+    var symbol: String { Weather.symbol(for: code) }
+    func temp() -> String { Weather.temp(tempC) }
+    var hourLabel: String {
+        if Calendar.current.isDate(date, equalTo: Date(), toGranularity: .hour) { return "Now" }
+        let f = DateFormatter(); f.dateFormat = "ha"; return f.string(from: date).lowercased()
+    }
+}
+
 struct Weather: Equatable {
     let tempC: Double
     let code: Int
@@ -72,6 +85,7 @@ struct Weather: Equatable {
     var windKph: Double? = nil
     var humidity: Int? = nil
     var days: [DayForecast] = []
+    var hours: [HourForecast] = []
 
     static func symbol(for code: Int) -> String {
         switch code {
@@ -195,7 +209,7 @@ final class WeatherService: ObservableObject {
 
     func refresh() async {
         guard let loc = await geolocate(),
-              let url = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(loc.lat)&longitude=\(loc.lon)&current=temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=6"),
+              let url = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(loc.lat)&longitude=\(loc.lon)&current=temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=6"),
               let (data, _) = try? await URLSession.shared.data(from: url),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let cur = json["current"] as? [String: Any],
@@ -219,6 +233,24 @@ final class WeatherService: ObservableObject {
             }
             w.days = days
             if let today = days.first { w.highC = today.highC; w.lowC = today.lowC }
+        }
+
+        if let hourly = json["hourly"] as? [String: Any],
+           let times = hourly["time"] as? [String],
+           let codes = hourly["weather_code"] as? [Int],
+           let temps = hourly["temperature_2m"] as? [Double] {
+            let f = ISO8601DateFormatter()
+            f.formatOptions = [.withInternetDateTime, .withColonSeparatorInTimeZone]
+            let plain = DateFormatter(); plain.dateFormat = "yyyy-MM-dd'T'HH:mm"; plain.timeZone = .current
+            let now = Date()
+            var hours: [HourForecast] = []
+            for i in 0..<min(times.count, codes.count, temps.count) {
+                guard let d = plain.date(from: times[i]) ?? f.date(from: times[i]) else { continue }
+                if d < now.addingTimeInterval(-3600) { continue }   // from the current hour on
+                hours.append(HourForecast(date: d, code: codes[i], tempC: temps[i]))
+                if hours.count >= 12 { break }
+            }
+            w.hours = hours
         }
         weather = w
     }
