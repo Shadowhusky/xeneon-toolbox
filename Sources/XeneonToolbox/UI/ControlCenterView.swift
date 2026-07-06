@@ -6,6 +6,7 @@ struct ControlCenterView: View {
     @ObservedObject var model: ToolboxModel
     @ObservedObject var toggles: SystemToggles
     @ObservedObject var audio: AudioOutput
+    @ObservedObject var keepAwake: KeepAwake
     @State private var brightness: Double = 90
     @State private var volume: Double = 50
     @State private var volumeAvailable = false
@@ -93,6 +94,8 @@ struct ControlCenterView: View {
                 actionTile("Minimal", "rectangle.compress.vertical", Theme.accent) { close(); model.setDisplay(.minimal) }
                 actionTile("Sleep", "moon.fill", Theme.time) { close(); model.setDisplay(.sleep) }
                 actionTile("Screen off", "powersleep", Theme.netDown) { close(); model.turnScreenOff() }
+                actionTile("Keep awake", keepAwake.on ? "cup.and.saucer.fill" : "cup.and.saucer",
+                           Theme.battery, active: keepAwake.on) { keepAwake.toggle() }
             }
 
             touchTile
@@ -374,15 +377,15 @@ struct ControlCenterView: View {
 
     private func close() { model.closeControlCenter() }
 
-    private func actionTile(_ title: String, _ icon: String, _ tint: Color, _ action: @escaping () -> Void) -> some View {
+    private func actionTile(_ title: String, _ icon: String, _ tint: Color, active: Bool = false, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 8) {
-                Image(systemName: icon).font(.system(size: 22, weight: .bold)).foregroundStyle(tint)
-                Text(title).font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
+                Image(systemName: icon).font(.system(size: 22, weight: .bold)).foregroundStyle(active ? .white : tint)
+                Text(title).font(.deck(14, .semibold)).foregroundStyle(active ? .white : Theme.textPrimary)
             }
             .frame(maxWidth: .infinity).frame(height: 76)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.07)))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(active ? tint.opacity(0.85) : Color.white.opacity(0.07)))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(active ? tint : Theme.stroke, lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }.buttonStyle(.pressable)
     }

@@ -64,6 +64,7 @@ final class ToolboxModel: ObservableObject {
     let calendar = CalendarService()
     let systemToggles = SystemToggles()
     let audioOutput = AudioOutput()
+    let keepAwake = KeepAwake()
     let canControlBacklight = Backlight.isAvailable
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
     private var preDimBrightness = 90             // restored when waking from sleep
@@ -208,6 +209,16 @@ final class ToolboxModel: ObservableObject {
         case .screenshot: shell("/usr/sbin/screencapture", ["-i", "-c"])   // interactive → clipboard
         case .lockScreen:
             shell("/usr/bin/osascript", ["-e", "tell application \"System Events\" to keystroke \"q\" using {control down, command down}"])
+        case .emptyTrash:
+            shell("/usr/bin/osascript", ["-e", "tell application \"Finder\" to empty trash"])
+        case .screensaver:
+            shell("/usr/bin/open", ["-a", "/System/Library/CoreServices/ScreenSaverEngine.app"])
+        case .darkMode:
+            let isDark = (CFPreferencesCopyValue("AppleInterfaceStyle" as CFString, kCFPreferencesAnyApplication,
+                                                 kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? String) == "Dark"
+            systemToggles.setDarkMode(!isDark)
+        case .keepAwake:
+            keepAwake.toggle()
         case nil: break
         }
     }

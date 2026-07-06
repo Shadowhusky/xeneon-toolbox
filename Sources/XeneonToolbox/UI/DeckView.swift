@@ -21,6 +21,7 @@ struct DeckView: View {
     @State private var globalFrames: [DeckAction.ID: CGRect] = [:]
     @State private var runningApps: Set<String> = []
     @State private var screenPickerAction: DeckAction?
+    @State private var editingAction: DeckAction?
 
     private let space = "deckgrid"
     private let columns = [GridItem(.adaptive(minimum: 178, maximum: 220), spacing: 16)]
@@ -51,6 +52,9 @@ struct DeckView: View {
                             .overlay(alignment: .topTrailing) {
                                 if editing && dragging != action.id { removeBadge(action.id) }
                             }
+                            .overlay(alignment: .topLeading) {
+                                if editing && dragging != action.id { editBadge(action) }
+                            }
                     }
                     if editing { AddTile { withAnimation(.easeInOut(duration: 0.2)) { showAdd = true } } }
                 }
@@ -76,6 +80,7 @@ struct DeckView: View {
         .overlay { if showSortMenu { sortMenu } }
         .overlay { if let p = pending { confirmModal(p) } }
         .overlay { if let a = screenPickerAction { screenPicker(a) } }
+        .overlay { if let a = editingAction { TileEditForm(deck: deck, action: a) { editingAction = nil } } }
         .animation(.easeInOut(duration: 0.2), value: editing)
         .animation(.easeInOut(duration: 0.2), value: screenPickerAction)
         // A long-press on an app tile (detected by the driver) opens a picker to
@@ -285,6 +290,16 @@ struct DeckView: View {
             Image(systemName: "minus").font(.system(size: 15, weight: .heavy)).foregroundStyle(.white)
                 .frame(width: 32, height: 32)
                 .background(Circle().fill(Theme.batteryLow))
+                .overlay(Circle().strokeBorder(Color.black.opacity(0.35), lineWidth: 1.5))
+                .contentShape(Circle())
+        }.buttonStyle(.pressable).padding(7)
+    }
+
+    private func editBadge(_ action: DeckAction) -> some View {
+        Button { editingAction = action } label: {
+            Image(systemName: "pencil").font(.system(size: 14, weight: .heavy)).foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Theme.accent))
                 .overlay(Circle().strokeBorder(Color.black.opacity(0.35), lineWidth: 1.5))
                 .contentShape(Circle())
         }.buttonStyle(.pressable).padding(7)

@@ -108,10 +108,11 @@ shortcuts** system-wide, run shell commands or webhooks, or control media.
 **Multi tiles** chain your other tiles into one tap — pick them in the order
 they should run. **Long-press an app tile** to pick which display to open it on
 — or move it there if it's already running. The grid scrolls when your deck outgrows the panel. Tap
-**Edit** to drag tiles into any order or remove them, **Sort** alphabetically or
-by type (with a confirmation before it replaces a hand-arranged order), and
-**Add** from a searchable picker that hides what's already on the deck —
-including custom actions with an SF Symbol or your own uploaded icon.
+**Edit** to drag tiles into any order, remove them, or tap the pencil to
+**rename / re-icon / retarget** a tile in place, **Sort** alphabetically or by
+type (with a confirmation before it replaces a hand-arranged order), and **Add**
+from a searchable picker that hides what's already on the deck — including custom
+actions with an SF Symbol or your own uploaded icon.
 
 ![Deck](docs/img/deck.png)
 
@@ -124,7 +125,8 @@ rest of the tile to expand a picker** — nearby Wi-Fi networks (tap to join, ta
 the connected one to disconnect), paired Bluetooth devices (tap to connect or
 disconnect), and your Focus modes. An Appearance tile flips system dark mode,
 and below sit brightness, volume, an **audio-output switcher** (tap to send
-sound to your speakers, AirPods, or headphones), quick actions, a touch toggle,
+sound to your speakers, AirPods, or headphones), quick actions including
+**Keep Awake** (stop the Mac sleeping, like Amphetamine), a touch toggle,
 and now-playing.
 
 Some of it needs one-time grants: allow **Location** for Wi-Fi network names,
