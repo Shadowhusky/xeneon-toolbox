@@ -64,6 +64,7 @@ final class ToolboxModel: ObservableObject {
     let calendar = CalendarService()
     let systemToggles = SystemToggles()
     let audioOutput = AudioOutput()
+    let keepAwake = KeepAwake()
     let canControlBacklight = Backlight.isAvailable
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
     private var preDimBrightness = 90             // restored when waking from sleep
