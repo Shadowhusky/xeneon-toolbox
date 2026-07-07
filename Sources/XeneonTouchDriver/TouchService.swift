@@ -476,7 +476,14 @@ final class TouchDriver: @unchecked Sendable {
             pendingCursorSync = nil
             postMouse(.leftMouseDown, p)
         case .drag(let p):    postMouse(.leftMouseDragged, p)
-        case .release(let p): postMouse(.leftMouseUp, p)
+        case .release(let p):
+            postMouse(.leftMouseUp, p)
+            // Warp off-screen in this same cycle. A tap posts down+up at the
+            // finger point (which shows the cursor there); parking only via the
+            // async CursorController leaves the arrow blinking at the tap point
+            // for a frame. Doing it here means WindowServer composites just once,
+            // with the cursor already clipped at the corner.
+            if let c = parkCorner { postMouse(.mouseMoved, c) }
         case .scroll(let dx, let dy, let phase):
             if phase == .began, let sync = pendingCursorSync {
                 postMouse(.mouseMoved, sync)   // scrolls follow the pointer — place it once
