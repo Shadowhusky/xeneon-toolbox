@@ -53,10 +53,12 @@ apps built for the strip. While the app runs, the panel just works:
 - **Deck** — a Stream-Deck-style page of big, tappable tiles that quick-launch
   apps (with their real icons), open websites (with their real favicons) in the
   built-in browser, fire **keyboard shortcuts** into whatever app is active, run
-  shell commands or webhooks, and control media. **Multi tiles** run a sequence
-  of other tiles in one tap; **long-press an app tile** to open (or move) it on a
-  chosen display. Search to add — anything already on the deck is filtered out —
-  drag to reorder, sort, and give any tile a custom SF Symbol or an uploaded image.
+  shell commands or webhooks, and control media. Apps open on your main monitor
+  (never over the panel); **long-press an app tile** to open it on a specific
+  display or **pin one so it always opens there**. **Multi tiles** run a sequence
+  of other tiles in one tap. Search to add — anything already on the deck is
+  filtered out — drag to reorder, sort, and give any tile a custom SF Symbol or
+  an uploaded image.
 - **Control Centre** — swipe down from the top-right — from the full UI or the
   ambient screen — for **Wi-Fi, Bluetooth, Focus and appearance controls** with
   macOS semantics: tap the icon to toggle, tap the tile to pick a network,
@@ -74,12 +76,11 @@ apps built for the strip. While the app runs, the panel just works:
 - **Never steals focus** — tap the Edge while you work; the panel responds (even
   typing into its search fields) without pulling focus from the app you're
   working in on the other screen.
-- **Shares the screen** — put any window on the Edge (a video, a reference doc)
-  and it stays visible above the panel while you work elsewhere — the panel acts
-  as the screen's desktop. Move or close the window and the full-bleed panel
-  returns. Mission Control works on the Edge like on any display.
+- **The panel owns the Edge** — the Toolbox always stays on top of the Edge, so
+  no window can ever cover it; apps you launch open on your main monitor.
 - **Clock** — local time with a day-progress bar, **customizable world clocks**
-  (day/night + offset cues), and a focus timer.
+  (day/night + offset cues), and a **focus timer** that keeps running while you
+  switch tabs — with a live pill on the ambient screen and a chime when it's done.
 - **Tasks & reminders** — grouped by Overdue / Today / Upcoming, with recurring
   reminders that fire as system notifications.
 - **Assistant** — an agentic chat over any OpenAI-compatible model that can read
@@ -149,7 +150,10 @@ and your next reminder. Tap anywhere to wake to the full UI.
 
 Local time with a day-progress bar, plus world clocks you can add and remove from
 a searchable city list — each row shows whether it's day or night there and the
-offset from your time.
+offset from your time. A **focus timer** (15 / 25 / 45-minute presets) keeps
+counting even when you leave the Clock tab: while it runs, a pill shows the time
+left on the ambient screen and a dot marks the Clock tab, and a chime plus an
+on-screen alert let you know when the session is done.
 
 ![Clock and world clocks](docs/img/clock.png)
 
