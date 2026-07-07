@@ -240,7 +240,8 @@ struct DeckView: View {
     // MARK: Screen picker (long-press an app tile)
 
     private func screenPicker(_ action: DeckAction) -> some View {
-        let displays = WindowMover.displays()
+        // The Edge belongs to the Toolbox — apps only open on the other displays.
+        let displays = WindowMover.displays().filter { !$0.isEdge }
         return ModalScaffold(onDismiss: { screenPickerAction = nil }) {
             VStack(spacing: 16) {
                 HStack(spacing: 12) {

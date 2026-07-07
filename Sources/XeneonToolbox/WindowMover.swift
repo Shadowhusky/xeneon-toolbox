@@ -151,8 +151,11 @@ enum WindowMover {
         guard let edge = displays().first(where: { $0.isEdge }) else { return (false, 0) }
         let axApp = AXUIElementCreateApplication(pid)
         var windowsValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsValue) == .success,
-              let windows = windowsValue as? [AXUIElement] else { return (false, 0) }
+        let st = AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsValue)
+        guard st == .success, let windows = windowsValue as? [AXUIElement] else {
+            AppLog.info("winmove", "relocate pid=\(pid): AXWindows status=\(st.rawValue) — no windows listable")
+            return (false, 0)
+        }
 
         var moved = 0
         for window in windows {
@@ -192,6 +195,7 @@ enum WindowMover {
             AXUIElementPerformAction(window, kAXRaiseAction as CFString)
             moved += 1
         }
+        AppLog.info("winmove", "relocate pid=\(pid): \(windows.count) window(s), moved \(moved) off Edge → \(display.name)")
         return (!windows.isEmpty, moved)
     }
 

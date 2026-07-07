@@ -57,7 +57,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (re-signed) build can be granted instead of silently failing.
         let axPrompt = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(axPrompt)
+        AppLog.info("ax", "AXIsProcessTrusted=\(AXIsProcessTrusted()) (needed to move app windows across displays)")
         touchDiag("launch: AXIsProcessTrusted=\(AXIsProcessTrusted()) bundleID=\(Bundle.main.bundleIdentifier ?? "nil")")
+
 
         // The touch driver reads the digitizer on the main run loop. When the app
         // isn't frontmost (you're working on another screen), App Nap would
@@ -189,12 +191,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // No .stationary: the window participates in Mission Control, so the
             // Edge screen's windows can be seen and switched like any other.
             win.collectionBehavior = [.canJoinAllSpaces]
-            win.level = yielding ? .normal : Self.kioskLevel
+            win.level = Self.kioskLevel
             win.setFrame(edge.frame, display: true)
             NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
-            // Show without stealing activation — but never jump above a window the
-            // user is actively using on the Edge.
-            if !behindActiveApp { win.orderFrontRegardless() }
+            win.orderFrontRegardless()   // show without stealing activation
             startYieldWatch()
         } else {
             stopYieldWatch()
@@ -226,20 +226,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
-    // MARK: - Kiosk auto-yield
+    // MARK: - Kiosk front-pinning
     //
-    // The kiosk normally sits above the menu bar so the Edge is a clean panel. But
-    // pinned there it buries any window you drag onto the Edge screen and makes
-    // switching apps on it impossible. So we watch for another app's window on the
-    // Edge: when one appears, the kiosk drops to normal level (that window can sit
-    // above it, Mission Control can arrange it); when the screen is ours again, it
-    // returns to kiosk level. Tapping a visible part of the yielded kiosk raises
-    // it (see KeyableWindow.sendEvent) without stealing focus.
+    // The Edge belongs to the Toolbox: the kiosk sits above the menu bar and stays
+    // there. A Space or window switch re-inserts canJoinAllSpaces windows at the
+    // front of their level, which could momentarily let another app slip above the
+    // panel — so a light watchdog re-asserts the kiosk to the front on every pass
+    // and on every app/Space change. Apps launched from the deck open on the main
+    // display, so nothing is expected to land on the Edge in the first place.
 
     static let kioskLevel = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
-    private var yielding = false            // a window shares the Edge → normal level, pinned behind
-    private var behindActiveApp = false     // mirror of yielding, read by placeWindow
-    private var hiddenForFullscreen = false // a fullscreen app owns the Edge → panel ordered out
     private var yieldTimer: Timer?
 
     private func startYieldWatch() {
@@ -267,9 +263,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self, name: NSWorkspace.didActivateApplicationNotification, object: nil)
         NSWorkspace.shared.notificationCenter.removeObserver(
             self, name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
-        yielding = false
-        behindActiveApp = false
-        hiddenForFullscreen = false
     }
 
     @objc private func activeAppChanged(_ note: Notification) {
@@ -277,93 +270,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateYield() {
-        guard let win = window, !devMode, edgeScreen() != nil,
-              let edge = Self.edgeDisplayBoundsCG() else { return }
-
-        // Desktop metaphor: a window placed on the Edge stays VISIBLE above the
-        // panel — even while its app isn't frontmost — so a video or reference
-        // window keeps showing while you work elsewhere. While any such window
-        // exists the panel is the screen's backdrop (normal level, kept at the
-        // BACK); close or move the window away and the full-bleed above-menu-bar
-        // kiosk returns automatically. The back-pinning must be re-asserted on
-        // every pass: Space switches and window switches re-insert a
-        // canJoinAllSpaces window at the front of its level, which is exactly the
-        // "panel floats over the app after I switch windows" bug.
-        let state = Self.edgeOccupancy(edge)
-
-        // An app FULLSCREEN on the Edge (its own Space) owns the whole screen:
-        // there's no window stack to sit behind there — a canJoinAllSpaces panel
-        // would float on top of it — so hide the panel entirely until the Edge
-        // leaves that Space.
-        let hide = state == .fullscreen
-        if hide != hiddenForFullscreen {
-            hiddenForFullscreen = hide
-            AppLog.info("yield", hide ? "fullscreen app owns the Edge — panel hidden" : "fullscreen gone — panel back")
-            if hide { win.orderOut(nil) } else { win.order(.below, relativeTo: 0) }
-        }
-        guard !hide else { return }
-
-        let shouldYield = state == .shared
-        if ProcessInfo.processInfo.environment["XENEON_WINDIAG"] != nil {
-            fputs("DIAG yield state=\(state) yielding=\(yielding)\n", stderr)
-        }
-        if shouldYield == yielding {
-            if yielding { win.order(.below, relativeTo: 0) }   // stay pinned behind
-            return
-        }
-        yielding = shouldYield
-        behindActiveApp = shouldYield
-        AppLog.info("yield", shouldYield ? "window on Edge — panel drops behind" : "Edge clear — kiosk restored")
-        if shouldYield {
-            win.level = .normal
-            win.order(.below, relativeTo: 0)   // sit behind the Edge's windows
-        } else {
-            win.level = Self.kioskLevel
-            win.orderFrontRegardless()
-        }
+        // Edge = Toolbox always: the kiosk permanently owns the Edge. It never
+        // drops behind another app, so nothing can ever cover it (apps launched
+        // from the deck go to the main display instead). We still re-assert front
+        // on every pass because a Space or window switch re-inserts
+        // canJoinAllSpaces windows at the front of their level — without this an
+        // app activated on the Edge could momentarily slip above the panel.
+        guard let win = window, !devMode, edgeScreen() != nil else { return }
+        if win.level != Self.kioskLevel { win.level = Self.kioskLevel }
+        win.orderFrontRegardless()
     }
 
-    /// The Edge display's bounds in CG (top-left origin) global coordinates —
-    /// the space CGWindowList reports window bounds in.
-    private static func edgeDisplayBoundsCG() -> CGRect? {
-        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
-        var n: UInt32 = 0
-        CGGetActiveDisplayList(16, &ids, &n)
-        for i in 0..<Int(n) {
-            let b = CGDisplayBounds(ids[i])
-            if abs(b.width - 2560) < 2, abs(b.height - 720) < 2 { return b }
-        }
-        return nil
-    }
-
-    enum EdgeOccupancy { case free, shared, fullscreen }
-
-    /// What other apps are doing on the Edge: nothing, sharing it with ordinary
-    /// windows, or owning it outright with a (near-)fullscreen window. Layer 0
-    /// filters the menu bar, Dock, and system chrome.
-    private static func edgeOccupancy(_ edge: CGRect) -> EdgeOccupancy {
-        guard let list = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-            return .free
-        }
-        let myPID = Int(ProcessInfo.processInfo.processIdentifier)
-        let edgeArea = edge.width * edge.height
-        var occupancy = EdgeOccupancy.free
-        for w in list {
-            guard (w[kCGWindowLayer as String] as? Int) == 0,
-                  let pid = w[kCGWindowOwnerPID as String] as? Int, pid != myPID,
-                  let bd = w[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
-            let r = CGRect(x: bd["X"] ?? 0, y: bd["Y"] ?? 0,
-                           width: bd["Width"] ?? 0, height: bd["Height"] ?? 0)
-            guard r.width > 1, r.height > 1 else { continue }   // ghost/ornament windows
-            let inter = r.intersection(edge)
-            guard !inter.isNull else { continue }
-            let area = inter.width * inter.height
-            if area > edgeArea * 0.95 { return .fullscreen }   // owns the whole screen
-            if area > 20_000 { occupancy = .shared }           // ignore slivers
-        }
-        return occupancy
-    }
 
     func applicationWillTerminate(_ notification: Notification) {
         AppLog.info("lifecycle", "clean exit")
