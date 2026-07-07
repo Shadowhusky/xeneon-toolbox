@@ -62,29 +62,17 @@ enum WindowMover {
     /// long-press picker's `open(on:)` is the explicit "put it here" path.
     static func openOffEdge(appPath: String) {
         let url = URL(fileURLWithPath: appPath)
-        // Prefer the widest non-Edge display (the user's main monitor). If the
-        // Edge is the only screen there's nowhere else to put it — just open.
-        guard let main = displays().filter({ !$0.isEdge }).max(by: { $0.bounds.width < $1.bounds.width }) else {
-            NSWorkspace.shared.open(url)
-            return
-        }
-        let bundleID = Bundle(url: url)?.bundleIdentifier
-        let running = bundleID.flatMap { id in NSRunningApplication.runningApplications(withBundleIdentifier: id).first }
-
-        AppLog.info("deck", "open '\(appPath)' off-Edge → main '\(main.name)'\(running != nil ? " (running)" : "")")
-
-        // Activation is what brings the app forward; then poll (windows only
-        // become AX-listable ~0.5s after their Space activates) and nudge any
-        // Edge-covering window to main until none remain.
-        running?.activate()
-        if let running {
-            nudgeOffEdge(pid: running.processIdentifier, main: main)
-            return
-        }
+        let main = displays().filter { !$0.isEdge }.max { $0.bounds.width < $1.bounds.width }
+        AppLog.info("deck", "open '\(appPath)' off-Edge")
+        // `openApplication` reliably brings the app forward whether or not it's
+        // already running — a background/non-activating app (which the kiosk is)
+        // CANNOT reveal another app with NSRunningApplication.activate(), so a
+        // second tap on a running app would silently do nothing. Then nudge any
+        // window that landed on the Edge onto the main display.
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         NSWorkspace.shared.openApplication(at: url, configuration: config) { app, _ in
-            guard let app else { return }
+            guard let app, let main else { return }
             DispatchQueue.main.async { nudgeOffEdge(pid: app.processIdentifier, main: main) }
         }
     }
@@ -104,22 +92,16 @@ enum WindowMover {
     /// Open (or focus) the app at `appPath` and place its windows on `display`.
     static func open(appPath: String, on display: Display) {
         let url = URL(fileURLWithPath: appPath)
-        let bundleID = Bundle(url: url)?.bundleIdentifier
-        let running = bundleID.flatMap { id in NSRunningApplication.runningApplications(withBundleIdentifier: id).first }
-
-        AppLog.info("deck", "open '\(appPath)' on \(display.name)\(running != nil ? " (running — moving)" : "")")
-
-        running?.activate()
-        let launch: (pid_t) -> Void = { pid in whenWindowsAppear(pid: pid) { moveWindows(pid: pid, to: display) } }
-        if let running {
-            launch(running.processIdentifier)
-            return
-        }
+        AppLog.info("deck", "open '\(appPath)' on \(display.name)")
+        // openApplication reliably reveals the app from the background (see
+        // openOffEdge); then, once its window exists, move it to the display.
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         NSWorkspace.shared.openApplication(at: url, configuration: config) { app, _ in
             guard let app else { return }
-            DispatchQueue.main.async { launch(app.processIdentifier) }
+            DispatchQueue.main.async {
+                whenWindowsAppear(pid: app.processIdentifier) { moveWindows(pid: app.processIdentifier, to: display) }
+            }
         }
     }
 
