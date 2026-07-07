@@ -14,8 +14,14 @@ final class FocusTimer: ObservableObject {
 
     let presets = [15, 25, 45]
     private var timer: Timer?
+    private let durationKey = "focus.durationMinutes"
 
     init() {
+        // Restore the last-used session length so a 45-minute regular doesn't have
+        // to re-pick it every launch.
+        let saved = AppDefaults.shared.integer(forKey: durationKey)
+        if presets.contains(saved) { state = FocusTimerState(minutes: saved) }
+
         // Deterministic verification hook: XENEON_FOCUS_AUTOSTART=<minutes> starts
         // a session on launch; ="done" shows the completion alert — so both the
         // countdown/tick wiring and the finished overlay can be checked headless.
@@ -44,6 +50,7 @@ final class FocusTimer: ObservableObject {
     func setDuration(minutes: Int) {
         state.setDuration(minutes: minutes)
         stopTicking()
+        AppDefaults.shared.set(minutes, forKey: durationKey)
     }
 
     func dismissFinished() { justFinished = false }
