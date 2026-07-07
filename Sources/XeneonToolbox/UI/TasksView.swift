@@ -6,6 +6,7 @@ struct TasksView: View {
     var exportMode = false   // off-screen render: static add bar + non-scrolling list
     @State private var newTitle = ""
     @FocusState private var inputFocused: Bool
+    @State private var dueEditor: TodoItem?
 
     private var open: Int { todos.items.filter { !$0.done }.count }
 
@@ -19,6 +20,23 @@ struct TasksView: View {
         // host top-anchor & clip, so the header stays visible (not centered/clipped).
         .frame(maxWidth: 1500, maxHeight: exportMode ? nil : .infinity, alignment: .top)
         .frame(maxWidth: .infinity, alignment: exportMode ? .top : .center)
+        // Custom "pick date & time" reminder — hoisted here so it isn't clipped by
+        // the task list's ScrollView.
+        .overlay {
+            if let item = dueEditor {
+                DueDatePicker(initial: item.dueAt ?? Self.defaultDue,
+                              onSet: { todos.update(item.id, dueAt: .some($0)); dueEditor = nil },
+                              onClose: { dueEditor = nil })
+            }
+        }
+        .animation(Motion.pop, value: dueEditor)
+    }
+
+    /// A sensible starting point for a fresh custom reminder: the next round hour.
+    private static var defaultDue: Date {
+        let cal = Calendar.current
+        let next = cal.date(byAdding: .hour, value: 1, to: Date()) ?? Date()
+        return cal.date(bySettingHour: cal.component(.hour, from: next), minute: 0, second: 0, of: next) ?? next
     }
 
     private var header: some View {
@@ -117,7 +135,8 @@ struct TasksView: View {
                 onDelete: { todos.remove(item.id) },
                 onSetDue: { todos.update(item.id, dueAt: .some($0)) },
                 onSetRecurrence: { todos.update(item.id, recurrence: $0) },
-                onRename: { todos.update(item.id, title: $0) })
+                onRename: { todos.update(item.id, title: $0) },
+                onPickCustomDue: { dueEditor = item })
             .transition(.opacity.combined(with: .move(edge: .leading)))
     }
 
@@ -183,6 +202,7 @@ private struct TaskRow: View {
     var onSetDue: (Date?) -> Void
     var onSetRecurrence: (Recurrence) -> Void
     var onRename: (String) -> Void = { _ in }
+    var onPickCustomDue: () -> Void = {}
 
     @State private var editing = false
     @State private var draft = ""
@@ -258,6 +278,8 @@ private struct TaskRow: View {
                     Button("This evening · 6 PM") { onSetDue(Self.at(18)) }
                 }
                 Button("Tomorrow · 9 AM") { onSetDue(Self.at(9, tomorrow: true)) }
+                Divider()
+                Button("Pick date & time…") { onPickCustomDue() }
                 if item.dueAt != nil {
                     Menu("Repeat") {
                         Button("Daily") { onSetRecurrence(.daily) }
@@ -307,5 +329,54 @@ private struct TaskRow: View {
         else if cal.isDateInTomorrow(d) { f.dateFormat = "'Tomorrow' h:mm a" }
         else { f.dateFormat = "EEE d MMM, h:mm a" }
         return f.string(from: d)
+    }
+}
+
+/// A touch-friendly date + time picker for a custom reminder, in the app's modal
+/// style. Only lets you pick a time in the future (a past reminder never fires).
+private struct DueDatePicker: View {
+    @State var date: Date
+    let onSet: (Date) -> Void
+    let onClose: () -> Void
+
+    init(initial: Date, onSet: @escaping (Date) -> Void, onClose: @escaping () -> Void) {
+        _date = State(initialValue: initial)
+        self.onSet = onSet
+        self.onClose = onClose
+    }
+
+    var body: some View {
+        ModalScaffold(onDismiss: onClose) {
+            VStack(spacing: 18) {
+                HStack(spacing: 10) {
+                    Image(systemName: "calendar.badge.clock").font(.system(size: 20, weight: .bold)).foregroundStyle(Theme.netUp)
+                    Text("Remind me").font(.deck(22, .bold)).foregroundStyle(Theme.textPrimary)
+                    Spacer(minLength: 0)
+                }
+                DatePicker("", selection: $date, in: Date()..., displayedComponents: [.date, .hourAndMinute])
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .tint(Theme.netUp)
+                    .frame(maxWidth: .infinity)
+                HStack(spacing: 12) {
+                    Button(action: onClose) {
+                        Text("Cancel").font(.deck(16, .semibold)).foregroundStyle(Theme.textSecondary)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(0.06)))
+                            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    }.buttonStyle(.pressable)
+                    Button { onSet(date) } label: {
+                        Text("Set reminder").font(.deck(16, .bold)).foregroundStyle(.black)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Theme.netUp))
+                            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    }.buttonStyle(.pressable)
+                }
+            }
+            .padding(26).frame(width: 520)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
+            .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
+        }
     }
 }
