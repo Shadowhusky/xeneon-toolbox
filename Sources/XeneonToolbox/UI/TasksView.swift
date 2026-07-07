@@ -116,7 +116,8 @@ struct TasksView: View {
                 onToggle: { todos.toggle(item.id) },
                 onDelete: { todos.remove(item.id) },
                 onSetDue: { todos.update(item.id, dueAt: .some($0)) },
-                onSetRecurrence: { todos.update(item.id, recurrence: $0) })
+                onSetRecurrence: { todos.update(item.id, recurrence: $0) },
+                onRename: { todos.update(item.id, title: $0) })
             .transition(.opacity.combined(with: .move(edge: .leading)))
     }
 
@@ -181,6 +182,11 @@ private struct TaskRow: View {
     var onDelete: () -> Void
     var onSetDue: (Date?) -> Void
     var onSetRecurrence: (Recurrence) -> Void
+    var onRename: (String) -> Void = { _ in }
+
+    @State private var editing = false
+    @State private var draft = ""
+    @FocusState private var fieldFocused: Bool
 
     var body: some View {
         HStack(spacing: 14) {
@@ -192,11 +198,24 @@ private struct TaskRow: View {
             }.buttonStyle(.pressable)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
-                    .font(.deck(17, .medium))
-                    .foregroundStyle(item.done ? Theme.textFaint : Theme.textPrimary)
-                    .strikethrough(item.done, color: Theme.textFaint)
-                    .lineLimit(2)
+                if editing {
+                    TextField("Task", text: $draft)
+                        .textFieldStyle(.plain)
+                        .font(.deck(17, .medium)).foregroundStyle(Theme.textPrimary)
+                        .focused($fieldFocused)
+                        .onSubmit(commitEdit)
+                        .onChange(of: fieldFocused) { if !fieldFocused { commitEdit() } }
+                } else {
+                    // Tap the title to rename in place — the whole model supports it,
+                    // so a typo no longer means delete-and-re-add.
+                    Text(item.title)
+                        .font(.deck(17, .medium))
+                        .foregroundStyle(item.done ? Theme.textFaint : Theme.textPrimary)
+                        .strikethrough(item.done, color: Theme.textFaint)
+                        .lineLimit(2)
+                        .contentShape(Rectangle())
+                        .onTapGesture { if !exportMode { beginEdit() } }
+                }
                 if let due = item.dueAt { dueChip(due) }
             }
             Spacer(minLength: 12)
@@ -211,6 +230,19 @@ private struct TaskRow: View {
         .padding(.horizontal, 14).padding(.vertical, 8)
         .deckRow(tint: item.isOverdue ? Theme.batteryLow : tint, emphasis: item.isOverdue ? 1.6 : 1)
         .opacity(item.done ? 0.6 : 1)
+    }
+
+    private func beginEdit() {
+        draft = item.title
+        editing = true
+        fieldFocused = true
+    }
+
+    private func commitEdit() {
+        guard editing else { return }   // onSubmit + blur can both fire; save once
+        editing = false
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty, trimmed != item.title { onRename(trimmed) }
     }
 
     @ViewBuilder private var reminderMenu: some View {
