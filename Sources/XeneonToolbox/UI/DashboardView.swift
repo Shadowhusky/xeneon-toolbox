@@ -124,7 +124,7 @@ struct DashboardView: View {
         switch tile {
         case .clock: ClockTile(uptime: snap.uptime, weather: weather.weather)
         case .cpu: CPUTile(value: snap.cpu, history: metrics.cpuHistory)
-        case .gpu: GPUTile(value: snap.gpu, history: metrics.gpuHistory)
+        case .gpu: GPUTile(value: snap.gpu, history: metrics.gpuHistory, available: snap.gpuAvailable)
         case .memory: MemoryTile(snap: snap)
         case .network: NetworkTile(snap: snap, rxHistory: metrics.netRxHistory, txHistory: metrics.netTxHistory)
         case .storage: StorageTile(snap: snap)

@@ -56,6 +56,7 @@ struct GaugeTile: View {
     let accent: Color
     let value: Double
     let caption: String
+    var available = true
     @ViewBuilder var footer: () -> AnyView
 
     var body: some View {
@@ -63,10 +64,11 @@ struct GaugeTile: View {
             VStack(alignment: .leading, spacing: 0) {
                 TileHeader(title: title, systemImage: icon, accent: accent)
                 Spacer()
-                RingGauge(value: value, color: accent) {
+                RingGauge(value: available ? value : 0, color: available ? accent : Theme.textFaint) {
                     VStack(spacing: 2) {
-                        Text(Fmt.percent(value)).font(.readout(48, .bold)).foregroundStyle(Theme.textPrimary)
-                        Text(caption).font(.deck(11, .bold)).tracking(1.6).foregroundStyle(Theme.textFaint)
+                        Text(available ? Fmt.percent(value) : "—")
+                            .font(.readout(48, .bold)).foregroundStyle(available ? Theme.textPrimary : Theme.textFaint)
+                        Text(available ? caption : "N/A").font(.deck(11, .bold)).tracking(1.6).foregroundStyle(Theme.textFaint)
                     }
                 }
                 .frame(width: ringSize, height: ringSize)
@@ -91,8 +93,9 @@ struct CPUTile: View {
 struct GPUTile: View {
     var value: Double
     var history: [Double]
+    var available = true
     var body: some View {
-        GaugeTile(title: "Graphics", icon: "cube.transparent.fill", accent: Theme.gpu, value: value, caption: "GPU") {
+        GaugeTile(title: "Graphics", icon: "cube.transparent.fill", accent: Theme.gpu, value: value, caption: "GPU", available: available) {
             AnyView(Sparkline(values: history, color: Theme.gpu).frame(height: 48))
         }
     }
@@ -219,7 +222,8 @@ struct PowerTile: View {
     private func statusText(_ b: BatteryInfo) -> String {
         if b.charging { return "Charging" }
         if let m = b.minutesRemaining { return "\(m / 60)h \(m % 60)m remaining" }
-        return "On battery"
+        // macOS reports no estimate for a minute or two after unplugging.
+        return "On battery · estimating…"
     }
 }
 
