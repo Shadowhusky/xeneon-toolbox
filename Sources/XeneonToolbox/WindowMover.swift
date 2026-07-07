@@ -55,6 +55,42 @@ enum WindowMover {
         }
     }
 
+    /// Launch or focus an app from the deck WITHOUT letting it cover the Edge
+    /// kiosk: any window that lands on the Edge is nudged onto the main display.
+    /// Windows the app already has elsewhere are left exactly where they are, so
+    /// focusing a running app doesn't rearrange it. Use for a normal tile tap; the
+    /// long-press picker's `open(on:)` is the explicit "put it here" path.
+    static func openOffEdge(appPath: String) {
+        let url = URL(fileURLWithPath: appPath)
+        // Prefer the widest non-Edge display (the user's main monitor). If the
+        // Edge is the only screen there's nowhere else to put it — just open.
+        guard let main = displays().filter({ !$0.isEdge }).max(by: { $0.bounds.width < $1.bounds.width }) else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        let bundleID = Bundle(url: url)?.bundleIdentifier
+        let running = bundleID.flatMap { id in NSRunningApplication.runningApplications(withBundleIdentifier: id).first }
+
+        AppLog.info("deck", "open '\(appPath)' off-Edge → main '\(main.name)'\(running != nil ? " (running)" : "")")
+
+        if let running {
+            running.activate()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                relocateEdgeWindows(pid: running.processIdentifier, to: main)
+            }
+            return
+        }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { app, _ in
+            guard let app else { return }
+            // A freshly-launched app draws its window a beat later; nudge it then.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                relocateEdgeWindows(pid: app.processIdentifier, to: main)
+            }
+        }
+    }
+
     /// Open (or focus) the app at `appPath` and place its windows on `display`.
     static func open(appPath: String, on display: Display) {
         let url = URL(fileURLWithPath: appPath)
@@ -76,6 +112,55 @@ enum WindowMover {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 moveWindows(pid: app.processIdentifier, to: display)
             }
+        }
+    }
+
+    /// Move only the windows whose centre currently sits on the Edge onto
+    /// `display`, keeping each window's size (clamped to fit). Windows already on
+    /// another display are untouched — so a running app the user focuses from the
+    /// deck stays put unless it was actually covering the kiosk.
+    static func relocateEdgeWindows(pid: pid_t, to display: Display) {
+        guard let edge = displays().first(where: { $0.isEdge }) else { return }
+        let axApp = AXUIElementCreateApplication(pid)
+        var windowsValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsValue) == .success,
+              let windows = windowsValue as? [AXUIElement] else { return }
+
+        for window in windows {
+            var subrole: CFTypeRef?
+            AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subrole)
+            if let sr = subrole as? String, sr != (kAXStandardWindowSubrole as String) { continue }
+
+            var posValue: CFTypeRef?
+            var pos = CGPoint.zero
+            guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posValue) == .success,
+                  let pv = posValue, CFGetTypeID(pv) == AXValueGetTypeID() else { continue }
+            AXValueGetValue(pv as! AXValue, .cgPoint, &pos)
+
+            var sizeValue: CFTypeRef?
+            var size = CGSize(width: 800, height: 600)
+            if AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValue) == .success,
+               let sv = sizeValue, CFGetTypeID(sv) == AXValueGetTypeID() {
+                AXValueGetValue(sv as! AXValue, .cgSize, &size)
+            }
+
+            // Only relocate windows actually overlapping the Edge.
+            let centre = CGPoint(x: pos.x + size.width / 2, y: pos.y + size.height / 2)
+            guard edge.bounds.contains(centre) else { continue }
+
+            let w = min(size.width, display.bounds.width)
+            let h = min(size.height, display.bounds.height)
+            if w != size.width || h != size.height {
+                var newSize = CGSize(width: w, height: h)
+                if let v = AXValueCreate(.cgSize, &newSize) {
+                    AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, v)
+                }
+            }
+            var origin = CGPoint(x: display.bounds.midX - w / 2, y: display.bounds.midY - h / 2)
+            if let v = AXValueCreate(.cgPoint, &origin) {
+                AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, v)
+            }
+            AXUIElementPerformAction(window, kAXRaiseAction as CFString)
         }
     }
 

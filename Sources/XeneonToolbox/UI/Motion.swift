@@ -10,8 +10,8 @@ enum Motion {
     static let standard = Animation.spring(response: 0.34, dampingFraction: 0.85)
 
     /// A menu, modal or picker appearing. The Apple-style soft bounce: it
-    /// overshoots a touch and settles. Use with `.popCard` / `.sheet` transitions.
-    static let pop = Animation.spring(response: 0.40, dampingFraction: 0.74)
+    /// overshoots a touch and settles (~6%). Use with `.popCard` transitions.
+    static let pop = Animation.spring(response: 0.42, dampingFraction: 0.70)
 
     /// Quick control feedback — toggles, small dropdowns, header buttons. Fast,
     /// barely any overshoot.

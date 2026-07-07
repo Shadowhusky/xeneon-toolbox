@@ -161,7 +161,9 @@ final class ToolboxModel: ObservableObject {
         AppLog.info("deck", "run \(action.kind.rawValue): \(action.label)")
         switch action.kind {
         case .app:
-            NSWorkspace.shared.open(URL(fileURLWithPath: action.target))
+            // Open on the main monitor, not on top of the Edge kiosk. Long-press
+            // the tile to deliberately place it on the Edge (or any display).
+            WindowMover.openOffEdge(appPath: action.target)
         case .url:
             openWeb(action.target)   // open in the in-app browser (merged with the old saved-sites)
         case .media:
