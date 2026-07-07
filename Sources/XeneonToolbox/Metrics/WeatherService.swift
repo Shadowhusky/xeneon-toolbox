@@ -150,6 +150,9 @@ struct WeatherLocation: Codable, Equatable, Identifiable {
 final class WeatherService: ObservableObject {
     @Published private(set) var weather: Weather?
     @Published private(set) var customPlace: WeatherLocation?
+    /// False until the first fetch attempt resolves, so the UI can show a loading
+    /// state on a cold launch instead of a misleading "unavailable".
+    @Published private(set) var firstAttemptDone = false
     private var timer: Timer?
     private static let placeKey = "weather.place.v1"
 
@@ -214,7 +217,7 @@ final class WeatherService: ObservableObject {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let cur = json["current"] as? [String: Any],
               let temp = cur["temperature_2m"] as? Double,
-              let code = cur["weather_code"] as? Int else { scheduleRetry(); return }
+              let code = cur["weather_code"] as? Int else { firstAttemptDone = true; scheduleRetry(); return }
 
         var w = Weather(tempC: temp, code: code, city: loc.city)
         w.humidity = (cur["relative_humidity_2m"] as? Double).map { Int($0.rounded()) } ?? (cur["relative_humidity_2m"] as? Int)
@@ -253,6 +256,7 @@ final class WeatherService: ObservableObject {
             w.hours = hours
         }
         weather = w
+        firstAttemptDone = true
     }
 
     /// A failed launch-time fetch (offline, rate-limited geolocation) used to mean

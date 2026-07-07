@@ -40,7 +40,7 @@ struct DashboardView: View {
             }
             if showWeather, !editing {
                 ModalScaffold(dim: 0.62, onDismiss: { showWeather = false }) {
-                    WeatherDetailView(weather: weather.weather) { showWeather = false }
+                    WeatherDetailView(weather: weather.weather, loading: !weather.firstAttemptDone) { showWeather = false }
                 }
                 .zIndex(1)
             }

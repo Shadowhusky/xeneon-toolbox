@@ -5,6 +5,7 @@ import ToolboxKit
 /// tapping the Local tile on the dashboard.
 struct WeatherDetailView: View {
     let weather: Weather?
+    var loading = false
     var onClose: () -> Void
 
     var body: some View {
@@ -14,11 +15,17 @@ struct WeatherDetailView: View {
                 if !w.hours.isEmpty { hourly(w) }
                 Spacer(minLength: 0)
                 forecast(w)
-            }
-            else {
+            } else if loading {
+                VStack(spacing: 14) {
+                    ProgressView().controlSize(.large)
+                    Text("Getting the forecast…").font(.deck(16)).foregroundStyle(Theme.textSecondary)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
                 VStack(spacing: 12) {
                     Image(systemName: "cloud.slash").font(.system(size: 40)).foregroundStyle(Theme.textFaint)
                     Text("Weather unavailable").font(.deck(18)).foregroundStyle(Theme.textSecondary)
+                    Text("Check your connection — retrying automatically.")
+                        .font(.deck(13)).foregroundStyle(Theme.textFaint)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }

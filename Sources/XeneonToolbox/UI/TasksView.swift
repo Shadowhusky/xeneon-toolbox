@@ -28,7 +28,7 @@ struct TasksView: View {
             Spacer()
             HStack(spacing: 6) {
                 if open > 0 { Text("\(open)").font(.readout(15, .bold)).foregroundStyle(Theme.textSecondary) }
-                Text(open == 0 ? "All clear" : (open == 1 ? "open" : "open"))
+                Text(open == 0 ? "All clear" : "open")
                     .font(.deck(15, .semibold)).foregroundStyle(open == 0 ? Theme.battery : Theme.textSecondary)
             }
             if todos.items.contains(where: { $0.done }) {
@@ -220,7 +220,11 @@ private struct TaskRow: View {
             Menu {
                 Button("In 1 hour") { onSetDue(Date().addingTimeInterval(3600)) }
                 Button("In 3 hours") { onSetDue(Date().addingTimeInterval(3 * 3600)) }
-                Button("This evening · 6 PM") { onSetDue(Self.at(18)) }
+                // Only offer "this evening" while 6 PM is still ahead — past it the
+                // reminder would be instantly overdue and never fire.
+                if Self.at(18) > Date() {
+                    Button("This evening · 6 PM") { onSetDue(Self.at(18)) }
+                }
                 Button("Tomorrow · 9 AM") { onSetDue(Self.at(9, tomorrow: true)) }
                 if item.dueAt != nil {
                     Menu("Repeat") {
