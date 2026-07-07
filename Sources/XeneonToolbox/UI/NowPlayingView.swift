@@ -117,7 +117,7 @@ struct NowPlayingFullView: View {
                 content(np)
             }
         }
-        .transition(.opacity)
+        .transition(.opacity.combined(with: .scale(scale: 1.04)))
         .overlay(alignment: .topTrailing) {
             Button(action: onClose) {
                 Image(systemName: "chevron.down").font(.system(size: 18, weight: .bold)).foregroundStyle(.white.opacity(0.7))

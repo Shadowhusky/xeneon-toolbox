@@ -65,7 +65,7 @@ struct ChatView: View {
                 inputBar
             }
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: agent.pending?.id)
+        .animation(Motion.pop, value: agent.pending?.id)
     }
 
     private var header: some View {

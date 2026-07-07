@@ -82,33 +82,31 @@ final class TouchDriver: @unchecked Sendable {
     var sideSwipeEnabled = false                       // app-switch swipes (set true in fullscreen)
     var longPressEnabled = false                       // detect long-press (set true only on the deck)
 
-    // Long-press: a single stationary contact held past `lpDuration` fires
-    // onLongPress and swallows the rest of that touch (no click), for the deck's
-    // "open on which screen" menu. Cheap no-op unless longPressEnabled.
-    private var lpStart: ScreenPoint?
-    private var lpStartTime = 0.0
-    private var lpActive = false
-    private let lpDuration = 0.5
-    private let lpSlop = 16.0
+    // Long-press: a single stationary contact held past the detector's duration
+    // fires onLongPress and swallows the rest of that touch (no click), for the
+    // deck's "open on which screen" menu. Cheap no-op unless longPressEnabled.
+    private var longPress = LongPressDetector()
 
-    /// Returns true while a long-press has engaged this contact — the caller then
-    /// swallows the frame so no click/scroll is emitted underneath it.
+    /// Returns true while a long-press owns this contact — the caller then
+    /// swallows the frame so no click/scroll is emitted underneath it. An engaged
+    /// press keeps ownership until the finger lifts even if `longPressEnabled` is
+    /// switched off mid-gesture (the app disables detection the instant the menu
+    /// opens); otherwise the still-down finger's release would leak through as a
+    /// tap and dismiss the menu it just opened.
     private func feedLongPress(count: Int, point: ScreenPoint?) -> Bool {
-        guard longPressEnabled, onLongPress != nil else { lpStart = nil; lpActive = false; return false }
-        if count != 1 || point == nil { lpStart = nil; lpActive = false; return lpActive }
-        let p = point!
-        let now = CFAbsoluteTimeGetCurrent()
-        if lpActive { return true }
-        guard let s = lpStart else { lpStart = p; lpStartTime = now; return false }
-        if hypot(p.x - s.x, p.y - s.y) > lpSlop { lpStart = nil; return false }   // moved → not a long-press
-        if now - lpStartTime >= lpDuration {
-            lpActive = true
+        guard onLongPress != nil else { longPress.reset(); return false }
+        switch longPress.update(enabled: longPressEnabled, count: count, point: point,
+                                now: CFAbsoluteTimeGetCurrent()) {
+        case .none:
+            return false
+        case .swallow:
+            return true
+        case .fire(let s):
             for action in machine.reset() { post(action) }        // cancel the pending tap
             for action in recognizer.reset() { post(action) }
             onLongPress?(s)
             return true
         }
-        return false
     }
     // Edit-mode reordering: any single-finger move = mouse drag. Like
     // sideSwipeEnabled this is written from the app thread but only *read* on the
@@ -222,6 +220,7 @@ final class TouchDriver: @unchecked Sendable {
         guard calSource != .none else { return }
         for action in recognizer.reset() { post(action) }
         for action in machine.reset() { post(action) }
+        longPress.reset()
         unregisterReportCallback()
         cancelMomentum()
         cancelWatchdog()
@@ -263,6 +262,7 @@ final class TouchDriver: @unchecked Sendable {
     func releaseHeld() {
         for action in recognizer.reset() { post(action) }
         for action in machine.reset() { post(action) }
+        longPress.reset()
         cancelMomentum()
         cancelWatchdog()
         unregisterReportCallback()

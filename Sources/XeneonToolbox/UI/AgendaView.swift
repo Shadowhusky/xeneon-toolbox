@@ -12,8 +12,7 @@ struct AgendaView: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.62).ignoresSafeArea().contentShape(Rectangle()).onTapGesture(perform: onClose)
+        ModalScaffold(dim: 0.62, onDismiss: onClose) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -46,7 +45,6 @@ struct AgendaView: View {
             .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
             .shadow(color: .black.opacity(0.55), radius: 30, y: 12)
         }
-        .transition(.opacity)
     }
 
     private func row(_ e: CalendarService.Event) -> some View {

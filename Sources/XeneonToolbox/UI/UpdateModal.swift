@@ -9,13 +9,12 @@ struct UpdateGate: View {
     var body: some View {
         ZStack {
             if let info = updater.available, !fullscreen {
-                Color.black.opacity(0.55).ignoresSafeArea()
-                    .onTapGesture { updater.ignoreThisTime(info) }
-                UpdateModal(updater: updater, info: info)
-                    .transition(.scale(scale: 0.96).combined(with: .opacity))
+                ModalScaffold(onDismiss: { updater.ignoreThisTime(info) }) {
+                    UpdateModal(updater: updater, info: info)
+                }
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: updater.available)
+        .animation(Motion.pop, value: updater.available)
     }
 }
 

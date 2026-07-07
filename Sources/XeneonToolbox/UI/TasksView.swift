@@ -104,7 +104,7 @@ struct TasksView: View {
             }
         }
         .padding(.vertical, 2)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: todos.sorted)
+        .animation(Motion.standard, value: todos.sorted)
     }
 
     @ViewBuilder private var list: some View {

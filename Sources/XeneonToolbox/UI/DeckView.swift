@@ -56,7 +56,7 @@ struct DeckView: View {
                                 if editing && dragging != action.id { editBadge(action) }
                             }
                     }
-                    if editing { AddTile { withAnimation(.easeInOut(duration: 0.2)) { showAdd = true } } }
+                    if editing { AddTile { withAnimation(Motion.smooth) { showAdd = true } } }
                 }
                 .coordinateSpace(name: space)
                 .onPreferenceChange(DeckFrameKey.self) { frames = $0 }
@@ -81,8 +81,10 @@ struct DeckView: View {
         .overlay { if let p = pending { confirmModal(p) } }
         .overlay { if let a = screenPickerAction { screenPicker(a) } }
         .overlay { if let a = editingAction { TileEditForm(deck: deck, action: a) { editingAction = nil } } }
-        .animation(.easeInOut(duration: 0.2), value: editing)
-        .animation(.easeInOut(duration: 0.2), value: screenPickerAction)
+        .animation(Motion.standard, value: editing)
+        .animation(Motion.pop, value: screenPickerAction)
+        .animation(Motion.pop, value: pending)
+        .animation(Motion.pop, value: editingAction)
         // A long-press on an app tile (detected by the driver) opens a picker to
         // choose which display to open/move the app on.
         .onChange(of: model.deckLongPressAt) {
@@ -133,10 +135,10 @@ struct DeckView: View {
                     .transition(.opacity)
             }
             Spacer()
-            deckButton("Sort", "arrow.up.arrow.down", tint: Theme.textSecondary) { withAnimation { showSortMenu.toggle() } }
+            deckButton("Sort", "arrow.up.arrow.down", tint: Theme.textSecondary) { withAnimation(Motion.snappy) { showSortMenu.toggle() } }
             if editing { deckButton("Reset", "arrow.counterclockwise", tint: Theme.textSecondary) { pending = .reset } }
             deckButton(editing ? "Done" : "Edit", editing ? "checkmark" : "square.and.pencil",
-                       tint: editing ? Theme.battery : Theme.textSecondary) { withAnimation { editing.toggle() } }
+                       tint: editing ? Theme.battery : Theme.textSecondary) { withAnimation(Motion.standard) { editing.toggle() } }
         }
     }
 
@@ -158,10 +160,10 @@ struct DeckView: View {
 
     private var sortMenu: some View {
         ZStack(alignment: .topTrailing) {
-            Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { withAnimation { showSortMenu = false } }
+            Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { withAnimation(Motion.snappy) { showSortMenu = false } }
             VStack(spacing: 6) {
                 ForEach(DeckSort.allCases) { s in
-                    Button { withAnimation { showSortMenu = false }; requestSort(s) } label: {
+                    Button { withAnimation(Motion.snappy) { showSortMenu = false }; requestSort(s) } label: {
                         HStack(spacing: 10) {
                             Image(systemName: s.icon).font(.system(size: 14, weight: .semibold)).frame(width: 20)
                             Text(s.label).font(.deck(15, .semibold))
@@ -179,6 +181,7 @@ struct DeckView: View {
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
             .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
             .padding(.top, 56).padding(.trailing, 4)
+            .transition(.scale(scale: 0.9, anchor: .topTrailing).combined(with: .opacity))
         }
     }
 
@@ -192,8 +195,7 @@ struct DeckView: View {
             : "Sorting will overwrite your current tile order. Tiles you added stay."
         let confirmLabel = isReset ? "Reset" : "Sort"
         let tint = isReset ? Theme.batteryLow : Theme.battery
-        return ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { pending = nil }
+        return ModalScaffold(onDismiss: { pending = nil }) {
             VStack(spacing: 16) {
                 Image(systemName: isReset ? "exclamationmark.triangle.fill" : "arrow.up.arrow.down.circle.fill")
                     .font(.system(size: 34)).foregroundStyle(tint)
@@ -239,8 +241,7 @@ struct DeckView: View {
 
     private func screenPicker(_ action: DeckAction) -> some View {
         let displays = WindowMover.displays()
-        return ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { screenPickerAction = nil }
+        return ModalScaffold(onDismiss: { screenPickerAction = nil }) {
             VStack(spacing: 16) {
                 HStack(spacing: 12) {
                     DeckActionIcon(action: action, size: 40)
@@ -298,7 +299,6 @@ struct DeckView: View {
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
             .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
         }
-        .transition(.opacity)
     }
 
     private func refreshRunning() {
@@ -354,7 +354,7 @@ struct DeckView: View {
         let center = CGPoint(x: location.x - dragGrab.width, y: location.y - dragGrab.height)
         guard let target = frames.first(where: { $0.key != d && $0.value.contains(center) }),
               let tf = frames[target.key] else { return }
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+        withAnimation(Motion.snappy) {
             deck.move(d, target: target.key, before: center.x < tf.midX)
         }
     }

@@ -320,6 +320,6 @@ struct ToggleDot: View {
                 .frame(width: 24, height: 24).padding(3)
                 .shadow(color: on ? Theme.accent.opacity(0.6) : .clear, radius: 6)
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: on)
+        .animation(Motion.snappy, value: on)
     }
 }

@@ -38,8 +38,8 @@ struct RootView: View {
                 NowPlayingFullView(media: model.media) { model.showNowPlayingFull = false }
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: model.showNowPlayingFull)
-        .animation(.easeInOut(duration: 0.25), value: model.showAgenda)
+        .animation(Motion.standard, value: model.showNowPlayingFull)
+        .animation(Motion.pop, value: model.showAgenda)
         .animation(.easeInOut(duration: 0.4), value: model.displayMode)
         .onChange(of: model.showAgenda) { if model.showAgenda { model.calendar.refresh() } }
     }
@@ -69,7 +69,7 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .clipped()
             }
-            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: model.route)
+            .animation(Motion.page, value: model.route)
         }
         .background(Theme.background)
         // In fullscreen every page hides its chrome. The exit tab sits at the
@@ -81,12 +81,9 @@ struct RootView: View {
         }
         .overlay {
             if model.showSettings {
-                ZStack {
-                    Color.black.opacity(0.55).ignoresSafeArea()
-                        .onTapGesture { model.showSettings = false }
+                ModalScaffold(onDismiss: { model.showSettings = false }) {
                     SettingsView(model: model, remote: model.remote, updater: model.updater) { model.showSettings = false }
                 }
-                .transition(.opacity)
             }
         }
         .overlay { UpdateGate(updater: model.updater, fullscreen: model.fullscreen) }
@@ -106,15 +103,15 @@ struct RootView: View {
             if let frac = model.pullFrac { minimalPullOverlay(CGFloat(frac)) }
         }
         .animation(.easeInOut(duration: 0.3), value: model.fullscreen)
-        .animation(.easeInOut(duration: 0.25), value: model.showSettings)
+        .animation(Motion.pop, value: model.showSettings)
         .animation(.easeInOut(duration: 0.3), value: model.showFsTutorial)
+        .animation(Motion.pop, value: model.crashPrompt != nil)
     }
 
     /// One-time prompt after a crash: open a prefilled GitHub issue with the
     /// report so any user can send it in a tap.
     private var crashReportPrompt: some View {
-        ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { model.dismissCrashReport() }
+        ModalScaffold(onDismiss: { model.dismissCrashReport() }) {
             VStack(spacing: 14) {
                 Image(systemName: "ladybug.fill").font(.system(size: 32)).foregroundStyle(Theme.batteryLow)
                 Text("The app crashed last time").font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
@@ -141,7 +138,6 @@ struct RootView: View {
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
             .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
         }
-        .transition(.opacity)
     }
 
     @ViewBuilder private var controlCenterOverlay: some View {
@@ -248,7 +244,7 @@ struct NavRail: View {
                 NavButton(route: r, selected: route == r,
                           badge: r == .tasks ? openTasks : 0,
                           badgeUrgent: r == .tasks && hasOverdue) {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { route = r }
+                    withAnimation(Motion.page) { route = r }
                 }
             }
         }
