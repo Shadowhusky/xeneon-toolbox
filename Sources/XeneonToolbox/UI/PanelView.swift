@@ -11,7 +11,7 @@ struct RootView: View {
             switch model.displayMode {
             case .full: fullUI
             case .minimal:
-                MinimalView(metrics: metrics, todos: model.todos, media: model.media, weather: model.weather.weather, nextEvent: model.calendar.next,
+                MinimalView(metrics: metrics, todos: model.todos, media: model.media, focusTimer: model.focusTimer, weather: model.weather.weather, nextEvent: model.calendar.next,
                             showNowPlaying: model.showNowPlaying, onHideNowPlaying: { model.showNowPlaying = false },
                             onOpenAgenda: { model.showAgenda = true }, onOpenNowPlaying: { model.showNowPlayingFull = true })
                     .contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
@@ -38,6 +38,8 @@ struct RootView: View {
                 NowPlayingFullView(media: model.media) { model.showNowPlayingFull = false }
             }
         }
+        // Focus session finished — a clear alert over whatever's on screen.
+        .overlay { FocusDoneGate(timer: model.focusTimer) }
         .animation(Motion.standard, value: model.showNowPlayingFull)
         .animation(Motion.pop, value: model.showAgenda)
         .animation(.easeInOut(duration: 0.4), value: model.displayMode)
@@ -48,7 +50,7 @@ struct RootView: View {
         HStack(spacing: 0) {
             if !model.fullscreen {
                 NavRail(route: $model.route, touchActive: model.touchStatus == .active, todos: model.todos,
-                        exportMode: model.exportMode,
+                        focusTimer: model.focusTimer, exportMode: model.exportMode,
                         onFullscreen: { model.toggleFullscreen() },
                         onMinimal: { model.setDisplay(.minimal) }, onSleep: { model.setDisplay(.sleep) },
                         onSettings: { model.showSettings = true })
@@ -159,7 +161,7 @@ struct RootView: View {
 
     @ViewBuilder private func minimalPullOverlay(_ frac: CGFloat) -> some View {
         GeometryReader { geo in
-            MinimalView(metrics: metrics, todos: model.todos, media: model.media, weather: model.weather.weather, nextEvent: model.calendar.next,
+            MinimalView(metrics: metrics, todos: model.todos, media: model.media, focusTimer: model.focusTimer, weather: model.weather.weather, nextEvent: model.calendar.next,
                         showNowPlaying: model.showNowPlaying, onHideNowPlaying: { model.showNowPlaying = false })
                 .frame(width: geo.size.width, height: geo.size.height)
                 .background(Color.black)
@@ -216,7 +218,7 @@ struct RootView: View {
         switch model.route {
         case .dashboard: DashboardView(model: model, metrics: metrics, weather: model.weather, layout: model.dashboardLayout)
         case .deck: DeckView(model: model, deck: model.deck)
-        case .clock: ClockAppView(store: model.worldClocks, exportMode: model.exportMode)
+        case .clock: ClockAppView(store: model.worldClocks, timer: model.focusTimer, exportMode: model.exportMode)
         case .tasks: TasksView(todos: model.todos, exportMode: model.exportMode)
         case .games: GamesView(model: model)
         case .web: BrowserView(model: model, web: model.web)
@@ -229,6 +231,7 @@ struct NavRail: View {
     @Binding var route: AppRoute
     var touchActive: Bool
     @ObservedObject var todos: TodoStore
+    @ObservedObject var focusTimer: FocusTimer
     var exportMode = false
     var onFullscreen: () -> Void = {}
     var onMinimal: () -> Void = {}
@@ -243,7 +246,8 @@ struct NavRail: View {
             ForEach(AppRoute.tabs) { r in
                 NavButton(route: r, selected: route == r,
                           badge: r == .tasks ? openTasks : 0,
-                          badgeUrgent: r == .tasks && hasOverdue) {
+                          badgeUrgent: r == .tasks && hasOverdue,
+                          dot: r == .clock && focusTimer.running) {
                     withAnimation(Motion.page) { route = r }
                 }
             }
@@ -348,6 +352,7 @@ private struct NavButton: View {
     let selected: Bool
     var badge: Int = 0
     var badgeUrgent: Bool = false
+    var dot: Bool = false
     let action: () -> Void
 
     private var accent: Color { route.accent }
@@ -365,6 +370,10 @@ private struct NavButton: View {
                                 .padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Capsule().fill(badgeUrgent ? Theme.batteryLow : accent))
                                 .offset(x: 13, y: -9)
+                        } else if dot {
+                            Circle().fill(Theme.netUp).frame(width: 8, height: 8)
+                                .deckGlow(Theme.netUp, strength: 0.8)
+                                .offset(x: 8, y: -6)
                         }
                     }
                 Text(route.title).font(.deck(16, .semibold)).tracking(0.2)

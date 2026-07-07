@@ -8,6 +8,7 @@ struct MinimalView: View {
     @ObservedObject var metrics: SystemMetrics
     @ObservedObject var todos: TodoStore
     @ObservedObject var media: MediaController
+    @ObservedObject var focusTimer: FocusTimer
     var weather: Weather? = nil
     var nextEvent: CalendarService.NextEvent? = nil
     var showNowPlaying = true
@@ -62,9 +63,12 @@ struct MinimalView: View {
                 Text(ctx.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
                     .font(.readout(176, .medium)).tracking(-3)
                     .foregroundStyle(.white.opacity(0.88))
-                Text(ctx.date, format: .dateTime.weekday(.wide).month(.abbreviated).day())
-                    .font(.deck(27, .medium)).foregroundStyle(.white.opacity(0.42))
-                    .padding(.leading, 4)
+                HStack(spacing: 14) {
+                    Text(ctx.date, format: .dateTime.weekday(.wide).month(.abbreviated).day())
+                        .font(.deck(27, .medium)).foregroundStyle(.white.opacity(0.42))
+                    FocusTimerPill(timer: focusTimer)
+                }
+                .padding(.leading, 4)
             }
         }
     }
