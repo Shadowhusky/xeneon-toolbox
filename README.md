@@ -159,9 +159,9 @@ on-screen alert let you know when the session is done.
 
 ### Tasks & Reminders
 
-A focused list grouped by urgency. Add a reminder time and it fires as a system
-notification — even from another app — and recurring reminders roll forward
-automatically.
+A focused list grouped by urgency. Tap a task's title to rename it in place. Add
+a reminder — a quick preset or a **custom date & time** — and it fires as a system
+notification even from another app; recurring reminders roll forward automatically.
 
 ![Tasks and reminders](docs/img/tasks.png)
 
