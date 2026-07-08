@@ -672,6 +672,11 @@ public struct TouchServiceConfig: Sendable {
 /// immediate restart re-seizes the device cleanly.
 public final class TouchService: @unchecked Sendable {
     public var isRunning: Bool { lock.withLock { running } }
+    /// True only when we hold the digitizer EXCLUSIVELY (seized). When false, the
+    /// open fell back to non-exclusive because macOS holds the device — meaning
+    /// macOS also processes it as a Precision trackpad (the panel "reverts to a
+    /// touchpad"). The app watches this to retry the seize.
+    public var isSeized: Bool { lock.withLock { running && seized } }
     /// Called when the Edge connects/disconnects (off the main thread).
     public var onPresenceChanged: ((Bool) -> Void)?
     /// Called continuously during a top-edge pull-down, left/centre (off the main thread).
@@ -713,6 +718,7 @@ public final class TouchService: @unchecked Sendable {
     private let config: TouchServiceConfig
     private let lock = NSLock()
     private var running = false
+    private var seized = false
     private var manager: IOHIDManager?
     private var driver: TouchDriver?
     private var thread: Thread?
@@ -751,6 +757,7 @@ public final class TouchService: @unchecked Sendable {
             self.manager = manager
             self.driver = driver
             self.running = true
+            self.seized = seized
         }
 
         // Publish the worker run loop before start() returns, so a stop() that
@@ -778,6 +785,7 @@ public final class TouchService: @unchecked Sendable {
         let (mgr, drv, rl): (IOHIDManager?, TouchDriver?, CFRunLoop?) = lock.withLock {
             guard running else { return (nil, nil, nil) }
             running = false
+            seized = false
             defer { manager = nil; driver = nil; thread = nil; runLoop = nil }
             return (manager, driver, runLoop)
         }

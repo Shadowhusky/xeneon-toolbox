@@ -131,6 +131,8 @@ final class ToolboxModel: ObservableObject {
     }
     @Published var touchOn = false
     @Published var edgeDetected = false
+    @Published var touchSeized = false          // exclusive hold; false = macOS also acts as trackpad
+    private var seizeRetries = 0                 // bounded so we don't thrash when macOS won't yield
     @Published var gamePref = "rhythm"
 
     // Touch calibration — flips persist and rebuild the driver when changed.
@@ -299,11 +301,18 @@ final class ToolboxModel: ObservableObject {
                 self?.reacquireSoon()
             }
         })
-        let t = Timer(timeInterval: 12, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: 6, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.touchOn, !self.edgeDetected else { return }
-                AppLog.info("touch", "watchdog: still searching — reacquiring digitizer")
-                self.reacquireTouch()
+                guard let self, self.touchOn else { return }
+                if self.touch.isSeized { self.seizeRetries = 0; return }   // healthy — nothing to do
+                if !self.edgeDetected {
+                    AppLog.info("touch", "watchdog: still searching — reacquiring digitizer")
+                    self.reacquireTouch()
+                } else if self.seizeRetries < 5 {
+                    // Present but macOS holds it (trackpad mode) — retry the seize a
+                    // bounded number of times, then stop to avoid churning the panel.
+                    self.reacquireTouch()
+                }
             }
         }
         t.tolerance = 3
@@ -506,7 +515,8 @@ final class ToolboxModel: ObservableObject {
     private func attemptAcquire() {
         guard touchOn else { return }
         if touch.start() {
-            AppLog.info("touch", "driver started")
+            touchSeized = touch.isSeized
+            AppLog.info("touch", "driver started (seized=\(touchSeized))\(touchSeized ? "" : " — macOS holds the digitizer; panel acts as a trackpad until re-seized")")
             retryTimer?.invalidate(); retryTimer = nil
         } else if retryTimer == nil {
             AppLog.error("touch", "driver couldn't open the digitizer — retrying every 3s")
@@ -518,11 +528,16 @@ final class ToolboxModel: ObservableObject {
         }
     }
 
-    /// Re-seize when the app regains focus — but only if we're not already driving
-    /// the panel, so a working session is never interrupted. This restores touch
-    /// after macOS has reclaimed the digitizer (as a trackpad) while backgrounded.
+    /// Re-seize the digitizer. Fires when it's not detected (searching) OR when
+    /// it's present but we only hold it non-exclusively (macOS is also driving it
+    /// as a trackpad — "the panel reverted to a touchpad"). A full session that's
+    /// detected AND seized is never interrupted.
     func reacquireTouch() {
-        guard touchOn, !edgeDetected else { return }
+        guard touchOn, !edgeDetected || !touch.isSeized else { return }
+        if edgeDetected && !touch.isSeized {
+            AppLog.info("touch", "present but not seized — retrying exclusive seize (\(seizeRetries + 1))")
+            seizeRetries += 1
+        }
         touch.stop()
         attemptAcquire()
     }

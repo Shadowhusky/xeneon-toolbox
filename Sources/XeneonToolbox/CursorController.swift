@@ -16,20 +16,25 @@ private func CGSSetConnectionProperty(_ cid: CGSConnectionID, _ target: CGSConne
 /// moment a real mouse/trackpad is used.
 ///
 /// The kiosk is deliberately never the frontmost app, so `CGDisplayHideCursor`
-/// alone does nothing. Enabling the `SetsCursorInBackground` connection property
-/// first makes it take effect from the background — so touch input can genuinely
-/// hide the cursor rather than just parking it off-screen.
+/// alone does nothing; enabling the `SetsCursorInBackground` connection property
+/// first makes it take effect from the background.
 ///
-/// Detection uses a listen-only CGEvent tap (NSEvent monitors miss pointer
-/// events while inactive). The driver stamps its injected events with
-/// `kXeneonTouchEventTag`; a *tagged* event is touch → hide, an *untagged* event
-/// is a real pointing device → show (so the user's mouse is never lost).
+/// Detection uses a listen-only CGEvent tap. IMPORTANT: it must be at the
+/// **annotated-session** level, not the HID level — the driver posts its events
+/// at `.cgSessionEventTap`, which is downstream of the HID tap, so an HID-level
+/// listener never sees them (verified: an HID tap receives 0 of the driver's
+/// events). The driver stamps its events with `kXeneonTouchEventTag`; a *tagged*
+/// event is touch → hide, an *untagged* event is a real pointing device → show.
+///
+/// The WindowServer re-draws the hardware cursor on every pointer *motion*, and
+/// the driver posts a positioned event per touch frame — so a single hide is
+/// undone by the next frame. We therefore re-issue the hide on every tagged
+/// event (tracking depth so a real-mouse event fully unwinds it).
 @MainActor
 final class CursorController {
     private var tap: CFMachPort?
     private var tapSource: CFRunLoopSource?
-    private var cursorHidden = false
-    private var parkTimer: Timer?
+    private var hideDepth = 0
     private let enabled = ProcessInfo.processInfo.environment["XENEON_NOHIDECURSOR"] == nil
 
     func start() {
@@ -48,7 +53,7 @@ final class CursorController {
             (1 << CGEventType.scrollWheel.rawValue)
         let info = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
-            tap: .cghidEventTap, place: .headInsertEventTap, options: .listenOnly,
+            tap: .cgAnnotatedSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
             eventsOfInterest: mask,
             callback: { _, _, event, info in
                 let controller = Unmanaged<CursorController>.fromOpaque(info!).takeUnretainedValue()
@@ -68,59 +73,27 @@ final class CursorController {
         tapSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        AppLog.info("cursor", "hide-on-touch active (annotated-session tap)")
     }
 
     func stop() {
         showCursor()
-        cancelPark()
         if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
         if let source = tapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         tap = nil
         tapSource = nil
     }
 
-    /// Hide the pointer (balanced — CGDisplayHideCursor uses a hide count, so we
-    /// only ever hold one). Also park it off-screen as a fallback in case the
-    /// background-hide is refused on some macOS build.
+    /// Re-hide on every touch frame — the WindowServer re-shows the cursor on
+    /// motion, so one hide doesn't stick. `CGDisplayHideCursor` is a counter, so
+    /// track depth; a real-mouse event unwinds it fully. Depth is bounded by a
+    /// single gesture's length (it resets the moment a real device is used).
     private func hideCursor() {
-        guard !cursorHidden else { return }
-        cursorHidden = true
         CGDisplayHideCursor(CGMainDisplayID())
-        parkSoon()
+        hideDepth += 1
     }
 
     private func showCursor() {
-        cancelPark()
-        guard cursorHidden else { return }
-        cursorHidden = false
-        CGDisplayShowCursor(CGMainDisplayID())
-    }
-
-    private func parkSoon() {
-        cancelPark()
-        // Never post from inside the tap callback — hop to the next tick.
-        DispatchQueue.main.async { [weak self] in self?.park() }
-    }
-
-    private func cancelPark() {
-        parkTimer?.invalidate()
-        parkTimer = nil
-    }
-
-    /// Warp the cursor to the Edge's bottom-right pixel, where the arrow clips
-    /// out of view — a fallback if CGDisplayHideCursor is ignored. Tagged so our
-    /// own event tap treats it as touch (won't re-show the cursor).
-    private func park() {
-        guard cursorHidden else { return }
-        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
-        var count: UInt32 = 0
-        CGGetActiveDisplayList(16, &ids, &count)
-        guard let edge = (0..<Int(count)).map({ CGDisplayBounds(ids[$0]) })
-            .first(where: { abs($0.width - 2560) < 2 && abs($0.height - 720) < 2 }) else { return }
-        let corner = CGPoint(x: edge.maxX - 1, y: edge.maxY - 1)
-        let src = CGEventSource(stateID: .combinedSessionState)
-        src?.userData = kXeneonTouchEventTag
-        CGEvent(mouseEventSource: src, mouseType: .mouseMoved,
-                mouseCursorPosition: corner, mouseButton: .left)?.post(tap: .cgSessionEventTap)
+        while hideDepth > 0 { CGDisplayShowCursor(CGMainDisplayID()); hideDepth -= 1 }
     }
 }
