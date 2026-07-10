@@ -91,7 +91,8 @@ apps built for the strip. While the app runs, the panel just works:
   **next calendar event** (tap it for today's full agenda), and now-playing; plus
   a power-saving sleep mode — dim or switch the screen off entirely to save power.
 - **Remote control** — drive the Edge from any phone or PC browser on the same
-  network: switch pages, rest/wake, set brightness, and talk to the assistant
+  network: **run any deck tile**, control **now-playing** (play/skip) and system
+  volume, switch pages, rest/wake, set brightness, and talk to the assistant
   (with a voice button). On by default; toggle it in Settings.
 - **iCloud backup** — back up your layout, deck, and preferences to iCloud Drive
   and restore them on another Mac, from Settings.
@@ -207,8 +208,10 @@ power), and conversation management — each in its own labeled panel.
 ### Remote control
 
 When the app runs it also serves a small web remote on your local network, so you
-can drive the Edge from your phone or laptop — switch pages, rest or wake it, set
-brightness, and chat with the assistant (there's a voice button too).
+can drive the Edge from your phone or laptop — **run any deck tile** (your whole
+Stream-Deck, from your pocket), control **now-playing** with play/skip and a
+volume slider, switch pages, rest or wake it, set brightness, and chat with the
+assistant (there's a voice button too).
 
 The default address is **`http://<your-mac-ip>:8765/`** (it falls back to the next
 free port if 8765 is taken). The exact link — including its access token — is
