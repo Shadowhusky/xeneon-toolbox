@@ -1,5 +1,6 @@
 import SwiftUI
 import XeneonTouchDriver
+import XeneonTouchCore
 import ToolboxKit
 
 enum DisplayMode { case full, minimal, sleep }
@@ -301,18 +302,30 @@ final class ToolboxModel: ObservableObject {
                 self?.reacquireSoon()
             }
         })
+        // Full system wake — fires even when the display-wake notification doesn't
+        // (USB re-enumerates on system wake, which is when the digitizer drops).
+        wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                AppLog.info("touch", "system woke — reacquiring digitizer")
+                self?.reacquireSoon()
+            }
+        })
         let t = Timer(timeInterval: 6, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.touchOn else { return }
-                if self.touch.isSeized { self.seizeRetries = 0; return }   // healthy — nothing to do
-                if !self.edgeDetected {
-                    AppLog.info("touch", "watchdog: still searching — reacquiring digitizer")
-                    self.reacquireTouch()
-                } else if self.seizeRetries < 5 {
-                    // Present but macOS holds it (trackpad mode) — retry the seize a
-                    // bounded number of times, then stop to avoid churning the panel.
-                    self.reacquireTouch()
-                }
+                guard let self else { return }
+                if self.edgeDetected && self.touch.isSeized { self.seizeRetries = 0 }
+                // Decision order lives in the tested policy — presence before the
+                // seize flag, which goes stale-true when the device vanishes (the
+                // "touch dead until wake, mouse fine" bug).
+                guard TouchRecoveryPolicy.shouldReacquire(
+                    touchOn: self.touchOn, deviceDetected: self.edgeDetected,
+                    displayPresent: Self.edgeDisplayActive(),
+                    seized: self.touch.isSeized, seizeRetries: self.seizeRetries) else { return }
+                AppLog.info("touch", self.edgeDetected
+                    ? "watchdog: present but not seized — retrying exclusive seize"
+                    : "watchdog: digitizer missing — reacquiring")
+                self.reacquireTouch()
             }
         }
         t.tolerance = 3
@@ -321,10 +334,17 @@ final class ToolboxModel: ObservableObject {
     }
 
     /// Give USB a beat to settle after wake before reopening the device.
-    private func reacquireSoon() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+    /// Coalesced: wake/unlock/display-change often fire together, and stacked
+    /// reacquires would needlessly bounce a just-recovered connection.
+    private var pendingReacquire: DispatchWorkItem?
+    func reacquireSoon() {
+        pendingReacquire?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.pendingReacquire = nil
             self?.reacquireTouch()
         }
+        pendingReacquire = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
     }
 
     private func makeTouch() -> TouchService {
@@ -586,6 +606,18 @@ final class ToolboxModel: ObservableObject {
             if abs(b.width - 2560) < 2, abs(b.height - 720) < 2 { return b.origin }
         }
         return .zero
+    }
+
+    /// Is the Edge an active display right now? While it's asleep/unplugged its
+    /// touch controller is unpowered, so digitizer recovery waits for its return.
+    static func edgeDisplayActive() -> Bool {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        CGGetActiveDisplayList(16, &ids, &count)
+        return (0..<Int(count)).contains { i in
+            let b = CGDisplayBounds(ids[i])
+            return abs(b.width - 2560) < 2 && abs(b.height - 720) < 2
+        }
     }
 
     func toggleFullscreen() { fullscreen.toggle() }

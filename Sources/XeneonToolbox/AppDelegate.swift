@@ -219,6 +219,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func screenParametersChanged(_ note: Notification) {
         placeWindow()
+        // The panel powers its touch controller with the display: when the Edge
+        // (re)appears, the digitizer re-enumerates a beat later — reacquire it.
+        if ToolboxModel.edgeDisplayActive() {
+            AppLog.info("touch", "Edge display appeared — reacquiring digitizer")
+            model.reacquireSoon()
+        }
     }
 
     @objc private func mainWindowClosed(_ note: Notification) {
