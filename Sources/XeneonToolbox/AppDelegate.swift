@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 import ApplicationServices
 import XeneonTouchDriver
 
@@ -46,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let model = ToolboxModel()
     private var noNapToken: NSObjectProtocol?
     private var devMode = false
+    private var badge: BadgeController?
+    private var badgeSub: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         CrashReporter.install()
@@ -131,6 +134,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         model.onAppear()
 
+        // Hide-to-badge: collapsing orders the kiosk out (other apps can use the
+        // Edge) and floats a small draggable badge; tapping it restores the panel.
+        badge = BadgeController { [weak self] in self?.model.restoreFromBadge() }
+        badgeSub = model.$hiddenToBadge
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hidden in self?.applyBadgeState(hidden) }
+
+        // Dev hook: exercise hide-to-badge headlessly (hide 2s after launch).
+        if ProcessInfo.processInfo.environment["XENEON_TEST_BADGE"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.model.hideToBadge() }
+        }
         // Dev hooks: exercise the restore→relaunch flow / the crash reporter.
         if ProcessInfo.processInfo.environment["XENEON_TEST_RELAUNCH"] != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { ConfigBackup.relaunch() }
@@ -194,7 +209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             win.level = Self.kioskLevel
             win.setFrame(edge.frame, display: true)
             NSApp.presentationOptions = [.autoHideDock, .autoHideMenuBar]
-            win.orderFrontRegardless()   // show without stealing activation
+            if model.hiddenToBadge { win.orderOut(nil) }   // stay collapsed across screen changes
+            else { win.orderFrontRegardless() }            // show without stealing activation
             startYieldWatch()
         } else {
             stopYieldWatch()
@@ -282,9 +298,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // on every pass because a Space or window switch re-inserts
         // canJoinAllSpaces windows at the front of their level — without this an
         // app activated on the Edge could momentarily slip above the panel.
+        // Exception: hidden-to-badge — the user explicitly lent the Edge to other
+        // apps; keep only the badge on top.
         guard let win = window, !devMode, edgeScreen() != nil else { return }
+        if model.hiddenToBadge {
+            if win.isVisible { win.orderOut(nil) }
+            badge?.assertFront()
+            return
+        }
         if win.level != Self.kioskLevel { win.level = Self.kioskLevel }
         win.orderFrontRegardless()
+    }
+
+    /// Collapse to (or restore from) the floating badge.
+    private func applyBadgeState(_ hidden: Bool) {
+        guard let win = window, !devMode else { return }
+        if hidden {
+            if let screen = edgeScreen() ?? win.screen ?? NSScreen.main { badge?.show(on: screen) }
+            win.orderOut(nil)
+        } else {
+            badge?.hide()
+            win.orderFrontRegardless()
+        }
     }
 
 

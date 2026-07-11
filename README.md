@@ -77,7 +77,9 @@ apps built for the strip. While the app runs, the panel just works:
   typing into its search fields) without pulling focus from the app you're
   working in on the other screen.
 - **The panel owns the Edge** — the Toolbox always stays on top of the Edge, so
-  no window can ever cover it; apps you launch open on your main monitor.
+  no window can ever cover it; apps you launch open on your main monitor. Need
+  the screen? **Hide the panel into a small floating badge** (drag it anywhere)
+  and use any app on the Edge — tap the badge to bring the Toolbox back.
 - **Clock** — local time with a day-progress bar, **customizable world clocks**
   (day/night + offset cues), and a **focus timer** that keeps running while you
   switch tabs — with a live pill on the ambient screen and a chime when it's done.

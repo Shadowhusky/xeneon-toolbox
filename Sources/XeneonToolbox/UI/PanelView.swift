@@ -53,7 +53,8 @@ struct RootView: View {
                         focusTimer: model.focusTimer, exportMode: model.exportMode,
                         onFullscreen: { model.toggleFullscreen() },
                         onMinimal: { model.setDisplay(.minimal) }, onSleep: { model.setDisplay(.sleep) },
-                        onSettings: { model.showSettings = true })
+                        onSettings: { model.showSettings = true },
+                        onHide: { model.hideToBadge() })
                     .transition(.move(edge: .leading))
             }
             ZStack(alignment: .top) {
@@ -237,6 +238,7 @@ struct NavRail: View {
     var onMinimal: () -> Void = {}
     var onSleep: () -> Void = {}
     var onSettings: () -> Void = {}
+    var onHide: () -> Void = {}
 
     private var openTasks: Int { todos.items.filter { !$0.done }.count }
     private var hasOverdue: Bool { todos.items.contains { $0.isOverdue } }
@@ -293,6 +295,8 @@ struct NavRail: View {
                     railTile("Sleep", "moon.fill", Theme.time, action: onSleep)
                     railTile("Settings", "gearshape.fill", Theme.textSecondary, action: onSettings)
                 }
+                // Collapse to the floating badge, freeing the Edge for other apps.
+                railTile("Hide · use screen", "pip.enter", Theme.accent, action: onHide)
                 Button { NSApplication.shared.terminate(nil) } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "power").font(.system(size: 13, weight: .bold))

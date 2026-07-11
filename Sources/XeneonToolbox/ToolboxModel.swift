@@ -130,6 +130,20 @@ final class ToolboxModel: ObservableObject {
         CrashReporter.markHandled(report)
         crashPrompt = nil
     }
+    /// Collapsed into the floating badge: the kiosk is ordered out so other apps
+    /// can use the Edge; tapping the badge restores it.
+    @Published var hiddenToBadge = false
+
+    func hideToBadge() {
+        AppLog.info("ui", "hidden to floating badge")
+        hiddenToBadge = true
+    }
+
+    func restoreFromBadge() {
+        AppLog.info("ui", "restored from floating badge")
+        hiddenToBadge = false
+    }
+
     @Published var touchOn = false
     @Published var edgeDetected = false
     @Published var touchSeized = false          // exclusive hold; false = macOS also acts as trackpad
@@ -366,7 +380,7 @@ final class ToolboxModel: ObservableObject {
     /// normal full UI this also enters fullscreen — the swipe reads as "give me
     /// the immersive app view", matching the fullscreen gesture language.
     private func handleSwipeApp(_ next: Bool) {
-        guard displayMode == .full else { return }
+        guard !hiddenToBadge, displayMode == .full else { return }
         let all = AppRoute.tabs
         guard let i = all.firstIndex(of: route) else { return }
         let j = next ? (i + 1) % all.count : (i - 1 + all.count) % all.count
@@ -384,7 +398,7 @@ final class ToolboxModel: ObservableObject {
     /// Pull down from the top edge (in full) to drag the minimal screen into view —
     /// its bottom tracks the finger. Release past the threshold drops to it.
     private func handleShadePull(_ fraction: Double, _ phase: EdgePhase) {
-        guard displayMode == .full, !dismissing else { return }
+        guard !hiddenToBadge, displayMode == .full, !dismissing else { return }
         switch phase {
         case .began, .changed: pullFrac = fraction
         case .ended: commit(to: fraction > 0.32 ? .minimal : .full, settle: fraction > 0.32 ? 1 : 0)
@@ -394,7 +408,7 @@ final class ToolboxModel: ObservableObject {
     /// Pull down from the top-right edge to bring the control centre down; release
     /// past the threshold latches it open, otherwise it retracts.
     private func handleControlPull(_ fraction: Double, _ phase: EdgePhase) {
-        guard displayMode != .sleep else { return }
+        guard !hiddenToBadge, displayMode != .sleep else { return }
         switch phase {
         case .began, .changed: controlExt = controlExtent(fraction)
         case .ended: withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { controlExt = fraction > 0.3 ? 1 : 0 }
@@ -408,6 +422,7 @@ final class ToolboxModel: ObservableObject {
     /// Pull up from the bottom edge. Closes the control centre if it's open; else in
     /// minimal it drags the minimal screen up to the full UI; in fullscreen it exits.
     private func handleBottomPull(_ fraction: Double, _ phase: EdgePhase) {
+        guard !hiddenToBadge else { return }   // gestures belong to the app on the Edge
         switch phase {
         case .began:
             if controlExt > 0.5 {
