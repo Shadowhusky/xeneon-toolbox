@@ -20,7 +20,7 @@ enum AppDefaults {
     }()
 
     /// The keys that make up the user's configuration (for iCloud backup/restore).
-    static let configPrefixes = ["deck.", "dashboard.", "ui.", "touch.", "remote.", "tutorial.", "update.", "chat", "weather", "worldclocks", "webapps"]
+    static let configPrefixes = ["deck.", "dashboard.", "ui.", "touch.", "remote.", "tutorial.", "update.", "focus.", "chat", "weather", "worldclocks", "webapps"]
 
     static func isConfigKey(_ k: String) -> Bool { configPrefixes.contains { k.hasPrefix($0) } }
 }

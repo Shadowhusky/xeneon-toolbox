@@ -82,33 +82,31 @@ final class TouchDriver: @unchecked Sendable {
     var sideSwipeEnabled = false                       // app-switch swipes (set true in fullscreen)
     var longPressEnabled = false                       // detect long-press (set true only on the deck)
 
-    // Long-press: a single stationary contact held past `lpDuration` fires
-    // onLongPress and swallows the rest of that touch (no click), for the deck's
-    // "open on which screen" menu. Cheap no-op unless longPressEnabled.
-    private var lpStart: ScreenPoint?
-    private var lpStartTime = 0.0
-    private var lpActive = false
-    private let lpDuration = 0.5
-    private let lpSlop = 16.0
+    // Long-press: a single stationary contact held past the detector's duration
+    // fires onLongPress and swallows the rest of that touch (no click), for the
+    // deck's "open on which screen" menu. Cheap no-op unless longPressEnabled.
+    private var longPress = LongPressDetector()
 
-    /// Returns true while a long-press has engaged this contact — the caller then
-    /// swallows the frame so no click/scroll is emitted underneath it.
+    /// Returns true while a long-press owns this contact — the caller then
+    /// swallows the frame so no click/scroll is emitted underneath it. An engaged
+    /// press keeps ownership until the finger lifts even if `longPressEnabled` is
+    /// switched off mid-gesture (the app disables detection the instant the menu
+    /// opens); otherwise the still-down finger's release would leak through as a
+    /// tap and dismiss the menu it just opened.
     private func feedLongPress(count: Int, point: ScreenPoint?) -> Bool {
-        guard longPressEnabled, onLongPress != nil else { lpStart = nil; lpActive = false; return false }
-        if count != 1 || point == nil { lpStart = nil; lpActive = false; return lpActive }
-        let p = point!
-        let now = CFAbsoluteTimeGetCurrent()
-        if lpActive { return true }
-        guard let s = lpStart else { lpStart = p; lpStartTime = now; return false }
-        if hypot(p.x - s.x, p.y - s.y) > lpSlop { lpStart = nil; return false }   // moved → not a long-press
-        if now - lpStartTime >= lpDuration {
-            lpActive = true
+        guard onLongPress != nil else { longPress.reset(); return false }
+        switch longPress.update(enabled: longPressEnabled, count: count, point: point,
+                                now: CFAbsoluteTimeGetCurrent()) {
+        case .none:
+            return false
+        case .swallow:
+            return true
+        case .fire(let s):
             for action in machine.reset() { post(action) }        // cancel the pending tap
             for action in recognizer.reset() { post(action) }
             onLongPress?(s)
             return true
         }
-        return false
     }
     // Edit-mode reordering: any single-finger move = mouse drag. Like
     // sideSwipeEnabled this is written from the app thread but only *read* on the
@@ -222,6 +220,7 @@ final class TouchDriver: @unchecked Sendable {
         guard calSource != .none else { return }
         for action in recognizer.reset() { post(action) }
         for action in machine.reset() { post(action) }
+        longPress.reset()
         unregisterReportCallback()
         cancelMomentum()
         cancelWatchdog()
@@ -263,6 +262,7 @@ final class TouchDriver: @unchecked Sendable {
     func releaseHeld() {
         for action in recognizer.reset() { post(action) }
         for action in machine.reset() { post(action) }
+        longPress.reset()
         cancelMomentum()
         cancelWatchdog()
         unregisterReportCallback()
@@ -476,7 +476,14 @@ final class TouchDriver: @unchecked Sendable {
             pendingCursorSync = nil
             postMouse(.leftMouseDown, p)
         case .drag(let p):    postMouse(.leftMouseDragged, p)
-        case .release(let p): postMouse(.leftMouseUp, p)
+        case .release(let p):
+            postMouse(.leftMouseUp, p)
+            // Warp off-screen in this same cycle. A tap posts down+up at the
+            // finger point (which shows the cursor there); parking only via the
+            // async CursorController leaves the arrow blinking at the tap point
+            // for a frame. Doing it here means WindowServer composites just once,
+            // with the cursor already clipped at the corner.
+            if let c = parkCorner { postMouse(.mouseMoved, c) }
         case .scroll(let dx, let dy, let phase):
             if phase == .began, let sync = pendingCursorSync {
                 postMouse(.mouseMoved, sync)   // scrolls follow the pointer — place it once
@@ -665,6 +672,11 @@ public struct TouchServiceConfig: Sendable {
 /// immediate restart re-seizes the device cleanly.
 public final class TouchService: @unchecked Sendable {
     public var isRunning: Bool { lock.withLock { running } }
+    /// True only when we hold the digitizer EXCLUSIVELY (seized). When false, the
+    /// open fell back to non-exclusive because macOS holds the device — meaning
+    /// macOS also processes it as a Precision trackpad (the panel "reverts to a
+    /// touchpad"). The app watches this to retry the seize.
+    public var isSeized: Bool { lock.withLock { running && seized } }
     /// Called when the Edge connects/disconnects (off the main thread).
     public var onPresenceChanged: ((Bool) -> Void)?
     /// Called continuously during a top-edge pull-down, left/centre (off the main thread).
@@ -706,6 +718,7 @@ public final class TouchService: @unchecked Sendable {
     private let config: TouchServiceConfig
     private let lock = NSLock()
     private var running = false
+    private var seized = false
     private var manager: IOHIDManager?
     private var driver: TouchDriver?
     private var thread: Thread?
@@ -744,6 +757,7 @@ public final class TouchService: @unchecked Sendable {
             self.manager = manager
             self.driver = driver
             self.running = true
+            self.seized = seized
         }
 
         // Publish the worker run loop before start() returns, so a stop() that
@@ -771,6 +785,7 @@ public final class TouchService: @unchecked Sendable {
         let (mgr, drv, rl): (IOHIDManager?, TouchDriver?, CFRunLoop?) = lock.withLock {
             guard running else { return (nil, nil, nil) }
             running = false
+            seized = false
             defer { manager = nil; driver = nil; thread = nil; runLoop = nil }
             return (manager, driver, runLoop)
         }

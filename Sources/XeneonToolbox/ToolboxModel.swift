@@ -1,5 +1,6 @@
 import SwiftUI
 import XeneonTouchDriver
+import XeneonTouchCore
 import ToolboxKit
 
 enum DisplayMode { case full, minimal, sleep }
@@ -65,6 +66,7 @@ final class ToolboxModel: ObservableObject {
     let systemToggles = SystemToggles()
     let audioOutput = AudioOutput()
     let keepAwake = KeepAwake()
+    let focusTimer = FocusTimer()
     let canControlBacklight = Backlight.isAvailable
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
     private var preDimBrightness = 90             // restored when waking from sleep
@@ -128,8 +130,24 @@ final class ToolboxModel: ObservableObject {
         CrashReporter.markHandled(report)
         crashPrompt = nil
     }
+    /// Collapsed into the floating badge: the kiosk is ordered out so other apps
+    /// can use the Edge; tapping the badge restores it.
+    @Published var hiddenToBadge = false
+
+    func hideToBadge() {
+        AppLog.info("ui", "hidden to floating badge")
+        hiddenToBadge = true
+    }
+
+    func restoreFromBadge() {
+        AppLog.info("ui", "restored from floating badge")
+        hiddenToBadge = false
+    }
+
     @Published var touchOn = false
     @Published var edgeDetected = false
+    @Published var touchSeized = false          // exclusive hold; false = macOS also acts as trackpad
+    private var seizeRetries = 0                 // bounded so we don't thrash when macOS won't yield
     @Published var gamePref = "rhythm"
 
     // Touch calibration — flips persist and rebuild the driver when changed.
@@ -161,7 +179,15 @@ final class ToolboxModel: ObservableObject {
         AppLog.info("deck", "run \(action.kind.rawValue): \(action.label)")
         switch action.kind {
         case .app:
-            NSWorkspace.shared.open(URL(fileURLWithPath: action.target))
+            // Open on the tile's pinned display if it set one and that display is
+            // connected; otherwise on the main monitor (never over the Edge kiosk).
+            // Long-press the tile to pick or change its display.
+            if let name = action.preferredDisplay,
+               let d = WindowMover.displays().first(where: { !$0.isEdge && $0.name == name }) {
+                WindowMover.open(appPath: action.target, on: d)
+            } else {
+                WindowMover.openOffEdge(appPath: action.target)
+            }
         case .url:
             openWeb(action.target)   // open in the in-app browser (merged with the old saved-sites)
         case .media:
@@ -290,10 +316,29 @@ final class ToolboxModel: ObservableObject {
                 self?.reacquireSoon()
             }
         })
-        let t = Timer(timeInterval: 12, repeats: true) { [weak self] _ in
+        // Full system wake — fires even when the display-wake notification doesn't
+        // (USB re-enumerates on system wake, which is when the digitizer drops).
+        wakeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.touchOn, !self.edgeDetected else { return }
-                AppLog.info("touch", "watchdog: still searching — reacquiring digitizer")
+                AppLog.info("touch", "system woke — reacquiring digitizer")
+                self?.reacquireSoon()
+            }
+        })
+        let t = Timer(timeInterval: 6, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.edgeDetected && self.touch.isSeized { self.seizeRetries = 0 }
+                // Decision order lives in the tested policy — presence before the
+                // seize flag, which goes stale-true when the device vanishes (the
+                // "touch dead until wake, mouse fine" bug).
+                guard TouchRecoveryPolicy.shouldReacquire(
+                    touchOn: self.touchOn, deviceDetected: self.edgeDetected,
+                    displayPresent: Self.edgeDisplayActive(),
+                    seized: self.touch.isSeized, seizeRetries: self.seizeRetries) else { return }
+                AppLog.info("touch", self.edgeDetected
+                    ? "watchdog: present but not seized — retrying exclusive seize"
+                    : "watchdog: digitizer missing — reacquiring")
                 self.reacquireTouch()
             }
         }
@@ -303,10 +348,17 @@ final class ToolboxModel: ObservableObject {
     }
 
     /// Give USB a beat to settle after wake before reopening the device.
-    private func reacquireSoon() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+    /// Coalesced: wake/unlock/display-change often fire together, and stacked
+    /// reacquires would needlessly bounce a just-recovered connection.
+    private var pendingReacquire: DispatchWorkItem?
+    func reacquireSoon() {
+        pendingReacquire?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.pendingReacquire = nil
             self?.reacquireTouch()
         }
+        pendingReacquire = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
     }
 
     private func makeTouch() -> TouchService {
@@ -328,7 +380,7 @@ final class ToolboxModel: ObservableObject {
     /// normal full UI this also enters fullscreen — the swipe reads as "give me
     /// the immersive app view", matching the fullscreen gesture language.
     private func handleSwipeApp(_ next: Bool) {
-        guard displayMode == .full else { return }
+        guard !hiddenToBadge, displayMode == .full else { return }
         let all = AppRoute.tabs
         guard let i = all.firstIndex(of: route) else { return }
         let j = next ? (i + 1) % all.count : (i - 1 + all.count) % all.count
@@ -346,7 +398,7 @@ final class ToolboxModel: ObservableObject {
     /// Pull down from the top edge (in full) to drag the minimal screen into view —
     /// its bottom tracks the finger. Release past the threshold drops to it.
     private func handleShadePull(_ fraction: Double, _ phase: EdgePhase) {
-        guard displayMode == .full, !dismissing else { return }
+        guard !hiddenToBadge, displayMode == .full, !dismissing else { return }
         switch phase {
         case .began, .changed: pullFrac = fraction
         case .ended: commit(to: fraction > 0.32 ? .minimal : .full, settle: fraction > 0.32 ? 1 : 0)
@@ -356,7 +408,7 @@ final class ToolboxModel: ObservableObject {
     /// Pull down from the top-right edge to bring the control centre down; release
     /// past the threshold latches it open, otherwise it retracts.
     private func handleControlPull(_ fraction: Double, _ phase: EdgePhase) {
-        guard displayMode != .sleep else { return }
+        guard !hiddenToBadge, displayMode != .sleep else { return }
         switch phase {
         case .began, .changed: controlExt = controlExtent(fraction)
         case .ended: withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { controlExt = fraction > 0.3 ? 1 : 0 }
@@ -370,6 +422,7 @@ final class ToolboxModel: ObservableObject {
     /// Pull up from the bottom edge. Closes the control centre if it's open; else in
     /// minimal it drags the minimal screen up to the full UI; in fullscreen it exits.
     private func handleBottomPull(_ fraction: Double, _ phase: EdgePhase) {
+        guard !hiddenToBadge else { return }   // gestures belong to the app on the Edge
         switch phase {
         case .began:
             if controlExt > 0.5 {
@@ -497,7 +550,8 @@ final class ToolboxModel: ObservableObject {
     private func attemptAcquire() {
         guard touchOn else { return }
         if touch.start() {
-            AppLog.info("touch", "driver started")
+            touchSeized = touch.isSeized
+            AppLog.info("touch", "driver started (seized=\(touchSeized))\(touchSeized ? "" : " — macOS holds the digitizer; panel acts as a trackpad until re-seized")")
             retryTimer?.invalidate(); retryTimer = nil
         } else if retryTimer == nil {
             AppLog.error("touch", "driver couldn't open the digitizer — retrying every 3s")
@@ -509,11 +563,16 @@ final class ToolboxModel: ObservableObject {
         }
     }
 
-    /// Re-seize when the app regains focus — but only if we're not already driving
-    /// the panel, so a working session is never interrupted. This restores touch
-    /// after macOS has reclaimed the digitizer (as a trackpad) while backgrounded.
+    /// Re-seize the digitizer. Fires when it's not detected (searching) OR when
+    /// it's present but we only hold it non-exclusively (macOS is also driving it
+    /// as a trackpad — "the panel reverted to a touchpad"). A full session that's
+    /// detected AND seized is never interrupted.
     func reacquireTouch() {
-        guard touchOn, !edgeDetected else { return }
+        guard touchOn, !edgeDetected || !touch.isSeized else { return }
+        if edgeDetected && !touch.isSeized {
+            AppLog.info("touch", "present but not seized — retrying exclusive seize (\(seizeRetries + 1))")
+            seizeRetries += 1
+        }
         touch.stop()
         attemptAcquire()
     }
@@ -562,6 +621,18 @@ final class ToolboxModel: ObservableObject {
             if abs(b.width - 2560) < 2, abs(b.height - 720) < 2 { return b.origin }
         }
         return .zero
+    }
+
+    /// Is the Edge an active display right now? While it's asleep/unplugged its
+    /// touch controller is unpowered, so digitizer recovery waits for its return.
+    static func edgeDisplayActive() -> Bool {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        CGGetActiveDisplayList(16, &ids, &count)
+        return (0..<Int(count)).contains { i in
+            let b = CGDisplayBounds(ids[i])
+            return abs(b.width - 2560) < 2 && abs(b.height - 720) < 2
+        }
     }
 
     func toggleFullscreen() { fullscreen.toggle() }

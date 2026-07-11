@@ -28,29 +28,25 @@ struct DashboardView: View {
                     .frame(maxHeight: .infinity)
                 if showBottomBar { bottomBar }
             }
-            .animation(.easeInOut(duration: 0.3), value: model.media.nowPlaying == nil)
-            .animation(.easeInOut(duration: 0.25), value: editing)
-            .animation(.easeInOut(duration: 0.25), value: model.showNowPlaying)
+            .animation(Motion.standard, value: model.media.nowPlaying == nil)
+            .animation(Motion.standard, value: editing)
+            .animation(Motion.standard, value: model.showNowPlaying)
 
             if let kind = detailKind, !editing {
-                ZStack {
-                    Color.black.opacity(0.62).ignoresSafeArea().onTapGesture { close() }
+                ModalScaffold(dim: 0.62, onDismiss: { close() }) {
                     MetricDetailView(detail: detail(for: kind), processes: procs) { close() }
-                        .transition(.scale(scale: 0.92).combined(with: .opacity))
                 }
                 .zIndex(1)
             }
             if showWeather, !editing {
-                ZStack {
-                    Color.black.opacity(0.62).ignoresSafeArea().onTapGesture { showWeather = false }
-                    WeatherDetailView(weather: weather.weather) { showWeather = false }
-                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                ModalScaffold(dim: 0.62, onDismiss: { showWeather = false }) {
+                    WeatherDetailView(weather: weather.weather, loading: !weather.firstAttemptDone) { showWeather = false }
                 }
                 .zIndex(1)
             }
         }
-        .animation(.spring(response: 0.34, dampingFraction: 0.82), value: detailKind)
-        .animation(.spring(response: 0.34, dampingFraction: 0.82), value: showWeather)
+        .animation(Motion.pop, value: detailKind)
+        .animation(Motion.pop, value: showWeather)
         .onAppear {
             switch ProcessInfo.processInfo.environment["XENEON_DETAIL"] {
             case "cpu": open(.cpu); case "gpu": open(.gpu)
@@ -128,16 +124,16 @@ struct DashboardView: View {
         switch tile {
         case .clock: ClockTile(uptime: snap.uptime, weather: weather.weather)
         case .cpu: CPUTile(value: snap.cpu, history: metrics.cpuHistory)
-        case .gpu: GPUTile(value: snap.gpu, history: metrics.gpuHistory)
+        case .gpu: GPUTile(value: snap.gpu, history: metrics.gpuHistory, available: snap.gpuAvailable)
         case .memory: MemoryTile(snap: snap)
         case .network: NetworkTile(snap: snap, rxHistory: metrics.netRxHistory, txHistory: metrics.netTxHistory)
         case .storage: StorageTile(snap: snap)
         case .power: PowerTile(battery: snap.battery, uptime: snap.uptime)
         case .controls: ControlsTile(status: model.touchStatus, toggleTouch: model.toggleTouch,
                                      flipX: $model.flipX, flipY: $model.flipY, swapXY: $model.swapXY,
-                                     onEditLayout: { withAnimation(.easeInOut(duration: 0.25)) { close(); editing = true } },
+                                     onEditLayout: { withAnimation(Motion.standard) { close(); editing = true } },
                                      nowPlayingHidden: !model.showNowPlaying,
-                                     onShowNowPlaying: { withAnimation(.easeInOut(duration: 0.25)) { model.showNowPlaying = true } })
+                                     onShowNowPlaying: { withAnimation(Motion.standard) { model.showNowPlaying = true } })
                 .frame(maxWidth: 300)
         }
     }
@@ -153,7 +149,7 @@ struct DashboardView: View {
     }
 
     private func hideBadge(_ tile: DashTile) -> some View {
-        Button { withAnimation(.spring(response: 0.3)) { layout.hide(tile) } } label: {
+        Button { withAnimation(Motion.standard) { layout.hide(tile) } } label: {
             Image(systemName: "minus.circle.fill")
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(.white, Theme.batteryLow)
@@ -179,7 +175,7 @@ struct DashboardView: View {
                     guard t != d, let f = frames[t] else { return false }
                     return center >= f.minX && center <= f.maxX
                 }), let tf = frames[target] else { return }
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                withAnimation(Motion.snappy) {
                     layout.move(d, toward: target, before: center < tf.midX)
                 }
             }
@@ -220,7 +216,7 @@ struct DashboardView: View {
             } else {
                 Text("Hidden").font(.deck(12, .bold)).tracking(1).foregroundStyle(Theme.textFaint)
                 ForEach(hidden) { tile in
-                    Button { withAnimation(.spring(response: 0.3)) { layout.show(tile) } } label: {
+                    Button { withAnimation(Motion.standard) { layout.show(tile) } } label: {
                         HStack(spacing: 7) {
                             Image(systemName: tile.icon).font(.system(size: 12, weight: .bold))
                             Text(tile.title).font(.deck(13, .semibold))
@@ -237,7 +233,7 @@ struct DashboardView: View {
     }
 
     private var resetButton: some View {
-        Button { withAnimation(.spring(response: 0.3)) { layout.reset() } } label: {
+        Button { withAnimation(Motion.standard) { layout.reset() } } label: {
             Text("Reset").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
                 .padding(.horizontal, 16).frame(height: 54)
                 .background(Capsule().fill(Color.white.opacity(0.05)))
@@ -247,7 +243,7 @@ struct DashboardView: View {
 
     private var doneButton: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.25)) { layout.save(); editing = false }
+            withAnimation(Motion.standard) { layout.save(); editing = false }
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "checkmark").font(.system(size: 14, weight: .bold))

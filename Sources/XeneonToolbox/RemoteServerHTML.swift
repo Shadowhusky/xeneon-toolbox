@@ -93,6 +93,16 @@ extension RemoteServer {
   .iconbtn.mic.live{background:#fb746b;border-color:#fb746b;color:#fff;animation:pulse 1s infinite}
   @keyframes pulse{0%,100%{box-shadow:0 0 0 0 #fb746b66}50%{box-shadow:0 0 0 8px #fb746b00}}
   .foot{color:var(--faint);font-size:12px;text-align:center}
+  #deck button{min-height:56px;padding:10px 6px;font-size:13px}
+  #deck button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  .np{display:flex;align-items:center;gap:12px}
+  .npmeta{flex:1;min-width:0}
+  .nptitle{font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .npartist{color:var(--dim);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .npctl{display:flex;gap:8px}
+  .npplay{background:#54d6eb;border-color:#54d6eb;color:#03222a}
+  .slider .vvol{color:var(--cyan)}
+  #volwrap input{accent-color:var(--cyan)}
   @media(max-width:380px){.grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -115,6 +125,31 @@ extension RemoteServer {
       <input id="weburl" type="text" placeholder="Open a URL on the Edge…" autocapitalize="off" autocomplete="off" spellcheck="false"
         style="flex:1;min-width:0;background:#ffffff0e;border:1px solid var(--stroke);border-radius:12px;color:var(--txt);padding:11px 14px;font-size:15px;outline:none">
       <button id="webgo" style="background:#54d6eb;color:#04222a;border:none;border-radius:12px;padding:0 18px;font-weight:800;font-size:14px">Open</button>
+    </div>
+  </section>
+
+  <section class="card" id="deckcard" style="display:none">
+    <p class="label">DECK</p>
+    <div class="grid" id="deck"></div>
+  </section>
+
+  <section class="card" id="mediacard" style="display:none">
+    <p class="label">NOW PLAYING</p>
+    <div class="np">
+      <div class="npmeta">
+        <div class="nptitle" id="nptitle">–</div>
+        <div class="npartist" id="npartist"></div>
+      </div>
+      <div class="npctl">
+        <button class="iconbtn" id="mprev" title="Previous"></button>
+        <button class="iconbtn npplay" id="mplay" title="Play / Pause"></button>
+        <button class="iconbtn" id="mnext" title="Next"></button>
+      </div>
+    </div>
+    <div class="slider" id="volwrap" style="display:none">
+      <span class="bsun" id="vico"></span>
+      <input id="vol" type="range" min="0" max="100" value="50">
+      <span class="v vvol" id="volv">50%</span>
     </div>
   </section>
 
@@ -161,7 +196,20 @@ const P={
  mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>',
  send:'<path d="M12 19V5"/><path d="M5 12l7-7 7 7"/>',
  down:'<path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/>',
- grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'
+ grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+ app:'<rect x="4" y="4" width="16" height="16" rx="4"/>',
+ url:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/>',
+ system:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+ media:'<path d="M9 18V6l12-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+ command:'<path d="M4 17l6-6-6-6"/><path d="M12 19h8"/>',
+ webhook:'<path d="M12 3v6"/><path d="M12 9a4 4 0 1 0 4 4"/><path d="M8.6 20a4 4 0 1 0-4.5-5.5"/><path d="M15.4 20a4 4 0 1 0 4.5-5.5"/>',
+ keystroke:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/>',
+ multi:'<rect x="3" y="9" width="12" height="12" rx="2"/><path d="M7 9V7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/>',
+ play:'<path d="M7 4l13 8-13 8z"/>',
+ pause:'<rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/>',
+ prev:'<path d="M19 20L9 12l10-8z"/><line x1="5" y1="19" x2="5" y2="5"/>',
+ next:'<path d="M5 4l10 8-10 8z"/><line x1="19" y1="5" x2="19" y2="19"/>',
+ speaker:'<path d="M11 5L6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>'
 };
 const svg=(n,cls='ico')=>'<svg class="'+cls+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>';
 
@@ -192,6 +240,34 @@ bright.oninput=()=>{brightv.textContent=bright.value+'%';clearTimeout(brightT);
   brightT=setTimeout(()=>post('/api/brightness',{level:+bright.value}),120);};
 bright.onpointerdown=()=>brightFocused=true; bright.onpointerup=()=>setTimeout(()=>brightFocused=false,400);
 
+// Deck: run any tile from the phone. Loaded once, refreshed occasionally.
+const deckEl=document.getElementById('deck'), deckCard=document.getElementById('deckcard');
+let deckSig='';
+async function loadDeck(){
+  const d=await j('/api/deck'); const tiles=(d&&d.tiles)||[];
+  const sig=JSON.stringify(tiles); if(sig===deckSig)return; deckSig=sig;
+  deckEl.innerHTML='';
+  tiles.forEach(t=>{const b=document.createElement('button');
+    b.innerHTML=svg(P[t.kind]?t.kind:'app')+'<span>'+t.label.replace(/</g,'&lt;')+'</span>';
+    b.onclick=()=>post('/api/deck/run',{id:t.id});deckEl.appendChild(b);});
+  deckCard.style.display=tiles.length?'block':'none';
+}
+loadDeck(); setInterval(loadDeck,15000);
+
+// Now playing + volume.
+const mediaCard=document.getElementById('mediacard');
+document.getElementById('mprev').innerHTML=svg('prev');
+document.getElementById('mnext').innerHTML=svg('next');
+document.getElementById('vico').innerHTML=svg('speaker','bsun');
+document.getElementById('mprev').onclick=()=>{post('/api/media',{action:'previous'});setTimeout(tick,400);};
+document.getElementById('mnext').onclick=()=>{post('/api/media',{action:'next'});setTimeout(tick,400);};
+document.getElementById('mplay').onclick=()=>{post('/api/media',{action:'playpause'});setTimeout(tick,400);};
+const vol=document.getElementById('vol'), volv=document.getElementById('volv');
+let volT=null, volFocused=false;
+vol.oninput=()=>{volv.textContent=vol.value+'%';clearTimeout(volT);
+  volT=setTimeout(()=>post('/api/volume',{level:+vol.value}),120);};
+vol.onpointerdown=()=>volFocused=true; vol.onpointerup=()=>setTimeout(()=>volFocused=false,400);
+
 function paintState(s){
   if(!s||!s.route)return;
   document.getElementById('cpu').textContent=(s.cpu??0)+'%';
@@ -201,6 +277,17 @@ function paintState(s){
   document.querySelectorAll('#display button').forEach(b=>b.classList.toggle('on',b.dataset.mode===s.display));
   document.getElementById('brightwrap').style.display=s.canBrightness?'flex':'none';
   if(s.canBrightness&&!brightFocused){bright.value=s.brightness;brightv.textContent=s.brightness+'%';}
+  const hasVol=typeof s.volume==='number';
+  mediaCard.style.display=(s.media||hasVol)?'block':'none';
+  document.querySelector('.np').style.display=s.media?'flex':'none';
+  if(s.media){
+    document.getElementById('nptitle').textContent=s.media.title||'–';
+    document.getElementById('npartist').textContent=s.media.artist||'';
+    document.getElementById('mplay').innerHTML=svg(s.media.playing?'pause':'play');
+  }
+  const volwrap=document.getElementById('volwrap');
+  volwrap.style.display=hasVol?'flex':'none';
+  if(hasVol&&!volFocused){vol.value=s.volume;volv.textContent=s.volume+'%';}
 }
 
 const logEl=document.getElementById('log');

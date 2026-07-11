@@ -3,13 +3,14 @@ import ToolboxKit
 
 struct ClockAppView: View {
     @ObservedObject var store: WorldClockStore
+    @ObservedObject var timer: FocusTimer
     var exportMode = false
 
     var body: some View {
         HStack(spacing: Theme.tileGap) {
             NowCard()
             WorldClocksCard(store: store, exportMode: exportMode).frame(maxWidth: 470)
-            FocusTimerCard().frame(maxWidth: 470)
+            FocusTimerCard(timer: timer).frame(maxWidth: 470)
         }
     }
 }
@@ -273,49 +274,39 @@ private struct WorldRow: View {
 // MARK: - Focus
 
 private struct FocusTimerCard: View {
-    @State private var total = 25 * 60
-    @State private var remaining = 25 * 60
-    @State private var running = false
-    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @ObservedObject var timer: FocusTimer
 
     var body: some View {
         TileSurface(accent: Theme.netUp) {
             VStack(alignment: .leading, spacing: 0) {
                 TileHeader(title: "Focus", systemImage: "timer", accent: Theme.netUp)
                 Spacer()
-                RingGauge(value: total == 0 ? 0 : Double(total - remaining) / Double(total), color: Theme.netUp) {
-                    Text(clock).font(.readout(40, .bold)).foregroundStyle(Theme.textPrimary)
+                RingGauge(value: timer.fraction, color: Theme.netUp) {
+                    Text(timer.clock).font(.readout(40, .bold)).foregroundStyle(Theme.textPrimary)
                 }
                 .frame(width: 188, height: 188)
                 .frame(maxWidth: .infinity)
                 Spacer()
                 HStack(spacing: 8) {
-                    ForEach([15, 25, 45], id: \.self) { preset($0) }
+                    ForEach(timer.presets, id: \.self) { preset($0) }
                 }
                 Spacer().frame(height: 12)
                 HStack(spacing: 12) {
-                    control(running ? "Pause" : "Start", icon: running ? "pause.fill" : "play.fill", accent: true) {
-                        running.toggle()
+                    control(timer.running ? "Pause" : "Start", icon: timer.running ? "pause.fill" : "play.fill", accent: true) {
+                        timer.toggle()
                     }
                     control("Reset", icon: "arrow.counterclockwise", accent: false) {
-                        running = false; remaining = total
+                        timer.reset()
                     }
                 }
             }
         }
-        .onReceive(tick) { _ in
-            guard running, remaining > 0 else { return }
-            remaining -= 1
-            if remaining == 0 { running = false; NSSound.beep() }
-        }
     }
 
-    private var clock: String { String(format: "%02d:%02d", remaining / 60, remaining % 60) }
-
     private func preset(_ mins: Int) -> some View {
-        let selected = total == mins * 60
+        let selected = timer.isPreset(mins)
         return Button {
-            total = mins * 60; remaining = mins * 60; running = false
+            timer.setDuration(minutes: mins)
         } label: {
             Text("\(mins)m").font(.deck(17, .semibold))
                 .foregroundStyle(selected ? Theme.netUp : Theme.textSecondary)

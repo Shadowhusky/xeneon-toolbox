@@ -80,6 +80,7 @@ struct DeckAction: Codable, Identifiable, Equatable {
     var keyCode: Int? = nil            // keystroke: virtual key code
     var modifiers: UInt? = nil         // keystroke: NSEvent.ModifierFlags raw value
     var steps: [DeckAction]? = nil     // multi: actions run in order (snapshots, never .multi)
+    var preferredDisplay: String? = nil // app: display name to always open on (else the main display)
 
     static func app(path: String) -> DeckAction {
         DeckAction(kind: .app, label: appName(path), target: path)
@@ -159,6 +160,14 @@ final class DeckStore: ObservableObject {
         a.iconPath = iconPath
         if let target, !target.isEmpty { a.target = target }
         actions[i] = a
+        persist()
+    }
+
+    /// Set (or clear, with nil) the display an app tile always opens on. Tapping
+    /// the tile then opens it there directly instead of on the main display.
+    func setPreferredDisplay(_ id: DeckAction.ID, _ name: String?) {
+        guard let i = actions.firstIndex(where: { $0.id == id }) else { return }
+        actions[i].preferredDisplay = name
         persist()
     }
 

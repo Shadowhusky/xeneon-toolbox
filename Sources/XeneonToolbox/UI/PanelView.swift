@@ -11,7 +11,7 @@ struct RootView: View {
             switch model.displayMode {
             case .full: fullUI
             case .minimal:
-                MinimalView(metrics: metrics, todos: model.todos, media: model.media, weather: model.weather.weather, nextEvent: model.calendar.next,
+                MinimalView(metrics: metrics, todos: model.todos, media: model.media, focusTimer: model.focusTimer, weather: model.weather.weather, nextEvent: model.calendar.next,
                             showNowPlaying: model.showNowPlaying, onHideNowPlaying: { model.showNowPlaying = false },
                             onOpenAgenda: { model.showAgenda = true }, onOpenNowPlaying: { model.showNowPlayingFull = true })
                     .contentShape(Rectangle()).onTapGesture { model.setDisplay(.full) }
@@ -38,8 +38,10 @@ struct RootView: View {
                 NowPlayingFullView(media: model.media) { model.showNowPlayingFull = false }
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: model.showNowPlayingFull)
-        .animation(.easeInOut(duration: 0.25), value: model.showAgenda)
+        // Focus session finished — a clear alert over whatever's on screen.
+        .overlay { FocusDoneGate(timer: model.focusTimer) }
+        .animation(Motion.standard, value: model.showNowPlayingFull)
+        .animation(Motion.pop, value: model.showAgenda)
         .animation(.easeInOut(duration: 0.4), value: model.displayMode)
         .onChange(of: model.showAgenda) { if model.showAgenda { model.calendar.refresh() } }
     }
@@ -48,10 +50,11 @@ struct RootView: View {
         HStack(spacing: 0) {
             if !model.fullscreen {
                 NavRail(route: $model.route, touchActive: model.touchStatus == .active, todos: model.todos,
-                        exportMode: model.exportMode,
+                        focusTimer: model.focusTimer, exportMode: model.exportMode,
                         onFullscreen: { model.toggleFullscreen() },
                         onMinimal: { model.setDisplay(.minimal) }, onSleep: { model.setDisplay(.sleep) },
-                        onSettings: { model.showSettings = true })
+                        onSettings: { model.showSettings = true },
+                        onHide: { model.hideToBadge() })
                     .transition(.move(edge: .leading))
             }
             ZStack(alignment: .top) {
@@ -69,7 +72,7 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .clipped()
             }
-            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: model.route)
+            .animation(Motion.page, value: model.route)
         }
         .background(Theme.background)
         // In fullscreen every page hides its chrome. The exit tab sits at the
@@ -81,12 +84,9 @@ struct RootView: View {
         }
         .overlay {
             if model.showSettings {
-                ZStack {
-                    Color.black.opacity(0.55).ignoresSafeArea()
-                        .onTapGesture { model.showSettings = false }
+                ModalScaffold(onDismiss: { model.showSettings = false }) {
                     SettingsView(model: model, remote: model.remote, updater: model.updater) { model.showSettings = false }
                 }
-                .transition(.opacity)
             }
         }
         .overlay { UpdateGate(updater: model.updater, fullscreen: model.fullscreen) }
@@ -106,15 +106,15 @@ struct RootView: View {
             if let frac = model.pullFrac { minimalPullOverlay(CGFloat(frac)) }
         }
         .animation(.easeInOut(duration: 0.3), value: model.fullscreen)
-        .animation(.easeInOut(duration: 0.25), value: model.showSettings)
+        .animation(Motion.pop, value: model.showSettings)
         .animation(.easeInOut(duration: 0.3), value: model.showFsTutorial)
+        .animation(Motion.pop, value: model.crashPrompt != nil)
     }
 
     /// One-time prompt after a crash: open a prefilled GitHub issue with the
     /// report so any user can send it in a tap.
     private var crashReportPrompt: some View {
-        ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { model.dismissCrashReport() }
+        ModalScaffold(onDismiss: { model.dismissCrashReport() }) {
             VStack(spacing: 14) {
                 Image(systemName: "ladybug.fill").font(.system(size: 32)).foregroundStyle(Theme.batteryLow)
                 Text("The app crashed last time").font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
@@ -141,7 +141,6 @@ struct RootView: View {
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
             .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
         }
-        .transition(.opacity)
     }
 
     @ViewBuilder private var controlCenterOverlay: some View {
@@ -163,7 +162,7 @@ struct RootView: View {
 
     @ViewBuilder private func minimalPullOverlay(_ frac: CGFloat) -> some View {
         GeometryReader { geo in
-            MinimalView(metrics: metrics, todos: model.todos, media: model.media, weather: model.weather.weather, nextEvent: model.calendar.next,
+            MinimalView(metrics: metrics, todos: model.todos, media: model.media, focusTimer: model.focusTimer, weather: model.weather.weather, nextEvent: model.calendar.next,
                         showNowPlaying: model.showNowPlaying, onHideNowPlaying: { model.showNowPlaying = false })
                 .frame(width: geo.size.width, height: geo.size.height)
                 .background(Color.black)
@@ -220,7 +219,7 @@ struct RootView: View {
         switch model.route {
         case .dashboard: DashboardView(model: model, metrics: metrics, weather: model.weather, layout: model.dashboardLayout)
         case .deck: DeckView(model: model, deck: model.deck)
-        case .clock: ClockAppView(store: model.worldClocks, exportMode: model.exportMode)
+        case .clock: ClockAppView(store: model.worldClocks, timer: model.focusTimer, exportMode: model.exportMode)
         case .tasks: TasksView(todos: model.todos, exportMode: model.exportMode)
         case .games: GamesView(model: model)
         case .web: BrowserView(model: model, web: model.web)
@@ -233,11 +232,13 @@ struct NavRail: View {
     @Binding var route: AppRoute
     var touchActive: Bool
     @ObservedObject var todos: TodoStore
+    @ObservedObject var focusTimer: FocusTimer
     var exportMode = false
     var onFullscreen: () -> Void = {}
     var onMinimal: () -> Void = {}
     var onSleep: () -> Void = {}
     var onSettings: () -> Void = {}
+    var onHide: () -> Void = {}
 
     private var openTasks: Int { todos.items.filter { !$0.done }.count }
     private var hasOverdue: Bool { todos.items.contains { $0.isOverdue } }
@@ -247,8 +248,9 @@ struct NavRail: View {
             ForEach(AppRoute.tabs) { r in
                 NavButton(route: r, selected: route == r,
                           badge: r == .tasks ? openTasks : 0,
-                          badgeUrgent: r == .tasks && hasOverdue) {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { route = r }
+                          badgeUrgent: r == .tasks && hasOverdue,
+                          dot: r == .clock && focusTimer.running) {
+                    withAnimation(Motion.page) { route = r }
                 }
             }
         }
@@ -293,6 +295,8 @@ struct NavRail: View {
                     railTile("Sleep", "moon.fill", Theme.time, action: onSleep)
                     railTile("Settings", "gearshape.fill", Theme.textSecondary, action: onSettings)
                 }
+                // Collapse to the floating badge, freeing the Edge for other apps.
+                railTile("Hide · use screen", "pip.enter", Theme.accent, action: onHide)
                 Button { NSApplication.shared.terminate(nil) } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "power").font(.system(size: 13, weight: .bold))
@@ -352,6 +356,7 @@ private struct NavButton: View {
     let selected: Bool
     var badge: Int = 0
     var badgeUrgent: Bool = false
+    var dot: Bool = false
     let action: () -> Void
 
     private var accent: Color { route.accent }
@@ -369,6 +374,10 @@ private struct NavButton: View {
                                 .padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Capsule().fill(badgeUrgent ? Theme.batteryLow : accent))
                                 .offset(x: 13, y: -9)
+                        } else if dot {
+                            Circle().fill(Theme.netUp).frame(width: 8, height: 8)
+                                .deckGlow(Theme.netUp, strength: 0.8)
+                                .offset(x: 8, y: -6)
                         }
                     }
                 Text(route.title).font(.deck(16, .semibold)).tracking(0.2)

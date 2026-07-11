@@ -38,8 +38,7 @@ struct TileEditForm: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture(perform: onDone)
+        ModalScaffold(onDismiss: onDone) {
             VStack(spacing: 0) {
                 HStack {
                     Text("Edit tile").font(.deck(22, .bold)).foregroundStyle(Theme.textPrimary)

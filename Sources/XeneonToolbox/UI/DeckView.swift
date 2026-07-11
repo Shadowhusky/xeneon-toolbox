@@ -37,6 +37,7 @@ struct DeckView: View {
                     ForEach(deck.actions) { action in
                         DeckTile(action: action, editing: editing, lifted: dragging == action.id,
                                  running: action.kind == .app && runningApps.contains(action.target),
+                                 pinned: action.kind == .app && action.preferredDisplay != nil,
                                  onRun: { model.runDeck($0) })
                             // In edit mode the tiles stop consuming touches, so the grid's
                             // drag gesture actually receives them. This is the exact reason
@@ -56,7 +57,7 @@ struct DeckView: View {
                                 if editing && dragging != action.id { editBadge(action) }
                             }
                     }
-                    if editing { AddTile { withAnimation(.easeInOut(duration: 0.2)) { showAdd = true } } }
+                    if editing { AddTile { withAnimation(Motion.smooth) { showAdd = true } } }
                 }
                 .coordinateSpace(name: space)
                 .onPreferenceChange(DeckFrameKey.self) { frames = $0 }
@@ -81,8 +82,10 @@ struct DeckView: View {
         .overlay { if let p = pending { confirmModal(p) } }
         .overlay { if let a = screenPickerAction { screenPicker(a) } }
         .overlay { if let a = editingAction { TileEditForm(deck: deck, action: a) { editingAction = nil } } }
-        .animation(.easeInOut(duration: 0.2), value: editing)
-        .animation(.easeInOut(duration: 0.2), value: screenPickerAction)
+        .animation(Motion.standard, value: editing)
+        .animation(Motion.pop, value: screenPickerAction)
+        .animation(Motion.pop, value: pending)
+        .animation(Motion.pop, value: editingAction)
         // A long-press on an app tile (detected by the driver) opens a picker to
         // choose which display to open/move the app on.
         .onChange(of: model.deckLongPressAt) {
@@ -133,10 +136,10 @@ struct DeckView: View {
                     .transition(.opacity)
             }
             Spacer()
-            deckButton("Sort", "arrow.up.arrow.down", tint: Theme.textSecondary) { withAnimation { showSortMenu.toggle() } }
+            deckButton("Sort", "arrow.up.arrow.down", tint: Theme.textSecondary) { withAnimation(Motion.snappy) { showSortMenu.toggle() } }
             if editing { deckButton("Reset", "arrow.counterclockwise", tint: Theme.textSecondary) { pending = .reset } }
             deckButton(editing ? "Done" : "Edit", editing ? "checkmark" : "square.and.pencil",
-                       tint: editing ? Theme.battery : Theme.textSecondary) { withAnimation { editing.toggle() } }
+                       tint: editing ? Theme.battery : Theme.textSecondary) { withAnimation(Motion.standard) { editing.toggle() } }
         }
     }
 
@@ -158,10 +161,10 @@ struct DeckView: View {
 
     private var sortMenu: some View {
         ZStack(alignment: .topTrailing) {
-            Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { withAnimation { showSortMenu = false } }
+            Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { withAnimation(Motion.snappy) { showSortMenu = false } }
             VStack(spacing: 6) {
                 ForEach(DeckSort.allCases) { s in
-                    Button { withAnimation { showSortMenu = false }; requestSort(s) } label: {
+                    Button { withAnimation(Motion.snappy) { showSortMenu = false }; requestSort(s) } label: {
                         HStack(spacing: 10) {
                             Image(systemName: s.icon).font(.system(size: 14, weight: .semibold)).frame(width: 20)
                             Text(s.label).font(.deck(15, .semibold))
@@ -179,6 +182,7 @@ struct DeckView: View {
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
             .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
             .padding(.top, 56).padding(.trailing, 4)
+            .transition(.scale(scale: 0.9, anchor: .topTrailing).combined(with: .opacity))
         }
     }
 
@@ -192,8 +196,7 @@ struct DeckView: View {
             : "Sorting will overwrite your current tile order. Tiles you added stay."
         let confirmLabel = isReset ? "Reset" : "Sort"
         let tint = isReset ? Theme.batteryLow : Theme.battery
-        return ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { pending = nil }
+        return ModalScaffold(onDismiss: { pending = nil }) {
             VStack(spacing: 16) {
                 Image(systemName: isReset ? "exclamationmark.triangle.fill" : "arrow.up.arrow.down.circle.fill")
                     .font(.system(size: 34)).foregroundStyle(tint)
@@ -238,67 +241,88 @@ struct DeckView: View {
     // MARK: Screen picker (long-press an app tile)
 
     private func screenPicker(_ action: DeckAction) -> some View {
-        let displays = WindowMover.displays()
-        return ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { screenPickerAction = nil }
+        // The Edge belongs to the Toolbox — apps only open on the other displays.
+        let displays = WindowMover.displays().filter { !$0.isEdge }
+        // Read the live tile so the pin state reflects edits made in this modal.
+        let pinned = (deck.actions.first { $0.id == action.id } ?? action).preferredDisplay
+        return ModalScaffold(onDismiss: { screenPickerAction = nil }) {
             VStack(spacing: 16) {
                 HStack(spacing: 12) {
                     DeckActionIcon(action: action, size: 40)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(action.label).font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
-                        Text(runningApps.contains(action.target) ? "Move to display" : "Open on display")
+                        Text("Tap a screen to open · pin one to always open there")
                             .font(.deck(13)).foregroundStyle(Theme.textSecondary)
                     }
                     Spacer(minLength: 0)
                 }
                 VStack(spacing: 10) {
-                    ForEach(displays) { d in
-                        Button {
-                            WindowMover.open(appPath: action.target, on: d)
-                            screenPickerAction = nil
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: d.isEdge ? "rectangle.on.rectangle.angled" : "display")
-                                    .font(.system(size: 20, weight: .semibold)).foregroundStyle(Theme.accent).frame(width: 30)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(d.name).font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
-                                    Text("\(Int(d.bounds.width))×\(Int(d.bounds.height))")
-                                        .font(.deck(12)).foregroundStyle(Theme.textFaint)
-                                }
-                                Spacer(minLength: 0)
-                                Image(systemName: "arrow.up.forward").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.textFaint)
-                            }
-                            .padding(.horizontal, 16).frame(height: 60)
-                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)))
-                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
-                            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }.buttonStyle(.pressable)
-                    }
-                    if runningApps.contains(action.target) {
-                        Button {
-                            WindowMover.quit(appPath: action.target)
-                            screenPickerAction = nil
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "xmark.circle.fill").font(.system(size: 20, weight: .semibold))
-                                    .foregroundStyle(Theme.batteryLow).frame(width: 30)
-                                Text("Quit \(action.label)").font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 16).frame(height: 60)
-                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.batteryLow.opacity(0.12)))
-                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.batteryLow.opacity(0.4), lineWidth: 1))
-                            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }.buttonStyle(.pressable)
-                    }
+                    ForEach(displays) { d in displayRow(action, d, pinned: pinned == d.name) }
+                    if runningApps.contains(action.target) { quitRow(action) }
                 }
             }
-            .padding(24).frame(width: 460)
+            .padding(24).frame(width: 500)
             .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial))
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
             .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
         }
-        .transition(.opacity)
+    }
+
+    private func displayRow(_ action: DeckAction, _ d: WindowMover.Display, pinned: Bool) -> some View {
+        let tint = pinned ? Theme.battery : Theme.accent
+        return HStack(spacing: 10) {
+            // Tap the row body → open the app there now.
+            Button {
+                WindowMover.open(appPath: action.target, on: d)
+                screenPickerAction = nil
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "display").font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(tint).frame(width: 30)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(d.name).font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
+                        Text(pinned ? "Always opens here" : "\(Int(d.bounds.width))×\(Int(d.bounds.height))")
+                            .font(.deck(12)).foregroundStyle(pinned ? Theme.battery : Theme.textFaint)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.up.forward").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.textFaint)
+                }
+                .padding(.horizontal, 16).frame(height: 60).frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(pinned ? Theme.battery.opacity(0.12) : Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(pinned ? Theme.battery.opacity(0.5) : Theme.stroke, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }.buttonStyle(.pressable)
+            // Pin toggle → make this the tile's default (tap opens here from now on).
+            Button {
+                withAnimation(Motion.snappy) { deck.setPreferredDisplay(action.id, pinned ? nil : d.name) }
+            } label: {
+                Image(systemName: pinned ? "pin.fill" : "pin")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(pinned ? Theme.battery : Theme.textFaint)
+                    .frame(width: 54, height: 60)
+                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(pinned ? Theme.battery.opacity(0.12) : Color.white.opacity(0.06)))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(pinned ? Theme.battery.opacity(0.5) : Theme.stroke, lineWidth: 1))
+                    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }.buttonStyle(.pressable)
+        }
+    }
+
+    private func quitRow(_ action: DeckAction) -> some View {
+        Button {
+            WindowMover.quit(appPath: action.target)
+            screenPickerAction = nil
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Theme.batteryLow).frame(width: 30)
+                Text("Quit \(action.label)").font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16).frame(height: 60).frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.batteryLow.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.batteryLow.opacity(0.4), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }.buttonStyle(.pressable)
     }
 
     private func refreshRunning() {
@@ -354,7 +378,7 @@ struct DeckView: View {
         let center = CGPoint(x: location.x - dragGrab.width, y: location.y - dragGrab.height)
         guard let target = frames.first(where: { $0.key != d && $0.value.contains(center) }),
               let tf = frames[target.key] else { return }
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+        withAnimation(Motion.snappy) {
             deck.move(d, target: target.key, before: center.x < tf.midX)
         }
     }
@@ -381,6 +405,7 @@ private struct DeckTile: View {
     let editing: Bool
     var lifted: Bool = false
     var running: Bool = false
+    var pinned: Bool = false
     let onRun: (DeckAction) -> Void
 
     private var tint: Color {
@@ -414,6 +439,14 @@ private struct DeckTile: View {
                     Circle().fill(Theme.battery).frame(width: 5, height: 5)
                         .deckGlow(Theme.battery, strength: 0.8)
                         .padding(.bottom, 8)
+                }
+            }
+            // Pinned-to-a-display hint (long-press the tile to change it).
+            .overlay(alignment: .topTrailing) {
+                if pinned && !editing {
+                    Image(systemName: "pin.fill").font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Theme.battery).rotationEffect(.degrees(45))
+                        .padding(7)
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))

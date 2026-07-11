@@ -12,6 +12,7 @@ struct BatteryInfo: Equatable {
 struct MetricsSnapshot: Equatable {
     var cpu: Double = 0                 // 0...1
     var gpu: Double = 0                 // 0...1
+    var gpuAvailable = true             // false when this Mac exposes no GPU counter
     var memUsed: UInt64 = 0
     var memTotal: UInt64 = 0
     var netRx: Double = 0               // bytes/sec
@@ -60,10 +61,15 @@ final class SystemMetrics: ObservableObject {
         timer = nil
     }
 
+    private var lastGPU = 0.0
+    private var gpuEverRead = false
+
     private func sample() {
         var s = MetricsSnapshot()
         s.cpu = sampleCPU()
-        s.gpu = sampleGPU()
+        if let g = sampleGPU() { s.gpu = g; lastGPU = g; gpuEverRead = true }
+        else { s.gpu = lastGPU }
+        s.gpuAvailable = gpuEverRead
         let mem = sampleMemory()
         s.memUsed = mem.used
         s.memTotal = mem.total
@@ -112,10 +118,13 @@ final class SystemMetrics: ObservableObject {
         return dTotal > 0 ? max(0, min(1, dBusy / dTotal)) : 0
     }
 
-    private func sampleGPU() -> Double {
+    /// Current GPU utilisation (0…1), or nil when this Mac exposes no readable
+    /// utilisation counter — so the UI can show "unavailable" instead of a
+    /// misleading flat 0% that looks like a genuinely idle GPU.
+    private func sampleGPU() -> Double? {
         var iterator: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &iterator) == KERN_SUCCESS else {
-            return snap.gpu
+            return nil
         }
         defer { IOObjectRelease(iterator) }
         var util = -1.0
@@ -131,7 +140,7 @@ final class SystemMetrics: ObservableObject {
             if util >= 0 { break }
             service = IOIteratorNext(iterator)
         }
-        return util >= 0 ? max(0, min(1, util / 100)) : snap.gpu
+        return util >= 0 ? max(0, min(1, util / 100)) : nil
     }
 
     private func sampleMemory() -> (used: UInt64, total: UInt64) {

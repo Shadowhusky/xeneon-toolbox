@@ -154,6 +154,32 @@ final class RemoteServer: ObservableObject {
                 model.agent.send(text: t, imageDataURL: nil)
             }
             return json(["ok": true])
+        case ("GET", "/api/deck"):
+            // The deck from your phone: every runnable tile, in deck order.
+            return json(["tiles": model.deck.actions.map {
+                ["id": $0.id.uuidString, "label": $0.label, "kind": $0.kind.rawValue]
+            }])
+        case ("POST", "/api/deck/run"):
+            if let idStr = body(req)["id"] as? String, let id = UUID(uuidString: idStr),
+               let action = model.deck.actions.first(where: { $0.id == id }) {
+                model.runDeck(action)
+                return json(["ok": true])
+            }
+            return json(["error": "unknown tile"])
+        case ("POST", "/api/media"):
+            switch body(req)["action"] as? String {
+            case "playpause": model.media.togglePlayPause()
+            case "next": model.media.next()
+            case "previous": model.media.previous()
+            default: break
+            }
+            return json(["ok": true])
+        case ("POST", "/api/volume"):
+            if let l = body(req)["level"] as? Int {
+                SystemVolume.set(l)
+                volumeCache = (max(0, min(100, l)), Date())
+            }
+            return json(["ok": true])
         default:
             return ("404 Not Found", "text/plain", Data("Not found".utf8))
         }
@@ -163,7 +189,7 @@ final class RemoteServer: ObservableObject {
         let f = DateFormatter(); f.dateFormat = "EEE d MMM · HH:mm"
         let touch: String
         switch m.touchStatus { case .active: touch = "active"; case .searching: touch = "searching"; case .off: touch = "off" }
-        return [
+        var out: [String: Any] = [
             "route": m.route.rawValue,
             "display": display(m.displayMode),
             "cpu": Int((m.metrics.snap.cpu * 100).rounded()),
@@ -173,6 +199,23 @@ final class RemoteServer: ObservableObject {
             "touch": touch,
             "time": f.string(from: Date()),
         ]
+        if let np = m.media.nowPlaying {
+            out["media"] = ["title": np.title, "artist": np.artist, "playing": np.isPlaying]
+        }
+        if let v = cachedVolume() { out["volume"] = v }
+        return out
+    }
+
+    // Volume reads shell out to osascript (~100ms) — far too heavy per poll, so
+    // cache briefly. A remote volume POST updates the cache immediately. A nil
+    // read clears the cache: some outputs (HDMI/DP) have no software volume, and
+    // holding a stale value would pin the remote's slider on such devices.
+    private var volumeCache: (value: Int, at: Date)?
+    private func cachedVolume() -> Int? {
+        if let c = volumeCache, Date().timeIntervalSince(c.at) < 5 { return c.value }
+        guard let v = SystemVolume.level() else { volumeCache = nil; return nil }
+        volumeCache = (v, Date())
+        return v
     }
 
     private func display(_ d: DisplayMode) -> String {

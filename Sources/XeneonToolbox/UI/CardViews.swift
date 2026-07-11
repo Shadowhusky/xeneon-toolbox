@@ -29,7 +29,7 @@ struct ToolStepsView: View {
                 .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
             } else {
                 VStack(alignment: .leading, spacing: 5) {
-                    Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { expanded.toggle() } } label: {
+                    Button { withAnimation(Motion.standard) { expanded.toggle() } } label: {
                         HStack(spacing: 7) {
                             Image(systemName: "wrench.and.screwdriver.fill").font(.system(size: 11))
                             Text(steps.count == 1 ? steps.first!.text : "\(steps.count) steps")
@@ -57,7 +57,7 @@ struct ToolStepsView: View {
                 }
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: working)
+        .animation(Motion.standard, value: working)
     }
 }
 

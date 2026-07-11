@@ -55,28 +55,130 @@ enum WindowMover {
         }
     }
 
+    /// Launch or focus an app from the deck WITHOUT letting it cover the Edge
+    /// kiosk: any window that lands on the Edge is nudged onto the main display.
+    /// Windows the app already has elsewhere are left exactly where they are, so
+    /// focusing a running app doesn't rearrange it. Use for a normal tile tap; the
+    /// long-press picker's `open(on:)` is the explicit "put it here" path.
+    static func openOffEdge(appPath: String) {
+        let url = URL(fileURLWithPath: appPath)
+        let main = displays().filter { !$0.isEdge }.max { $0.bounds.width < $1.bounds.width }
+        AppLog.info("deck", "open '\(appPath)' off-Edge")
+        // `openApplication` reliably brings the app forward whether or not it's
+        // already running — a background/non-activating app (which the kiosk is)
+        // CANNOT reveal another app with NSRunningApplication.activate(), so a
+        // second tap on a running app would silently do nothing. Then nudge any
+        // window that landed on the Edge onto the main display.
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { app, _ in
+            guard let app, let main else { return }
+            DispatchQueue.main.async { nudgeOffEdge(pid: app.processIdentifier, main: main) }
+        }
+    }
+
+    /// Poll for the app's windows and move Edge-covering ones to `main`, retrying
+    /// because the window list is empty until the app's Space is active (~0.5s)
+    /// and slow apps draw later still. Stops once windows are visible and none
+    /// sit on the Edge, or after ~2.5s.
+    private static func nudgeOffEdge(pid: pid_t, main: Display, attempt: Int = 0) {
+        let r = relocateEdgeWindows(pid: pid, to: main)
+        if (r.saw && r.moved == 0) || attempt >= 9 { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+            nudgeOffEdge(pid: pid, main: main, attempt: attempt + 1)
+        }
+    }
+
     /// Open (or focus) the app at `appPath` and place its windows on `display`.
     static func open(appPath: String, on display: Display) {
         let url = URL(fileURLWithPath: appPath)
-        let bundleID = Bundle(url: url)?.bundleIdentifier
-        let running = bundleID.flatMap { id in NSRunningApplication.runningApplications(withBundleIdentifier: id).first }
-
-        AppLog.info("deck", "open '\(appPath)' on \(display.name)\(running != nil ? " (running — moving)" : "")")
-
-        if let running {
-            running.activate()
-            moveWindows(pid: running.processIdentifier, to: display)
-            return
-        }
+        AppLog.info("deck", "open '\(appPath)' on \(display.name)")
+        // openApplication reliably reveals the app from the background (see
+        // openOffEdge); then, once its window exists, move it to the display.
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         NSWorkspace.shared.openApplication(at: url, configuration: config) { app, _ in
             guard let app else { return }
-            // Give the app a moment to create its window, then place it.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                moveWindows(pid: app.processIdentifier, to: display)
+            DispatchQueue.main.async {
+                whenWindowsAppear(pid: app.processIdentifier) { moveWindows(pid: app.processIdentifier, to: display) }
             }
         }
+    }
+
+    /// Invoke `action` once the app's windows are AX-listable (they aren't until
+    /// the app's Space activates ~0.5s after launch/activation), retrying up to
+    /// ~2.5s. Placement (move/resize) is reliable only once a window exists.
+    private static func whenWindowsAppear(pid: pid_t, attempt: Int = 0, _ action: @escaping () -> Void) {
+        let axApp = AXUIElementCreateApplication(pid)
+        var wv: CFTypeRef?
+        if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &wv) == .success,
+           let wins = wv as? [AXUIElement], !wins.isEmpty {
+            action()
+            return
+        }
+        guard attempt < 9 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+            whenWindowsAppear(pid: pid, attempt: attempt + 1, action)
+        }
+    }
+
+    /// Move only the windows whose centre currently sits on the Edge onto
+    /// `display`, keeping each window's size (clamped to fit). Windows already on
+    /// another display are untouched — so a running app the user focuses from the
+    /// deck stays put unless it was actually covering the kiosk. Returns whether
+    /// any windows were listable (the Space is active yet) and how many were
+    /// moved, so a poller knows when to stop.
+    @discardableResult
+    static func relocateEdgeWindows(pid: pid_t, to display: Display) -> (saw: Bool, moved: Int) {
+        guard let edge = displays().first(where: { $0.isEdge }) else { return (false, 0) }
+        let axApp = AXUIElementCreateApplication(pid)
+        var windowsValue: CFTypeRef?
+        let st = AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsValue)
+        guard st == .success, let windows = windowsValue as? [AXUIElement] else {
+            AppLog.info("winmove", "relocate pid=\(pid): AXWindows status=\(st.rawValue) — no windows listable")
+            return (false, 0)
+        }
+
+        var moved = 0
+        for window in windows {
+            var subrole: CFTypeRef?
+            AXUIElementCopyAttributeValue(window, kAXSubroleAttribute as CFString, &subrole)
+            if let sr = subrole as? String, sr != (kAXStandardWindowSubrole as String) { continue }
+
+            var posValue: CFTypeRef?
+            var pos = CGPoint.zero
+            guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posValue) == .success,
+                  let pv = posValue, CFGetTypeID(pv) == AXValueGetTypeID() else { continue }
+            AXValueGetValue(pv as! AXValue, .cgPoint, &pos)
+
+            var sizeValue: CFTypeRef?
+            var size = CGSize(width: 800, height: 600)
+            if AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValue) == .success,
+               let sv = sizeValue, CFGetTypeID(sv) == AXValueGetTypeID() {
+                AXValueGetValue(sv as! AXValue, .cgSize, &size)
+            }
+
+            // Only relocate windows actually overlapping the Edge.
+            let centre = CGPoint(x: pos.x + size.width / 2, y: pos.y + size.height / 2)
+            guard edge.bounds.contains(centre) else { continue }
+
+            let w = min(size.width, display.bounds.width)
+            let h = min(size.height, display.bounds.height)
+            if w != size.width || h != size.height {
+                var newSize = CGSize(width: w, height: h)
+                if let v = AXValueCreate(.cgSize, &newSize) {
+                    AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, v)
+                }
+            }
+            var origin = CGPoint(x: display.bounds.midX - w / 2, y: display.bounds.midY - h / 2)
+            if let v = AXValueCreate(.cgPoint, &origin) {
+                AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, v)
+            }
+            AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+            moved += 1
+        }
+        AppLog.info("winmove", "relocate pid=\(pid): \(windows.count) window(s), moved \(moved) off Edge → \(display.name)")
+        return (!windows.isEmpty, moved)
     }
 
     /// Move an app's on-screen windows onto the target display, keeping their
