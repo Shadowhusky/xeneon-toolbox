@@ -241,8 +241,9 @@ struct DeckView: View {
     // MARK: Screen picker (long-press an app tile)
 
     private func screenPicker(_ action: DeckAction) -> some View {
-        // The Edge belongs to the Toolbox — apps only open on the other displays.
-        let displays = WindowMover.displays().filter { !$0.isEdge }
+        let displays = WindowMover.displays()
+        let running = runningApps.contains(action.target)
+        let currentName = running ? WindowMover.currentDisplayName(appPath: action.target) : nil
         // Read the live tile so the pin state reflects edits made in this modal.
         let pinned = (deck.actions.first { $0.id == action.id } ?? action).preferredDisplay
         return ModalScaffold(onDismiss: { screenPickerAction = nil }) {
@@ -251,40 +252,54 @@ struct DeckView: View {
                     DeckActionIcon(action: action, size: 40)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(action.label).font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
-                        Text("Tap a screen to open · pin one to always open there")
+                        Text("\(running ? "Move to a screen" : "Open on a screen") · pin one to always open there")
                             .font(.deck(13)).foregroundStyle(Theme.textSecondary)
                     }
                     Spacer(minLength: 0)
                 }
                 VStack(spacing: 10) {
-                    ForEach(displays) { d in displayRow(action, d, pinned: pinned == d.name) }
-                    if runningApps.contains(action.target) { quitRow(action) }
+                    ForEach(displays) { d in
+                        displayRow(action, d, pinned: pinned == d.name, current: currentName == d.name)
+                    }
+                    if running { quitRow(action) }
                 }
             }
-            .padding(24).frame(width: 500)
+            .padding(24).frame(width: 520)
             .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial))
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
             .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
         }
     }
 
-    private func displayRow(_ action: DeckAction, _ d: WindowMover.Display, pinned: Bool) -> some View {
+    private func displayRow(_ action: DeckAction, _ d: WindowMover.Display, pinned: Bool, current: Bool) -> some View {
         let tint = pinned ? Theme.battery : Theme.accent
+        // Choosing the Edge hands the screen over: the panel collapses into the
+        // floating badge and the app opens where the Toolbox was.
+        let subtitle = current ? "Currently here"
+            : pinned ? "Always opens here"
+            : d.isEdge ? "Toolbox hides into the badge"
+            : "\(Int(d.bounds.width))×\(Int(d.bounds.height))"
         return HStack(spacing: 10) {
             // Tap the row body → open the app there now.
             Button {
+                if d.isEdge { model.hideToBadge() }
                 WindowMover.open(appPath: action.target, on: d)
                 screenPickerAction = nil
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: "display").font(.system(size: 20, weight: .semibold))
+                    Image(systemName: d.isEdge ? "rectangle.bottomthird.inset.filled" : "display")
+                        .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(tint).frame(width: 30)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(d.name).font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
-                        Text(pinned ? "Always opens here" : "\(Int(d.bounds.width))×\(Int(d.bounds.height))")
-                            .font(.deck(12)).foregroundStyle(pinned ? Theme.battery : Theme.textFaint)
+                        Text(subtitle)
+                            .font(.deck(12))
+                            .foregroundStyle(current ? Theme.battery : pinned ? Theme.battery : Theme.textFaint)
                     }
                     Spacer(minLength: 0)
+                    if current {
+                        Circle().fill(Theme.battery).frame(width: 7, height: 7).deckGlow(Theme.battery, strength: 0.8)
+                    }
                     Image(systemName: "arrow.up.forward").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.textFaint)
                 }
                 .padding(.horizontal, 16).frame(height: 60).frame(maxWidth: .infinity)

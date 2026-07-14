@@ -180,10 +180,12 @@ final class ToolboxModel: ObservableObject {
         switch action.kind {
         case .app:
             // Open on the tile's pinned display if it set one and that display is
-            // connected; otherwise on the main monitor (never over the Edge kiosk).
-            // Long-press the tile to pick or change its display.
+            // connected; otherwise on the main monitor. A tile pinned to the Edge
+            // hands the screen over (panel → badge) and opens the app in its
+            // place. Long-press the tile to pick or change its display.
             if let name = action.preferredDisplay,
-               let d = WindowMover.displays().first(where: { !$0.isEdge && $0.name == name }) {
+               let d = WindowMover.displays().first(where: { $0.name == name }) {
+                if d.isEdge { hideToBadge() }
                 WindowMover.open(appPath: action.target, on: d)
             } else {
                 WindowMover.openOffEdge(appPath: action.target)

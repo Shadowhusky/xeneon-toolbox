@@ -42,6 +42,25 @@ enum WindowMover {
     /// Is the app at `appPath` currently running?
     static func isRunning(appPath: String) -> Bool { running(appPath) != nil }
 
+    /// The display showing the app's biggest visible window — the screen picker
+    /// marks it "Currently here". Best-effort: CGWindowList only sees windows on
+    /// the visible Spaces, which is exactly what "currently here" should mean.
+    static func currentDisplayName(appPath: String) -> String? {
+        guard let app = running(appPath) else { return nil }
+        guard let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        var best: (area: CGFloat, centre: CGPoint)?
+        for info in infos {
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  (info[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier,
+                  let b = info[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = b["X"], let y = b["Y"], let w = b["Width"], let h = b["Height"],
+                  w > 100, h > 60 else { continue }
+            if w * h > (best?.area ?? 0) { best = (w * h, CGPoint(x: x + w / 2, y: y + h / 2)) }
+        }
+        guard let c = best?.centre else { return nil }
+        return displays().first { $0.bounds.contains(c) }?.name
+    }
+
     private static func running(_ appPath: String) -> NSRunningApplication? {
         guard let bundleID = Bundle(url: URL(fileURLWithPath: appPath))?.bundleIdentifier else { return nil }
         return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first

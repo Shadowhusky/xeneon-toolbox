@@ -112,8 +112,10 @@ icons and a dock-style dot on the ones already running), launch websites (with
 their real favicons) in the built-in browser, fire **recorded keyboard
 shortcuts** system-wide, run shell commands or webhooks, or control media.
 **Multi tiles** chain your other tiles into one tap — pick them in the order
-they should run. **Long-press an app tile** to pick which display to open it on
-— or move it there if it's already running. The grid scrolls when your deck outgrows the panel. Tap
+they should run. **Long-press an app tile** to open or move it to any display — the picker
+shows where it currently lives, lets you **pin a screen** it should always open
+on, and choosing the **Xeneon Edge** hands the panel over: the Toolbox collapses
+into its floating badge and the app takes the screen (tap the badge to swap back). The grid scrolls when your deck outgrows the panel. Tap
 **Edit** to drag tiles into any order, remove them, or tap the pencil to
 **rename / re-icon / retarget** a tile in place, **Sort** alphabetically or by
 type (with a confirmation before it replaces a hand-arranged order), and **Add**
