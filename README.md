@@ -47,7 +47,9 @@ apps built for the strip. While the app runs, the panel just works:
 - **Customizable dashboard** — CPU, GPU, memory, network, storage, power, clock
   and current weather, with hue-coded ring gauges and sparklines. Tap a tile for a
   detail view (top processes by CPU or memory; tap the Local tile for an
-  **hourly and 6-day weather forecast**), or enter Edit to **drag tiles to rearrange and hide** the
+  **hourly and 6-day weather forecast**; tap the Power tile for a live **energy
+  flow** — watts from the wall fanning out to CPU / GPU / memory / displays,
+  with the heaviest apps), or enter Edit to **drag tiles to rearrange and hide** the
   ones you don't need — your layout persists. Weather locates via Wi-Fi
   positioning (with IP fallback), or **pin your exact city** in Settings.
 - **Deck** — a Stream-Deck-style page of big, tappable tiles that quick-launch

@@ -9,6 +9,8 @@ struct DashboardView: View {
     enum DetailKind { case cpu, gpu, memory, network }
     @State private var detailKind: DetailKind?
     @State private var showWeather = false
+    @State private var showEnergy = false
+    @StateObject private var power = PowerTelemetry()
     @State private var procs: [ProcRow] = []
     @State private var sampleTask: Task<Void, Never>?
 
@@ -44,22 +46,30 @@ struct DashboardView: View {
                 }
                 .zIndex(1)
             }
+            if showEnergy, !editing {
+                ModalScaffold(dim: 0.62, onDismiss: { closeEnergy() }) {
+                    EnergyFlowView(power: power, topApps: procs) { closeEnergy() }
+                }
+                .zIndex(1)
+            }
         }
         .animation(Motion.pop, value: detailKind)
         .animation(Motion.pop, value: showWeather)
+        .animation(Motion.pop, value: showEnergy)
         .onAppear {
             switch ProcessInfo.processInfo.environment["XENEON_DETAIL"] {
             case "cpu": open(.cpu); case "gpu": open(.gpu)
             case "memory": open(.memory); case "network": open(.network)
             default: break
             }
+            if ProcessInfo.processInfo.environment["XENEON_ENERGY"] != nil { openEnergy() }
             if ProcessInfo.processInfo.environment["XENEON_EDIT"] != nil { editing = true }
             model.setReorderDragging(editing)
         }
         // In edit mode the driver treats any finger move as a mouse drag, so tiles
         // can be grabbed without the gesture misclassifying as a scroll.
         .onChange(of: editing) { model.setReorderDragging(editing) }
-        .onDisappear { model.setReorderDragging(false); close(); editing = false }
+        .onDisappear { model.setReorderDragging(false); close(); closeEnergy(); editing = false }
     }
 
     // MARK: - Tiles
@@ -99,6 +109,8 @@ struct DashboardView: View {
                 tileContent(tile, snap).allowsHitTesting(false)
             } else if tile == .clock {
                 tileContent(tile, snap).expandable { close(); showWeather = true }
+            } else if tile == .power {
+                tileContent(tile, snap).expandable { close(); openEnergy() }
             } else if let kind = expandKind(tile) {
                 tileContent(tile, snap).expandable { open(kind) }
             } else {
@@ -266,6 +278,21 @@ struct DashboardView: View {
 
     private func close() {
         detailKind = nil
+        sampleTask?.cancel(); sampleTask = nil
+        procs = []
+    }
+
+    /// Energy modal: SoC watt sampling + top-CPU apps (the "high power" list).
+    private func openEnergy() {
+        showEnergy = true
+        procs = []
+        power.start()
+        startSampling(byMemory: false)
+    }
+
+    private func closeEnergy() {
+        showEnergy = false
+        power.stop()
         sampleTask?.cancel(); sampleTask = nil
         procs = []
     }
