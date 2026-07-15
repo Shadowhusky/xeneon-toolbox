@@ -44,7 +44,13 @@ struct EnergyFlowView: View {
                 }.buttonStyle(.pressable)
             }
 
-            if power.snap.systemIn == nil && !power.snap.blocksAvailable {
+            if !power.warmedUp {
+                // The SoC counters need two samples for a delta — briefly measuring.
+                VStack(spacing: 14) {
+                    ProgressView().controlSize(.large)
+                    Text("Measuring power…").font(.deck(16)).foregroundStyle(Theme.textSecondary)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if power.snap.systemIn == nil && !power.snap.blocksAvailable {
                 VStack(spacing: 12) {
                     Image(systemName: "bolt.slash").font(.system(size: 40)).foregroundStyle(Theme.textFaint)
                     Text("Power telemetry isn't available on this Mac")

@@ -32,13 +32,24 @@ final class PowerTelemetry: ObservableObject {
     }
 
     @Published private(set) var snap = Snapshot()
+    /// False until the sampler has had a real chance (the SoC counters need two
+    /// samples for a delta) — the UI shows "measuring" rather than "unavailable".
+    @Published private(set) var warmedUp = false
+    private var ticks = 0
     private var timer: Timer?
     private let reporter = EnergyModelReporter()
 
-    /// Begin 2s sampling while the modal is open.
+    /// Begin 2s sampling while the modal is open. An extra early tick at +0.7s
+    /// gives the first counter delta quickly, so the measuring state is brief.
     func start() {
         guard timer == nil else { return }
+        ticks = 0
+        warmedUp = false
         tick()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            guard let self, self.timer != nil else { return }
+            self.tick()
+        }
         let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
@@ -59,6 +70,10 @@ final class PowerTelemetry: ObservableObject {
             s.neural = blocks.neural; s.media = blocks.media; s.displays = blocks.displays
         }
         snap = s
+        ticks += 1
+        // Warmed up once we have a breakdown, or after the sampler has clearly
+        // had its chance (two ticks) — only then may the UI say "unavailable".
+        if s.blocksAvailable || ticks >= 2 { warmedUp = true }
     }
 
     private static func readBattery(into s: inout Snapshot) {
