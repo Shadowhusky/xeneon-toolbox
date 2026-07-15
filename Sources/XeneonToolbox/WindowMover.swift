@@ -42,6 +42,61 @@ enum WindowMover {
     /// Is the app at `appPath` currently running?
     static func isRunning(appPath: String) -> Bool { running(appPath) != nil }
 
+    /// One of a running app's windows, for the picker's quick-switch list. Holds
+    /// the live AXUIElement so a tap can raise exactly that window.
+    struct AppWindow: Identifiable {
+        let id: Int
+        let title: String
+        let axRef: AXUIElement
+    }
+
+    /// The app's switchable windows (standard, titled), via Accessibility.
+    /// Best-effort: AX only enumerates windows on currently-visible Spaces — an
+    /// empty list means none are visible right now, not that none exist.
+    static func windows(appPath: String) -> [AppWindow] {
+        guard let app = running(appPath) else { return [] }
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        var wv: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &wv) == .success,
+              let wins = wv as? [AXUIElement] else { return [] }
+        var out: [AppWindow] = []
+        for (i, w) in wins.enumerated() {
+            var subrole: CFTypeRef?
+            AXUIElementCopyAttributeValue(w, kAXSubroleAttribute as CFString, &subrole)
+            if let sr = subrole as? String, sr != (kAXStandardWindowSubrole as String) { continue }
+            var tv: CFTypeRef?
+            AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &tv)
+            let title = (tv as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+            guard !title.isEmpty else { continue }
+            out.append(AppWindow(id: i, title: title, axRef: w))
+            if out.count >= 8 { break }
+        }
+        return out
+    }
+
+    /// Bring one specific window to the front (and its app forward).
+    static func raise(_ window: AppWindow, appPath: String) {
+        AppLog.info("deck", "raise window '\(window.title.prefix(40))'")
+        AXUIElementPerformAction(window.axRef, kAXRaiseAction as CFString)
+        running(appPath)?.activate()
+    }
+
+    /// Ask the app for a fresh window: activate it, then send ⌘N — the universal
+    /// "New Window" shortcut. No Apple-Events consent needed (we already inject
+    /// keystrokes for deck hotkey tiles).
+    static func openNewWindow(appPath: String) {
+        AppLog.info("deck", "new window for '\(appPath)'")
+        let url = URL(fileURLWithPath: appPath)
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { app, _ in
+            guard app != nil else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                KeyCombo.post(keyCode: CGKeyCode(45), modifiers: NSEvent.ModifierFlags.command.rawValue)   // ⌘N
+            }
+        }
+    }
+
     /// The display showing the app's biggest visible window — the screen picker
     /// marks it "Currently here". Best-effort: CGWindowList only sees windows on
     /// the visible Spaces, which is exactly what "currently here" should mean.
