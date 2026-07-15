@@ -81,6 +81,56 @@ enum WindowMover {
         running(appPath)?.activate()
     }
 
+    /// Move ONE window (not the whole app) onto a display — the picker's
+    /// select-then-place. Size is clamped to fit, the window is centred, raised,
+    /// and its app brought forward.
+    static func move(_ window: AppWindow, appPath: String, to display: Display) {
+        AppLog.info("deck", "move window '\(window.title.prefix(40))' → \(display.name)")
+        place(window.axRef, on: display)
+        AXUIElementPerformAction(window.axRef, kAXRaiseAction as CFString)
+        running(appPath)?.activate()
+    }
+
+    /// After an action that will create a window (⌘N, a Chrome profile launch),
+    /// wait for a window that wasn't there before and place it on `display`.
+    /// Best-effort: gives up quietly after ~4s (the window still opens, just
+    /// wherever the app chose).
+    static func placeUpcomingWindow(appPath: String, on display: Display, before: [AppWindow], attempt: Int = 0) {
+        let now = windows(appPath: appPath)
+        if let fresh = now.first(where: { w in !before.contains { CFEqual($0.axRef, w.axRef) } }) {
+            AppLog.info("deck", "placing new window '\(fresh.title.prefix(40))' → \(display.name)")
+            place(fresh.axRef, on: display)
+            AXUIElementPerformAction(fresh.axRef, kAXRaiseAction as CFString)
+            return
+        }
+        guard attempt < 10 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            placeUpcomingWindow(appPath: appPath, on: display, before: before, attempt: attempt + 1)
+        }
+    }
+
+    /// Clamp-to-fit and centre a single AX window on a display.
+    private static func place(_ axRef: AXUIElement, on display: Display) {
+        var sizeValue: CFTypeRef?
+        var size = CGSize(width: 800, height: 600)
+        if AXUIElementCopyAttributeValue(axRef, kAXSizeAttribute as CFString, &sizeValue) == .success,
+           let sv = sizeValue, CFGetTypeID(sv) == AXValueGetTypeID() {
+            AXValueGetValue(sv as! AXValue, .cgSize, &size)
+        }
+        let w = min(size.width, display.bounds.width)
+        let h = min(size.height, display.bounds.height)
+        if w != size.width || h != size.height {
+            var newSize = CGSize(width: w, height: h)
+            if let v = AXValueCreate(.cgSize, &newSize) {
+                AXUIElementSetAttributeValue(axRef, kAXSizeAttribute as CFString, v)
+            }
+        }
+        var origin = CGPoint(x: display.bounds.midX - w / 2, y: display.bounds.midY - h / 2)
+        if let v = AXValueCreate(.cgPoint, &origin) {
+            AXUIElementSetAttributeValue(axRef, kAXPositionAttribute as CFString, v)
+        }
+    }
+
     /// Ask the app for a fresh window: activate it, then send ⌘N — the universal
     /// "New Window" shortcut. No Apple-Events consent needed (we already inject
     /// keystrokes for deck hotkey tiles).

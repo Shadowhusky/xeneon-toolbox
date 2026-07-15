@@ -23,6 +23,23 @@ struct DeckView: View {
     @State private var screenPickerAction: DeckAction?
     @State private var editingAction: DeckAction?
 
+    /// Select-then-place: a window/profile/new-window row is "armed", and the
+    /// screen buttons become its placement targets.
+    enum ArmedSession: Equatable {
+        case window(id: Int, title: String)
+        case profile(ChromeProfiles.Profile)
+        case newWindow
+
+        var label: String {
+            switch self {
+            case .window(_, let t): return t
+            case .profile(let p): return "New window · \(p.name)"
+            case .newWindow: return "New window"
+            }
+        }
+    }
+    @State private var armed: ArmedSession?
+
     private let space = "deckgrid"
     private let columns = [GridItem(.adaptive(minimum: 178, maximum: 220), spacing: 16)]
 
@@ -106,6 +123,24 @@ struct DeckView: View {
                 // "1" = first app tile; any other value picks the tile by label.
                 screenPickerAction = deck.actions.first { $0.kind == .app && (v == "1" || $0.label == v) }
             }
+            // Headless check of select-then-place: "<tile label>|<screen name>"
+            // arms the first window of that tile's app and places it after 3s.
+            if let spec = ProcessInfo.processInfo.environment["XENEON_TEST_PLACE"] {
+                let parts = spec.split(separator: "|").map(String.init)
+                if parts.count == 2, let action = deck.actions.first(where: { $0.kind == .app && $0.label == parts[0] }) {
+                    screenPickerAction = action
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        let windows = WindowMover.windows(appPath: action.target)
+                        guard let w = windows.first, let d = WindowMover.displays().first(where: { $0.name == parts[1] }) else {
+                            AppLog.error("deck", "TEST_PLACE: no window or screen for \(spec)"); return
+                        }
+                        armed = .window(id: w.id, title: w.title)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                            executeArmed(.window(id: w.id, title: w.title), on: d, action: action, windows: windows)
+                        }
+                    }
+                }
+            }
             syncReorderDragging()
             syncLongPress()
         }
@@ -116,7 +151,7 @@ struct DeckView: View {
         // `dragging` id would wedge the grid.
         .onChange(of: editing) { dragging = nil; syncReorderDragging(); syncLongPress() }
         .onChange(of: showAdd) { dragging = nil; syncReorderDragging(); syncLongPress() }
-        .onChange(of: screenPickerAction) { syncLongPress() }
+        .onChange(of: screenPickerAction) { armed = nil; syncLongPress() }
         .onDisappear { dragging = nil; model.setReorderDragging(false); model.setDeckLongPress(false) }
         // Dock-style running indicators on app tiles.
         .task { refreshRunning() }
@@ -256,9 +291,15 @@ struct DeckView: View {
                     DeckActionIcon(action: action, size: 40)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(action.label).font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
-                        Text(running ? "Switch a window, open a new one, or move it to a screen"
-                                     : "Open on a screen · pin one to always open there")
-                            .font(.deck(13)).foregroundStyle(Theme.textSecondary)
+                        if let a = armed {
+                            Text("Now tap a screen to place: \(a.label)")
+                                .font(.deck(13, .semibold)).foregroundStyle(Theme.battery)
+                                .lineLimit(1).truncationMode(.middle)
+                        } else {
+                            Text(running ? "Switch a window, open a new one, or move it to a screen"
+                                         : "Open on a screen · pin one to always open there")
+                                .font(.deck(13)).foregroundStyle(Theme.textSecondary)
+                        }
                     }
                     Spacer(minLength: 0)
                 }
@@ -284,9 +325,9 @@ struct DeckView: View {
                         .frame(maxWidth: .infinity, alignment: .top)
                     }
                     VStack(spacing: 10) {
-                        pickerLabel(running ? "MOVE TO" : "OPEN ON")
+                        pickerLabel(armed != nil ? "PLACE ON" : (running ? "MOVE TO" : "OPEN ON"))
                         ForEach(displays) { d in
-                            displayRow(action, d, pinned: pinned == d.name, current: currentName == d.name)
+                            displayRow(action, d, pinned: pinned == d.name, current: currentName == d.name, windows: windows)
                         }
                         if running && !profiles.isEmpty { newWindowRow(action) }
                         if running { quitRow(action) }
@@ -306,82 +347,120 @@ struct DeckView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// One of the app's open windows — tap to bring exactly it to the front.
+    /// One of the app's open windows — tap to bring exactly it to the front;
+    /// tap the screen glyph to arm it, then pick a screen to move it there.
     private func windowRow(_ action: DeckAction, _ w: WindowMover.AppWindow) -> some View {
-        Button {
-            WindowMover.raise(w, appPath: action.target)
-            screenPickerAction = nil
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "macwindow").font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.accent).frame(width: 26)
-                Text(w.title).font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 0)
-                Image(systemName: "arrow.up.forward").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.textFaint)
-            }
-            .padding(.horizontal, 14).frame(height: 52).frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-        }.buttonStyle(.pressable)
+        sessionRow(icon: "macwindow", tint: Theme.accent, title: w.title,
+                   trailing: "arrow.up.forward",
+                   isArmed: armed == .window(id: w.id, title: w.title),
+                   mainAction: { WindowMover.raise(w, appPath: action.target); screenPickerAction = nil },
+                   armAs: .window(id: w.id, title: w.title))
     }
 
     /// A Chromium browser profile ("user") — tap to focus-or-open that profile's
-    /// window, the quick way to hop between signed-in Chrome users.
+    /// window; arm it to choose which screen the new window lands on.
     private func profileRow(_ action: DeckAction, _ p: ChromeProfiles.Profile) -> some View {
-        Button {
-            ChromeProfiles.open(appPath: action.target, profileDir: p.dir)
-            screenPickerAction = nil
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "person.crop.circle").font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.memory).frame(width: 26)
-                Text(p.name).font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1).truncationMode(.tail)
-                Spacer(minLength: 0)
-                Image(systemName: "plus.square.on.square").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.textFaint)
-            }
-            .padding(.horizontal, 14).frame(height: 52).frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Theme.memory.opacity(0.08)))
-            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Theme.memory.opacity(0.25), lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-        }.buttonStyle(.pressable)
+        sessionRow(icon: "person.crop.circle", tint: Theme.memory, title: p.name,
+                   trailing: "plus.square.on.square",
+                   isArmed: armed == .profile(p),
+                   mainAction: { ChromeProfiles.open(appPath: action.target, profileDir: p.dir); screenPickerAction = nil },
+                   armAs: .profile(p))
     }
 
-    /// Generic "New Window" — activates the app and sends ⌘N.
+    /// Generic "New Window" (activate + ⌘N); arm it to place the new window.
     private func newWindowRow(_ action: DeckAction) -> some View {
-        Button {
-            WindowMover.openNewWindow(appPath: action.target)
-            screenPickerAction = nil
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "plus.rectangle.on.rectangle").font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Theme.accent).frame(width: 26)
-                Text("New window").font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 14).frame(height: 52).frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-        }.buttonStyle(.pressable)
+        sessionRow(icon: "plus.rectangle.on.rectangle", tint: Theme.accent, title: "New window",
+                   trailing: nil,
+                   isArmed: armed == .newWindow,
+                   mainAction: { WindowMover.openNewWindow(appPath: action.target); screenPickerAction = nil },
+                   armAs: .newWindow)
     }
 
-    private func displayRow(_ action: DeckAction, _ d: WindowMover.Display, pinned: Bool, current: Bool) -> some View {
-        let tint = pinned ? Theme.battery : Theme.accent
+    /// A session row: the body runs the default action; the trailing screen
+    /// glyph arms select-then-place (tap a screen next to put it there).
+    private func sessionRow(icon: String, tint: Color, title: String, trailing: String?,
+                            isArmed: Bool, mainAction: @escaping () -> Void, armAs: ArmedSession) -> some View {
+        HStack(spacing: 8) {
+            Button(action: mainAction) {
+                HStack(spacing: 12) {
+                    Image(systemName: icon).font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(tint).frame(width: 26)
+                    Text(title).font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    if let trailing {
+                        Image(systemName: trailing).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.textFaint)
+                    }
+                }
+                .padding(.horizontal, 14).frame(height: 52).frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(isArmed ? Theme.battery.opacity(0.12) : tint.opacity(tint == Theme.memory ? 0.08 : 0.03)))
+                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .strokeBorder(isArmed ? Theme.battery.opacity(0.55) : Theme.stroke, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }.buttonStyle(.pressable)
+            // Arm toggle: "send to a screen…"
+            Button {
+                withAnimation(Motion.snappy) { armed = isArmed ? nil : armAs }
+            } label: {
+                Image(systemName: isArmed ? "display.and.arrow.down" : "display")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isArmed ? Theme.battery : Theme.textFaint)
+                    .frame(width: 48, height: 52)
+                    .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(isArmed ? Theme.battery.opacity(0.14) : Color.white.opacity(0.05)))
+                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .strokeBorder(isArmed ? Theme.battery.opacity(0.55) : Theme.stroke, lineWidth: 1))
+                    .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }.buttonStyle(.pressable)
+        }
+    }
+
+    /// Carry out a select-then-place: put the armed window (or the window the
+    /// armed action is about to create) on the chosen display.
+    private func executeArmed(_ a: ArmedSession, on d: WindowMover.Display,
+                              action: DeckAction, windows: [WindowMover.AppWindow]) {
+        if d.isEdge { model.hideToBadge() }
+        switch a {
+        case .window(let id, let title):
+            if let w = windows.first(where: { $0.title == title }) ?? windows.first(where: { $0.id == id }) {
+                WindowMover.move(w, appPath: action.target, to: d)
+            }
+        case .profile(let p):
+            ChromeProfiles.open(appPath: action.target, profileDir: p.dir)
+            WindowMover.placeUpcomingWindow(appPath: action.target, on: d, before: windows)
+        case .newWindow:
+            WindowMover.openNewWindow(appPath: action.target)
+            // ⌘N fires ~0.45s after activation — start watching a beat later.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                WindowMover.placeUpcomingWindow(appPath: action.target, on: d, before: windows)
+            }
+        }
+        armed = nil
+        screenPickerAction = nil
+    }
+
+    private func displayRow(_ action: DeckAction, _ d: WindowMover.Display, pinned: Bool, current: Bool,
+                            windows: [WindowMover.AppWindow]) -> some View {
+        let placing = armed != nil
+        let tint = placing ? Theme.battery : (pinned ? Theme.battery : Theme.accent)
         // Choosing the Edge hands the screen over: the panel collapses into the
         // floating badge and the app opens where the Toolbox was.
-        let subtitle = current ? "Currently here"
+        let subtitle = placing ? (d.isEdge ? "Place here · Toolbox hides to badge" : "Place here")
+            : current ? "Currently here"
             : pinned ? "Always opens here"
             : d.isEdge ? "Toolbox hides into the badge"
             : "\(Int(d.bounds.width))×\(Int(d.bounds.height))"
         return HStack(spacing: 10) {
-            // Tap the row body → open the app there now.
+            // Tap the row body → place the armed session here, or open the app.
             Button {
-                if d.isEdge { model.hideToBadge() }
-                WindowMover.open(appPath: action.target, on: d)
-                screenPickerAction = nil
+                if let a = armed {
+                    executeArmed(a, on: d, action: action, windows: windows)
+                } else {
+                    if d.isEdge { model.hideToBadge() }
+                    WindowMover.open(appPath: action.target, on: d)
+                    screenPickerAction = nil
+                }
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: d.isEdge ? "rectangle.bottomthird.inset.filled" : "display")
@@ -391,7 +470,7 @@ struct DeckView: View {
                         Text(d.name).font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
                         Text(subtitle)
                             .font(.deck(12))
-                            .foregroundStyle(current ? Theme.battery : pinned ? Theme.battery : Theme.textFaint)
+                            .foregroundStyle(placing || current || pinned ? Theme.battery : Theme.textFaint)
                     }
                     Spacer(minLength: 0)
                     if current {
@@ -400,8 +479,10 @@ struct DeckView: View {
                     Image(systemName: "arrow.up.forward").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.textFaint)
                 }
                 .padding(.horizontal, 16).frame(height: 60).frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(pinned ? Theme.battery.opacity(0.12) : Color.white.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(pinned ? Theme.battery.opacity(0.5) : Theme.stroke, lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(placing ? Theme.battery.opacity(0.10) : pinned ? Theme.battery.opacity(0.12) : Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(placing ? Theme.battery.opacity(0.6) : pinned ? Theme.battery.opacity(0.5) : Theme.stroke, lineWidth: placing ? 1.5 : 1))
                 .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }.buttonStyle(.pressable)
             // Pin toggle → make this the tile's default (tap opens here from now on).
