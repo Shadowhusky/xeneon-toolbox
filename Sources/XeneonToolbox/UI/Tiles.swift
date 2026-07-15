@@ -180,6 +180,7 @@ struct StorageTile: View {
 struct PowerTile: View {
     var battery: BatteryInfo?
     var uptime: TimeInterval
+    var systemWatts: Double? = nil
     var body: some View {
         TileSurface(accent: tint) {
             VStack(alignment: .leading, spacing: 0) {
@@ -197,6 +198,23 @@ struct PowerTile: View {
                     .frame(maxWidth: .infinity)
                     Spacer()
                     HStack { Text(statusText(b)).font(.deck(15)).foregroundStyle(Theme.textSecondary); Spacer() }
+                } else if let w = systemWatts {
+                    // Desktops: the live draw is the story — make it the hero.
+                    VStack(spacing: 6) {
+                        (Text(w >= 100 ? String(format: "%.0f", w) : String(format: "%.1f", w))
+                            .font(.readout(54, .bold)).foregroundStyle(Theme.textPrimary)
+                            + Text(" W").font(.readout(24, .bold)).foregroundStyle(tint))
+                            .lineLimit(1).minimumScaleFactor(0.5)
+                        Text("SYSTEM DRAW").font(.deck(12, .bold)).tracking(2).foregroundStyle(Theme.textFaint)
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity)
+                    Spacer()
+                    HStack {
+                        Label("Uptime", systemImage: "power").font(.deck(14)).foregroundStyle(Theme.textFaint)
+                        Spacer()
+                        Text(Fmt.uptime(uptime)).font(.readout(16, .semibold)).foregroundStyle(Theme.textSecondary)
+                    }
                 } else {
                     VStack(spacing: 14) {
                         Image(systemName: "powerplug.fill")

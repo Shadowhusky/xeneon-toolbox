@@ -76,6 +76,18 @@ final class PowerTelemetry: ObservableObject {
         if s.blocksAvailable || ticks >= 2 { warmedUp = true }
     }
 
+    /// Just the instantaneous system draw (W), cheap enough for the dashboard's
+    /// regular metrics tick — one IORegistry read, no IOReport.
+    static func quickSystemWatts() -> Double? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        guard let ptd = IORegistryEntryCreateCFProperty(service, "PowerTelemetryData" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? [String: Any],
+              let mw = ptd["SystemPowerIn"] as? Int, mw > 0 else { return nil }
+        return Double(mw) / 1000
+    }
+
     private static func readBattery(into s: inout Snapshot) {
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
         guard service != 0 else { return }

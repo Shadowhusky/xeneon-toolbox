@@ -140,7 +140,7 @@ struct DashboardView: View {
         case .memory: MemoryTile(snap: snap)
         case .network: NetworkTile(snap: snap, rxHistory: metrics.netRxHistory, txHistory: metrics.netTxHistory)
         case .storage: StorageTile(snap: snap)
-        case .power: PowerTile(battery: snap.battery, uptime: snap.uptime)
+        case .power: PowerTile(battery: snap.battery, uptime: snap.uptime, systemWatts: snap.systemWatts)
         case .controls: ControlsTile(status: model.touchStatus, toggleTouch: model.toggleTouch,
                                      flipX: $model.flipX, flipY: $model.flipY, swapXY: $model.swapXY,
                                      onEditLayout: { withAnimation(Motion.standard) { close(); editing = true } },

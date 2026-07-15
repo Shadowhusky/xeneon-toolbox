@@ -13,6 +13,7 @@ struct MetricsSnapshot: Equatable {
     var cpu: Double = 0                 // 0...1
     var gpu: Double = 0                 // 0...1
     var gpuAvailable = true             // false when this Mac exposes no GPU counter
+    var systemWatts: Double? = nil      // instantaneous machine draw (Apple power telemetry)
     var memUsed: UInt64 = 0
     var memTotal: UInt64 = 0
     var netRx: Double = 0               // bytes/sec
@@ -63,6 +64,7 @@ final class SystemMetrics: ObservableObject {
 
     private var lastGPU = 0.0
     private var gpuEverRead = false
+    private var lastWatts: Double?
 
     private func sample() {
         var s = MetricsSnapshot()
@@ -81,6 +83,10 @@ final class SystemMetrics: ObservableObject {
         s.diskTotal = disk.total
         s.battery = sampleBattery()
         s.uptime = sampleUptime()
+        // The telemetry read is occasionally empty (firmware-side hiccups) —
+        // keep the last good value so the tile doesn't flap back to "AC POWER".
+        if let w = PowerTelemetry.quickSystemWatts() { lastWatts = w }
+        s.systemWatts = lastWatts
         snap = s
 
         cpuHistory = trimmed(cpuHistory + [s.cpu])
