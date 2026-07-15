@@ -28,7 +28,9 @@ struct EnergyFlowView: View {
             .init(id: "ane", name: "Neural", icon: "brain", color: Theme.disk, watts: s.neural),
         ].filter { $0.watts >= 0.05 }
         if let other = s.other, other > 0.2 {
-            out.append(.init(id: "other", name: "Everything else", icon: "ellipsis", color: Theme.textFaint, watts: other))
+            // Real but unmetered consumers: SSD, fans, USB devices & ports (the
+            // Edge panel itself!), networking, Thunderbolt, PSU overhead.
+            out.append(.init(id: "other", name: "SSD, fans, USB, rest", icon: "ellipsis", color: Theme.textFaint, watts: other))
         }
         return out
     }

@@ -192,11 +192,16 @@ private final class EnergyModelReporter {
             let scale: Double = unit.hasPrefix("n") ? 1e-9 : unit.hasPrefix("u") ? 1e-6 : unit.hasPrefix("m") ? 1e-3 : 1
             let joules = Double(getInt(item, 0)) * scale
             let w = joules / dt
-            // Only whole-block aggregates — per-core/cluster/controller channels
-            // would double-count what the aggregates already include.
+            // Aggregates plus the blocks the aggregates DON'T include (verified
+            // against the per-channel sums): "CPU Energy" = core clusters only,
+            // so CPM (cluster power management) is added separately; Memory is
+            // the DRAM dies + DCS memory controllers + AMCC system cache.
+            // Per-core and per-DVFS (…DTL…) channels stay excluded — they
+            // duplicate what the aggregates already count.
             if cfName.hasSuffix("CPU Energy") { b.cpu += w }              // DIE_n_CPU Energy
+            else if cfName.contains("CPM") { b.cpu += w }                 // uncore of the CPU complex
             else if cfName == "GPU Energy" { b.gpu += w }                 // whole-SoC aggregate
-            else if cfName.hasPrefix("DRAM") { b.memory += w }
+            else if cfName.hasPrefix("DRAM") || cfName.hasPrefix("DCS") || cfName.hasPrefix("AMCC") { b.memory += w }
             else if cfName.hasPrefix("ANE") { b.neural += w }
             else if cfName.hasPrefix("ISP") || cfName.hasPrefix("AVE") || cfName.hasPrefix("MSR") { b.media += w }
             else if cfName.hasPrefix("DISP") { b.displays += w }
