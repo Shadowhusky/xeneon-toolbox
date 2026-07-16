@@ -261,12 +261,26 @@ final class AgentController: ObservableObject {
     }
 
     private var service: OpenAIService {
-        // SwiftOpenAI appends /v1/...; pass the host without a trailing /v1.
-        // Auto-downgrade https→http for local/LAN servers (they're plain HTTP).
-        var host = ChatClient.resolveBaseURL(config.baseURL)
-        if host.hasSuffix("/v1") { host = String(host.dropLast(3)) }
-        if host.hasSuffix("/") { host = String(host.dropLast()) }
-        return OpenAIServiceFactory.service(apiKey: .apiKey(config.apiKey ?? ""), baseURL: host)
+        // SwiftOpenAI REPLACES the base URL's path when building each request, so
+        // an endpoint like https://openrouter.ai/api/v1 silently lost its "/api"
+        // (→ the website's HTML 404, surfaced as "assistant isn't available").
+        // Split origin and path ourselves: origin as baseURL, the endpoint's own
+        // path as proxyPath, and no extra version segment unless there's no path
+        // at all (then default /v1, e.g. for a bare https://api.openai.com).
+        // Local/LAN https endpoints are auto-downgraded to http as before.
+        // This factory also sends the key as "Authorization: Bearer …" — the old
+        // one used an Azure-style "api-key:" header no OpenAI-compatible cloud
+        // reads (unnoticed for ages because local servers ignore auth entirely).
+        let resolved = ChatClient.resolveBaseURL(config.baseURL)
+        var comps = URLComponents(string: resolved)
+        let pathPrefix = (comps?.path ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        comps?.path = ""
+        let origin = comps?.string ?? resolved
+        return OpenAIServiceFactory.service(
+            apiKey: config.apiKey ?? "",
+            overrideBaseURL: origin,
+            proxyPath: pathPrefix.isEmpty ? nil : pathPrefix,
+            overrideVersion: pathPrefix.isEmpty ? "v1" : "")
     }
 
     // MARK: - Tools
@@ -1002,12 +1016,20 @@ final class AgentController: ObservableObject {
                 // Use the RAW detail (not the friendly message) to detect a tool
                 // rejection, so a server that rejects tool params retries without
                 // tools instead of surfacing an error.
-                let raw = (error as? APIError)?.displayDescription.lowercased() ?? error.localizedDescription.lowercased()
+                let rawDetail = (error as? APIError)?.displayDescription ?? error.localizedDescription
+                let raw = rawDetail.lowercased()
+                AppLog.error("agent", "chat failed: \(rawDetail.prefix(300))")
                 if !toolsUnsupported, raw.contains("tool") || raw.contains("function") {
                     toolsUnsupported = true
                     continue
                 }
-                let info = describe(error)
+                var info = describe(error)
+                // Server messages we can turn into a concrete next step.
+                if raw.contains("data policy") {
+                    // OpenRouter refuses ":free" models until free-model publication
+                    // is enabled in the account's privacy settings.
+                    info.tip = "Your OpenRouter privacy settings block free models — enable “Free model publication” at openrouter.ai → Settings → Privacy, or pick a paid model."
+                }
                 // Transient failures — retry a couple times before giving up, as
                 // long as nothing has streamed yet.
                 if info.retriable, liveText.isEmpty, transientRetries < 2 {
@@ -1017,6 +1039,12 @@ final class AgentController: ObservableObject {
                 }
                 var text = "⚠️ \(info.message)"
                 if let tip = info.tip { text += "\n\n\(tip)" }
+                // Show the server's own words — the generic line alone kept users
+                // guessing (wrong model? key? policy?) with no way to tell.
+                let detail = rawDetail.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
+                if !detail.isEmpty, detail.lowercased() != info.message.lowercased() {
+                    text += "\n\n`\(detail.prefix(220))`"
+                }
                 turns.append(Turn(role: "error", text: text))
                 return
             }
