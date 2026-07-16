@@ -818,9 +818,14 @@ final class AgentController: ObservableObject {
         return p
     }
 
+    /// Whether the in-flight request carries an image — lets a 4xx be explained
+    /// as "this model can't view images" instead of a generic failure.
+    private var lastSendHadImage = false
+
     func send(text: String, imageDataURL: URL?) {
         guard !busy else { return }
         busy = true
+        lastSendHadImage = imageDataURL != nil
 
         var content: [ChatCompletionParameters.Message.ContentType.MessageContent] = [.text(text)]
         if let imageDataURL { content.append(.imageUrl(.init(url: imageDataURL))) }
@@ -1013,10 +1018,22 @@ final class AgentController: ObservableObject {
                 emit(force: true)   // flush final tokens
             } catch {
                 if error is CancellationError || Task.isCancelled { return }
+                var rawDetail = (error as? APIError)?.displayDescription ?? error.localizedDescription
+                // The streaming error path drops the server's body whenever its
+                // JSON doesn't fit the library's error struct (OpenRouter sends a
+                // numeric "code" where a string is expected). A bare "status code
+                // NNN" hides the actual reason — probe once non-streamed, whose
+                // error path preserves the raw body, to recover it.
+                if liveText.isEmpty,
+                   rawDetail.range(of: #"^status code \d+$"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                    do { _ = try await service.startChat(parameters: params) }
+                    catch let probe as APIError {
+                        if probe.displayDescription.count > rawDetail.count { rawDetail = probe.displayDescription }
+                    } catch {}
+                }
                 // Use the RAW detail (not the friendly message) to detect a tool
                 // rejection, so a server that rejects tool params retries without
                 // tools instead of surfacing an error.
-                let rawDetail = (error as? APIError)?.displayDescription ?? error.localizedDescription
                 let raw = rawDetail.lowercased()
                 AppLog.error("agent", "chat failed: \(rawDetail.prefix(300))")
                 if !toolsUnsupported, raw.contains("tool") || raw.contains("function") {
@@ -1029,6 +1046,13 @@ final class AgentController: ObservableObject {
                     // OpenRouter refuses ":free" models until free-model publication
                     // is enabled in the account's privacy settings.
                     info.tip = "Your OpenRouter privacy settings block free models — enable “Free model publication” at openrouter.ai → Settings → Privacy, or pick a paid model."
+                } else if raw.contains("image input") || raw.contains("modalit")
+                            || (lastSendHadImage && raw.contains("image"))
+                            || (lastSendHadImage && rawDetail.lowercased().hasPrefix("status code 4")) {
+                    // e.g. OpenRouter's 404 "No endpoints found that support image
+                    // input" — the model simply can't see pictures.
+                    info.message = "This model can't view images."
+                    info.tip = "Pick a vision-capable model in Assistant settings (its description should mention image input), or send the message without the photo."
                 }
                 // Transient failures — retry a couple times before giving up, as
                 // long as nothing has streamed yet.
