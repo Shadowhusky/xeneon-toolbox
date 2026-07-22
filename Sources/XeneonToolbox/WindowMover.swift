@@ -42,6 +42,130 @@ enum WindowMover {
     /// Is the app at `appPath` currently running?
     static func isRunning(appPath: String) -> Bool { running(appPath) != nil }
 
+    /// One of a running app's windows, for the picker's quick-switch list. Holds
+    /// the live AXUIElement so a tap can raise exactly that window.
+    struct AppWindow: Identifiable {
+        let id: Int
+        let title: String
+        let axRef: AXUIElement
+    }
+
+    /// The app's switchable windows (standard, titled), via Accessibility.
+    /// Best-effort: AX only enumerates windows on currently-visible Spaces — an
+    /// empty list means none are visible right now, not that none exist.
+    static func windows(appPath: String) -> [AppWindow] {
+        guard let app = running(appPath) else { return [] }
+        let axApp = AXUIElementCreateApplication(app.processIdentifier)
+        var wv: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &wv) == .success,
+              let wins = wv as? [AXUIElement] else { return [] }
+        var out: [AppWindow] = []
+        for (i, w) in wins.enumerated() {
+            var subrole: CFTypeRef?
+            AXUIElementCopyAttributeValue(w, kAXSubroleAttribute as CFString, &subrole)
+            if let sr = subrole as? String, sr != (kAXStandardWindowSubrole as String) { continue }
+            var tv: CFTypeRef?
+            AXUIElementCopyAttributeValue(w, kAXTitleAttribute as CFString, &tv)
+            let title = (tv as? String)?.trimmingCharacters(in: .whitespaces) ?? ""
+            guard !title.isEmpty else { continue }
+            out.append(AppWindow(id: i, title: title, axRef: w))
+            if out.count >= 8 { break }
+        }
+        return out
+    }
+
+    /// Bring one specific window to the front (and its app forward).
+    static func raise(_ window: AppWindow, appPath: String) {
+        AppLog.info("deck", "raise window '\(window.title.prefix(40))'")
+        AXUIElementPerformAction(window.axRef, kAXRaiseAction as CFString)
+        running(appPath)?.activate()
+    }
+
+    /// Move ONE window (not the whole app) onto a display — the picker's
+    /// select-then-place. Size is clamped to fit, the window is centred, raised,
+    /// and its app brought forward.
+    static func move(_ window: AppWindow, appPath: String, to display: Display) {
+        AppLog.info("deck", "move window '\(window.title.prefix(40))' → \(display.name)")
+        place(window.axRef, on: display)
+        AXUIElementPerformAction(window.axRef, kAXRaiseAction as CFString)
+        running(appPath)?.activate()
+    }
+
+    /// After an action that will create a window (⌘N, a Chrome profile launch),
+    /// wait for a window that wasn't there before and place it on `display`.
+    /// Best-effort: gives up quietly after ~4s (the window still opens, just
+    /// wherever the app chose).
+    static func placeUpcomingWindow(appPath: String, on display: Display, before: [AppWindow], attempt: Int = 0) {
+        let now = windows(appPath: appPath)
+        if let fresh = now.first(where: { w in !before.contains { CFEqual($0.axRef, w.axRef) } }) {
+            AppLog.info("deck", "placing new window '\(fresh.title.prefix(40))' → \(display.name)")
+            place(fresh.axRef, on: display)
+            AXUIElementPerformAction(fresh.axRef, kAXRaiseAction as CFString)
+            return
+        }
+        guard attempt < 10 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            placeUpcomingWindow(appPath: appPath, on: display, before: before, attempt: attempt + 1)
+        }
+    }
+
+    /// Clamp-to-fit and centre a single AX window on a display.
+    private static func place(_ axRef: AXUIElement, on display: Display) {
+        var sizeValue: CFTypeRef?
+        var size = CGSize(width: 800, height: 600)
+        if AXUIElementCopyAttributeValue(axRef, kAXSizeAttribute as CFString, &sizeValue) == .success,
+           let sv = sizeValue, CFGetTypeID(sv) == AXValueGetTypeID() {
+            AXValueGetValue(sv as! AXValue, .cgSize, &size)
+        }
+        let w = min(size.width, display.bounds.width)
+        let h = min(size.height, display.bounds.height)
+        if w != size.width || h != size.height {
+            var newSize = CGSize(width: w, height: h)
+            if let v = AXValueCreate(.cgSize, &newSize) {
+                AXUIElementSetAttributeValue(axRef, kAXSizeAttribute as CFString, v)
+            }
+        }
+        var origin = CGPoint(x: display.bounds.midX - w / 2, y: display.bounds.midY - h / 2)
+        if let v = AXValueCreate(.cgPoint, &origin) {
+            AXUIElementSetAttributeValue(axRef, kAXPositionAttribute as CFString, v)
+        }
+    }
+
+    /// Ask the app for a fresh window: activate it, then send ⌘N — the universal
+    /// "New Window" shortcut. No Apple-Events consent needed (we already inject
+    /// keystrokes for deck hotkey tiles).
+    static func openNewWindow(appPath: String) {
+        AppLog.info("deck", "new window for '\(appPath)'")
+        let url = URL(fileURLWithPath: appPath)
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { app, _ in
+            guard app != nil else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                KeyCombo.post(keyCode: CGKeyCode(45), modifiers: NSEvent.ModifierFlags.command.rawValue)   // ⌘N
+            }
+        }
+    }
+
+    /// The display showing the app's biggest visible window — the screen picker
+    /// marks it "Currently here". Best-effort: CGWindowList only sees windows on
+    /// the visible Spaces, which is exactly what "currently here" should mean.
+    static func currentDisplayName(appPath: String) -> String? {
+        guard let app = running(appPath) else { return nil }
+        guard let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        var best: (area: CGFloat, centre: CGPoint)?
+        for info in infos {
+            guard (info[kCGWindowLayer as String] as? Int) == 0,
+                  (info[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier,
+                  let b = info[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = b["X"], let y = b["Y"], let w = b["Width"], let h = b["Height"],
+                  w > 100, h > 60 else { continue }
+            if w * h > (best?.area ?? 0) { best = (w * h, CGPoint(x: x + w / 2, y: y + h / 2)) }
+        }
+        guard let c = best?.centre else { return nil }
+        return displays().first { $0.bounds.contains(c) }?.name
+    }
+
     private static func running(_ appPath: String) -> NSRunningApplication? {
         guard let bundleID = Bundle(url: URL(fileURLWithPath: appPath))?.bundleIdentifier else { return nil }
         return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first

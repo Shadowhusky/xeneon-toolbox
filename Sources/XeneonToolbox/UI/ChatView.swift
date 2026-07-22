@@ -36,7 +36,11 @@ struct ChatView: View {
             }
             if let p = ProcessInfo.processInfo.environment["XENEON_AGENT_PROMPT"],
                config != nil, agent.turns.isEmpty {
-                agent.send(text: p, imageDataURL: nil)
+                // XENEON_AGENT_IMAGE=1 attaches a 1px test image (vision path check).
+                let img = ProcessInfo.processInfo.environment["XENEON_AGENT_IMAGE"] != nil
+                    ? URL(string: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+                    : nil
+                agent.send(text: p, imageDataURL: img)
             }
         }
         .onChange(of: voice.transcript) { _, t in if voice.listening { input = t } }

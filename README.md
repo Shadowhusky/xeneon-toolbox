@@ -47,7 +47,9 @@ apps built for the strip. While the app runs, the panel just works:
 - **Customizable dashboard** — CPU, GPU, memory, network, storage, power, clock
   and current weather, with hue-coded ring gauges and sparklines. Tap a tile for a
   detail view (top processes by CPU or memory; tap the Local tile for an
-  **hourly and 6-day weather forecast**), or enter Edit to **drag tiles to rearrange and hide** the
+  **hourly and 6-day weather forecast**; the Power tile shows the machine's **live watt draw** — tap it
+  for a full **energy flow**: watts from the wall fanning out to CPU / GPU /
+  memory / displays, with the heaviest apps), or enter Edit to **drag tiles to rearrange and hide** the
   ones you don't need — your layout persists. Weather locates via Wi-Fi
   positioning (with IP fallback), or **pin your exact city** in Settings.
 - **Deck** — a Stream-Deck-style page of big, tappable tiles that quick-launch
@@ -112,8 +114,10 @@ icons and a dock-style dot on the ones already running), launch websites (with
 their real favicons) in the built-in browser, fire **recorded keyboard
 shortcuts** system-wide, run shell commands or webhooks, or control media.
 **Multi tiles** chain your other tiles into one tap — pick them in the order
-they should run. **Long-press an app tile** to pick which display to open it on
-— or move it there if it's already running. The grid scrolls when your deck outgrows the panel. Tap
+they should run. **Long-press an app tile** to open or move it to any display — the picker
+shows where it currently lives, lets you **pin a screen** it should always open
+on, and choosing the **Xeneon Edge** hands the panel over: the Toolbox collapses
+into its floating badge and the app takes the screen (tap the badge to swap back). The grid scrolls when your deck outgrows the panel. Tap
 **Edit** to drag tiles into any order, remove them, or tap the pencil to
 **rename / re-icon / retarget** a tile in place, **Sort** alphabetically or by
 type (with a confirmation before it replaces a hand-arranged order), and **Add**

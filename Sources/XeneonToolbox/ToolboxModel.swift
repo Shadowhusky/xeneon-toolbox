@@ -180,10 +180,12 @@ final class ToolboxModel: ObservableObject {
         switch action.kind {
         case .app:
             // Open on the tile's pinned display if it set one and that display is
-            // connected; otherwise on the main monitor (never over the Edge kiosk).
-            // Long-press the tile to pick or change its display.
+            // connected; otherwise on the main monitor. A tile pinned to the Edge
+            // hands the screen over (panel → badge) and opens the app in its
+            // place. Long-press the tile to pick or change its display.
             if let name = action.preferredDisplay,
-               let d = WindowMover.displays().first(where: { !$0.isEdge && $0.name == name }) {
+               let d = WindowMover.displays().first(where: { $0.name == name }) {
+                if d.isEdge { hideToBadge() }
                 WindowMover.open(appPath: action.target, on: d)
             } else {
                 WindowMover.openOffEdge(appPath: action.target)
@@ -352,6 +354,7 @@ final class ToolboxModel: ObservableObject {
     /// reacquires would needlessly bounce a just-recovered connection.
     private var pendingReacquire: DispatchWorkItem?
     func reacquireSoon() {
+        seizeRetries = 0   // a wake/replug is a fresh chance — restore the retry budget
         pendingReacquire?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.pendingReacquire = nil
@@ -366,6 +369,16 @@ final class ToolboxModel: ObservableObject {
         t.onPresenceChanged = { [weak self] present in Task { @MainActor in
             if self?.edgeDetected != present { AppLog.info("touch", present ? "digitizer connected" : "digitizer lost") }
             self?.edgeDetected = present
+        } }
+        // Per-device seize truth, refreshed on every (re)connect — the log line
+        // that diagnoses "touch reverted to a trackpad" definitively.
+        t.onSeizeState = { [weak self] s in Task { @MainActor in
+            guard let self else { return }
+            if let s {
+                AppLog.info("touch", "device seize on connect: \(s ? "OK (exclusive)" : "FAILED — macOS may co-drive as trackpad; watchdog will retry")")
+                self.touchSeized = s
+                if s { self.seizeRetries = 0 }
+            }
         } }
         t.onShadePull = { [weak self] frac, phase in Task { @MainActor in self?.handleShadePull(frac, phase) } }
         t.onControlPull = { [weak self] frac, phase in Task { @MainActor in self?.handleControlPull(frac, phase) } }
