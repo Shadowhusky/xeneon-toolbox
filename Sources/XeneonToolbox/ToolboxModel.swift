@@ -354,6 +354,7 @@ final class ToolboxModel: ObservableObject {
     /// reacquires would needlessly bounce a just-recovered connection.
     private var pendingReacquire: DispatchWorkItem?
     func reacquireSoon() {
+        seizeRetries = 0   // a wake/replug is a fresh chance — restore the retry budget
         pendingReacquire?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.pendingReacquire = nil
@@ -368,6 +369,16 @@ final class ToolboxModel: ObservableObject {
         t.onPresenceChanged = { [weak self] present in Task { @MainActor in
             if self?.edgeDetected != present { AppLog.info("touch", present ? "digitizer connected" : "digitizer lost") }
             self?.edgeDetected = present
+        } }
+        // Per-device seize truth, refreshed on every (re)connect — the log line
+        // that diagnoses "touch reverted to a trackpad" definitively.
+        t.onSeizeState = { [weak self] s in Task { @MainActor in
+            guard let self else { return }
+            if let s {
+                AppLog.info("touch", "device seize on connect: \(s ? "OK (exclusive)" : "FAILED — macOS may co-drive as trackpad; watchdog will retry")")
+                self.touchSeized = s
+                if s { self.seizeRetries = 0 }
+            }
         } }
         t.onShadePull = { [weak self] frac, phase in Task { @MainActor in self?.handleShadePull(frac, phase) } }
         t.onControlPull = { [weak self] frac, phase in Task { @MainActor in self?.handleControlPull(frac, phase) } }

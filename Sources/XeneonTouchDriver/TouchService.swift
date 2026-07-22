@@ -74,6 +74,9 @@ final class TouchDriver: @unchecked Sendable {
     private var valueLogCount = 0
 
     var onPresenceChanged: ((Bool) -> Void)?
+    /// Per-DEVICE seize result — true/false when a digitizer connects, nil when
+    /// it's removed (unknown until the next connect).
+    var onSeizeState: ((Bool?) -> Void)?
     var onShadePull: ((Double, EdgePhase) -> Void)?    // top-edge pull-down, left/centre (full → minimal)
     var onControlPull: ((Double, EdgePhase) -> Void)?  // top-edge pull-down, right third (control centre)
     var onBottomPull: ((Double, EdgePhase) -> Void)?   // bottom-edge pull-up (dismiss / exit)
@@ -185,6 +188,16 @@ final class TouchDriver: @unchecked Sendable {
             calSource = .digitizer
             display = findEdgeDisplay(preferred: preferredDisplayID)
             registerReportCallback(device)
+            // A device the long-lived manager REmatches after the panel
+            // re-enumerates (sleep/wake, replug) is not reliably re-seized —
+            // macOS's HID driver ends up co-driving it as a trackpad while the
+            // stale manager-level flag still says "seized", so recovery never
+            // fired (the toggle-Touch-to-fix bug). Seize THIS device explicitly:
+            // re-opening what we already hold is harmless, and when we don't
+            // hold it the seize evicts the system driver.
+            let sr = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+            touchDiag(String(format: "device seize -> 0x%08X (%@)", sr, sr == kIOReturnSuccess ? "OK" : "fail"))
+            onSeizeState?(sr == kIOReturnSuccess)
             touchDiag("digitizer connected: X[\(xr.0),\(xr.1)] Y[\(yr.0),\(yr.1)] edge=\(display != nil)")
             onPresenceChanged?(display != nil)
         } else if calSource != .digitizer {
@@ -218,6 +231,7 @@ final class TouchDriver: @unchecked Sendable {
 
     func deviceRemoved() {
         guard calSource != .none else { return }
+        onSeizeState?(nil)
         for action in recognizer.reset() { post(action) }
         for action in machine.reset() { post(action) }
         longPress.reset()
@@ -676,9 +690,15 @@ public final class TouchService: @unchecked Sendable {
     /// open fell back to non-exclusive because macOS holds the device — meaning
     /// macOS also processes it as a Precision trackpad (the panel "reverts to a
     /// touchpad"). The app watches this to retry the seize.
-    public var isSeized: Bool { lock.withLock { running && seized } }
+    public var isSeized: Bool { lock.withLock { running && (deviceSeized ?? seized) } }
+    /// Seize result of the currently-connected digitizer DEVICE (nil = none
+    /// connected / unknown). The manager-level flag goes stale when the panel
+    /// re-enumerates; this one is refreshed on every connect.
+    private var deviceSeized: Bool?
     /// Called when the Edge connects/disconnects (off the main thread).
     public var onPresenceChanged: ((Bool) -> Void)?
+    /// Per-device seize result on each digitizer connect (nil on removal).
+    public var onSeizeState: ((Bool?) -> Void)?
     /// Called continuously during a top-edge pull-down, left/centre (off the main thread).
     public var onShadePull: ((Double, EdgePhase) -> Void)?
     /// Called continuously during a top-edge pull-down in the right third (off the main thread).
@@ -740,6 +760,11 @@ public final class TouchService: @unchecked Sendable {
                                  flipX: config.flipX, flipY: config.flipY, swapXY: config.swapXY,
                                  preferredDisplayID: config.preferredDisplayID)
         driver.onPresenceChanged = { [weak self] present in self?.onPresenceChanged?(present) }
+        driver.onSeizeState = { [weak self] s in
+            guard let self else { return }
+            self.lock.withLock { self.deviceSeized = s }
+            self.onSeizeState?(s)
+        }
         driver.onShadePull = { [weak self] f, p in self?.onShadePull?(f, p) }
         driver.onControlPull = { [weak self] f, p in self?.onControlPull?(f, p) }
         driver.onBottomPull = { [weak self] f, p in self?.onBottomPull?(f, p) }
@@ -786,6 +811,7 @@ public final class TouchService: @unchecked Sendable {
             guard running else { return (nil, nil, nil) }
             running = false
             seized = false
+            deviceSeized = nil
             defer { manager = nil; driver = nil; thread = nil; runLoop = nil }
             return (manager, driver, runLoop)
         }
