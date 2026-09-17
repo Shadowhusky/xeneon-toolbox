@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import CoreImage
+import XeneonTouchDriver
 
 struct SettingsView: View {
     @ObservedObject var model: ToolboxModel
@@ -10,6 +11,7 @@ struct SettingsView: View {
     @State private var confirmClear = false
     @State private var sliderValue: Double = 90
     @State private var configStatus = ""
+    @State private var edge: EdgeDisplay? = EdgeScreen.current()
 
     private func dismiss() { onClose() }
 
@@ -26,9 +28,14 @@ struct SettingsView: View {
             Rectangle().fill(LinearGradient(colors: [Theme.accent.opacity(0.4), .clear], startPoint: .leading, endPoint: .trailing))
                 .frame(height: 1.5).padding(.bottom, 18)
 
-            ScrollView(showsIndicators: false) {
+            // ScrollView content doesn't lay out in the off-screen renderer.
+            ScrollOrStatic(scrolls: !model.exportMode) {
               HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 18) {
+                    section("Xeneon Edge", nil, "rectangle.bottomthird.inset.filled", Theme.accent) {
+                        edgeRow
+                        touchStatusRow
+                    }
                     section("Touch calibration", "Use these if taps land mirrored or rotated.", "hand.tap.fill", Theme.accent) {
                         Toggle("Flip horizontal", isOn: $model.flipX)
                         Toggle("Flip vertical", isOn: $model.flipY)
@@ -40,8 +47,8 @@ struct SettingsView: View {
                             modeButton("Sleep", "moon.fill") { model.setDisplay(.sleep); dismiss() }
                         }
                     }
-                    section("Now Playing", "Show music controls on the dashboard and idle screen.", "music.note", Theme.memory) {
-                        Toggle("Show Now Playing", isOn: $model.showNowPlaying)
+                    section("Now Playing", "Show the player bar on the ambient screen. The dashboard has its own Now Playing tile.", "music.note", Theme.memory) {
+                        Toggle("Show Now Playing on the ambient screen", isOn: $model.showNowPlaying)
                     }
                     section("Screen", "Dim the screen, or turn it off to save power.", "sun.max.fill", Theme.netUp) {
                         if model.canControlBacklight {
@@ -97,7 +104,8 @@ struct SettingsView: View {
                                                 .foregroundStyle(Theme.accent).textSelection(.enabled)
                                                 .lineLimit(1).minimumScaleFactor(0.5)
                                         }
-                                        Text("Anyone on the same Wi-Fi can use it.").font(.deck(12)).foregroundStyle(Theme.textFaint)
+                                        Text("The link includes a private access key. Share it only with people you trust.")
+                                            .font(.deck(12)).foregroundStyle(Theme.textFaint)
                                     }
                                     Spacer(minLength: 0)
                                 }
@@ -159,7 +167,6 @@ struct SettingsView: View {
                     }
                     section("About", nil, "info.circle.fill", Theme.time) {
                         labelRow("Xeneon Toolbox", "for the Corsair Xeneon Edge")
-                        touchStatusRow
                         labelRow("Repo", "github.com/Shadowhusky/xeneon-toolbox")
                         labelRow("Logs", "~/.config/xeneon-toolbox (app.log · crash-*.log)")
                     }
@@ -175,6 +182,44 @@ struct SettingsView: View {
         .shadow(color: .black.opacity(0.5), radius: 30)
         .tint(Theme.accent)
         .preferredColorScheme(.dark)
+        .onChange(of: model.displayIssue) { edge = EdgeScreen.current() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+            edge = EdgeScreen.current()
+        }
+    }
+
+    /// The panel and its mode, with a Fix when macOS has it scaled.
+    private var edgeRow: some View {
+        HStack(spacing: 10) {
+            Text("Display").foregroundStyle(Theme.textSecondary)
+            Spacer()
+            if let e = edge {
+                Text("\(e.modeLabel)\(e.refreshHz > 0 ? String(format: " @ %.0f Hz", e.refreshHz) : "")")
+                    .font(.readout(14, .semibold)).foregroundStyle(e.isNativeMode ? Theme.textPrimary : Theme.warning)
+                if e.isNativeMode {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.battery)
+                } else {
+                    Button { model.displayIssue = DisplayModeAdvisor.check(ignoringDismissal: true) } label: {
+                        Text("Fix").font(.deck(13, .bold)).foregroundStyle(.black)
+                            .padding(.horizontal, 14).frame(height: 34)
+                            .background(Capsule().fill(Theme.warning))
+                            .contentShape(Capsule())
+                    }.buttonStyle(.pressable)
+                }
+            } else {
+                Text("Not connected").foregroundStyle(Theme.textFaint)
+            }
+        }
+        .font(.deck(14))
+    }
+
+    private struct ScrollOrStatic<Content: View>: View {
+        let scrolls: Bool
+        @ViewBuilder var content: Content
+        var body: some View {
+            if scrolls { ScrollView(showsIndicators: false) { content } }
+            else { content.frame(maxHeight: .infinity, alignment: .top).clipped() }
+        }
     }
 
     private func section<C: View>(_ title: String, _ subtitle: String?, _ icon: String, _ accent: Color,
@@ -233,16 +278,35 @@ struct SettingsView: View {
 
     private var touchStatusRow: some View {
         let active = model.touchStatus == .active
-        return HStack {
+        return HStack(spacing: 10) {
             Text("Touch").foregroundStyle(Theme.textSecondary)
             Spacer()
             HStack(spacing: 7) {
                 Circle().fill(active ? Theme.battery : Theme.batteryLow).frame(width: 8, height: 8)
                     .deckGlow(active ? Theme.battery : Theme.batteryLow, strength: 0.6)
-                Text(active ? "Active" : "Inactive").foregroundStyle(active ? Theme.battery : Theme.batteryLow)
+                Text(active ? "Active" : (model.touchOn ? "Searching" : "Off"))
+                    .foregroundStyle(active ? Theme.battery : Theme.batteryLow)
+                if let at = model.lastTouchInputAt {
+                    Text("· last input \(Self.age(at))").foregroundStyle(Theme.textFaint)
+                }
             }
+            Button { model.restartTouch() } label: {
+                Label("Restart touch", systemImage: "arrow.clockwise")
+                    .font(.deck(13, .semibold)).foregroundStyle(Theme.textPrimary)
+                    .padding(.horizontal, 12).frame(height: 34)
+                    .background(Capsule().fill(Color.white.opacity(0.07)))
+                    .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
+                    .contentShape(Capsule())
+            }.buttonStyle(.pressable)
         }
         .font(.deck(14))
+    }
+
+    private static func age(_ d: Date) -> String {
+        let s = Int(Date().timeIntervalSince(d))
+        if s < 60 { return "\(s) s ago" }
+        if s < 3600 { return "\(s / 60) min ago" }
+        return "\(s / 3600) h ago"
     }
 }
 

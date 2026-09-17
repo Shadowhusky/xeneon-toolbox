@@ -12,7 +12,7 @@ public struct ScreenPoint: Equatable, Sendable {
 }
 
 /// The global bounds of a display, as reported by CoreGraphics.
-public struct DisplayRect: Sendable {
+public struct DisplayRect: Equatable, Sendable {
     public let x: Double
     public let y: Double
     public let width: Double

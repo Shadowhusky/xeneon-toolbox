@@ -1,8 +1,9 @@
 import Foundation
+import ToolboxKit
 
-/// The dashboard's gadgets, identified so their order and visibility can be saved.
+/// The dashboard's gadgets, identified so a board can be saved.
 enum DashTile: String, CaseIterable, Codable, Identifiable {
-    case clock, cpu, gpu, memory, network, storage, power, controls
+    case clock, cpu, gpu, memory, network, storage, power, upNext, tasks, thermals, dock, clipboard, nowPlaying
     var id: String { rawValue }
 
     var title: String {
@@ -14,7 +15,12 @@ enum DashTile: String, CaseIterable, Codable, Identifiable {
         case .network: return "Network"
         case .storage: return "Storage"
         case .power: return "Power"
-        case .controls: return "Configs"
+        case .upNext: return "Up Next"
+        case .tasks: return "Tasks"
+        case .thermals: return "Thermals"
+        case .dock: return "Running apps"
+        case .clipboard: return "Clipboard"
+        case .nowPlaying: return "Now Playing"
         }
     }
 
@@ -27,70 +33,184 @@ enum DashTile: String, CaseIterable, Codable, Identifiable {
         case .network: return "dot.radiowaves.up.forward"
         case .storage: return "internaldrive.fill"
         case .power: return "powerplug.fill"
-        case .controls: return "slider.horizontal.3"
+        case .upNext: return "calendar"
+        case .tasks: return "checklist"
+        case .thermals: return "thermometer.medium"
+        case .dock: return "macwindow.on.rectangle"
+        case .clipboard: return "doc.on.clipboard"
+        case .nowPlaying: return "music.note"
         }
+    }
+
+    /// One line for the tile gallery.
+    var blurb: String {
+        switch self {
+        case .clock: return "Time, date and the local weather. Tap for the forecast."
+        case .cpu: return "Processor load with a live history. Tap for the top processes."
+        case .gpu: return "Graphics load with a live history."
+        case .memory: return "Memory in use and pressure. Tap for the biggest apps."
+        case .network: return "Download and upload rates. Tap for details."
+        case .storage: return "Free space on the startup disk."
+        case .power: return "Battery or live system draw. Tap for the energy flow."
+        case .upNext: return "Your next calendar events today. Tap for the agenda."
+        case .tasks: return "Open tasks and reminders you can tick off in place."
+        case .thermals: return "Chip temperature and fan speed."
+        case .dock: return "Every running app — tap one to bring it forward."
+        case .clipboard: return "The last few things you copied. Tap to copy again."
+        case .nowPlaying: return "Spotify or Music, with playback controls."
+        }
+    }
+
+    var sizes: [TileSize] {
+        switch self {
+        case .clock: return [.t, .s, .w]
+        case .cpu, .gpu, .memory, .network: return [.s, .w]
+        case .storage, .power, .thermals: return [.s]
+        case .upNext, .dock: return [.w, .s]
+        case .tasks, .clipboard, .nowPlaying: return [.s, .w]
+        }
+    }
+
+    var defaultSize: TileSize { sizes[0] }
+}
+
+enum TileSize: String, Codable, CaseIterable {
+    case s, w, t, l
+    var columns: Int { self == .w || self == .l ? 2 : 1 }
+    var rows: Int { self == .t || self == .l ? 2 : 1 }
+    var cells: Int { columns * rows }
+    var label: String { rawValue.uppercased() }
+    var name: String {
+        switch self { case .s: return "Small"; case .w: return "Wide"; case .t: return "Tall"; case .l: return "Large" }
     }
 }
 
-/// Persisted dashboard arrangement: the tile order and which tiles are hidden.
-/// Reordering and hiding happen in the dashboard's edit mode; both survive
-/// relaunch. New tiles added in future versions are appended automatically so an
-/// old saved layout never loses them.
+struct PlacedTile: Codable, Equatable, Identifiable {
+    let tile: DashTile
+    var size: TileSize
+    var id: DashTile { tile }
+}
+
+/// The dashboard board: which tiles, at what size, in what order. Placement on
+/// the 2×8 grid is derived by first-fit packing, so the user only ever reorders
+/// a list. Persists as `dashboard.layout.v2`; a v1 order migrates once.
 @MainActor
 final class DashboardLayout: ObservableObject {
-    @Published private(set) var order: [DashTile]
-    @Published private(set) var hidden: Set<DashTile>
+    static let columns = 8
+    static let rows = 2
+    static let capacity = columns * rows
 
-    private let key = "dashboard.layout.v1"
+    @Published private(set) var board: [PlacedTile] { didSet { repack() } }
+    private(set) var slots: [DashTile: GridSlot] = [:]
+    private(set) var overflow: [DashTile] = []
 
-    private struct Saved: Codable { var order: [DashTile]; var hidden: [DashTile] }
+    private let key = "dashboard.layout.v2"
+    private let legacyKey = "dashboard.layout.v1"
+
+    static let defaultBoard: [PlacedTile] = [
+        .init(tile: .clock, size: .t), .init(tile: .cpu, size: .s), .init(tile: .gpu, size: .s),
+        .init(tile: .memory, size: .s), .init(tile: .network, size: .w), .init(tile: .storage, size: .s),
+        .init(tile: .power, size: .s), .init(tile: .upNext, size: .w), .init(tile: .tasks, size: .s),
+        .init(tile: .thermals, size: .s), .init(tile: .dock, size: .w), .init(tile: .nowPlaying, size: .s),
+    ]
+
+    private struct SavedTile: Codable { let tile: String; let size: String }
+    private struct SavedV1: Codable { var order: [String]; var hidden: [String] }
 
     init() {
         if let data = AppDefaults.shared.data(forKey: key),
-           let saved = try? JSONDecoder().decode(Saved.self, from: data) {
-            let known = saved.order.filter { DashTile.allCases.contains($0) }
-            let missing = DashTile.allCases.filter { !known.contains($0) }
-            order = known + missing
-            hidden = Set(saved.hidden).intersection(DashTile.allCases)
+           let saved = try? JSONDecoder().decode([SavedTile].self, from: data), !saved.isEmpty {
+            board = Self.sanitized(saved.compactMap { s in
+                guard let t = DashTile(rawValue: s.tile) else { return nil }
+                return PlacedTile(tile: t, size: TileSize(rawValue: s.size) ?? t.defaultSize)
+            })
+        } else if let data = AppDefaults.shared.data(forKey: legacyKey),
+                  let v1 = try? JSONDecoder().decode(SavedV1.self, from: data) {
+            // Keep the v1 order for the tiles that still exist (the old Configs
+            // tile is gone), then append the new gadgets at their default sizes.
+            let kept = v1.order.compactMap(DashTile.init(rawValue:)).filter { !v1.hidden.contains($0.rawValue) }
+                .map { tile in PlacedTile(tile: tile, size: Self.defaultBoard.first { $0.tile == tile }?.size ?? tile.defaultSize) }
+            let missing = Self.defaultBoard.filter { d in !kept.contains { $0.tile == d.tile } }
+            board = Self.sanitized(kept + missing)
         } else {
-            order = DashTile.allCases
-            hidden = []
+            board = Self.defaultBoard
         }
-    }
-
-    var visible: [DashTile] { order.filter { !hidden.contains($0) } }
-
-    func isHidden(_ tile: DashTile) -> Bool { hidden.contains(tile) }
-
-    /// Move `tile` to occupy `target`'s slot, choosing the side from `before`.
-    func move(_ tile: DashTile, toward target: DashTile, before: Bool) {
-        guard tile != target, let from = order.firstIndex(of: tile) else { return }
-        order.remove(at: from)
-        guard let t = order.firstIndex(of: target) else { order.insert(tile, at: min(from, order.count)); return }
-        order.insert(tile, at: before ? t : t + 1)
-    }
-
-    func hide(_ tile: DashTile) {
-        guard visible.count > 1 else { return }   // never hide the last visible tile
-        hidden.insert(tile)
+        repack()
         save()
     }
 
-    func show(_ tile: DashTile) {
-        hidden.remove(tile)
-        // Bring a re-shown tile to the end of the visible run so it's easy to find.
-        if let i = order.firstIndex(of: tile) { order.remove(at: i); order.append(tile) }
+    private static func sanitized(_ tiles: [PlacedTile]) -> [PlacedTile] {
+        var seen = Set<DashTile>()
+        var out: [PlacedTile] = []
+        for var t in tiles where !seen.contains(t.tile) {
+            seen.insert(t.tile)
+            if !t.tile.sizes.contains(t.size) { t.size = t.tile.defaultSize }
+            out.append(t)
+        }
+        return out.isEmpty ? defaultBoard : out
+    }
+
+    var available: [DashTile] { DashTile.allCases.filter { t in !board.contains { $0.tile == t } } }
+    var cellsUsed: Int { board.reduce(0) { $0 + $1.size.cells } }
+    func contains(_ tile: DashTile) -> Bool { board.contains { $0.tile == tile } }
+    func size(of tile: DashTile) -> TileSize? { board.first { $0.tile == tile }?.size }
+
+    /// Move `tile` to sit before/after `target` — drag-to-reorder.
+    func move(_ tile: DashTile, toward target: DashTile, before: Bool) {
+        guard tile != target, let from = board.firstIndex(where: { $0.tile == tile }) else { return }
+        let item = board.remove(at: from)
+        guard let t = board.firstIndex(where: { $0.tile == target }) else { board.insert(item, at: min(from, board.count)); return }
+        board.insert(item, at: before ? t : t + 1)
+    }
+
+    func remove(_ tile: DashTile) {
+        guard board.count > 1 else { return }   // never empty the board
+        board.removeAll { $0.tile == tile }
+        save()
+    }
+
+    /// Adds at `size`; false when it wouldn't fit (cells or packing geometry).
+    @discardableResult
+    func add(_ tile: DashTile, size: TileSize) -> Bool {
+        guard !contains(tile), tile.sizes.contains(size), cellsUsed + size.cells <= Self.capacity else { return false }
+        let old = board
+        board.append(PlacedTile(tile: tile, size: size))
+        guard overflow.isEmpty else { board = old; return false }
+        save()
+        return true
+    }
+
+    /// Resizes in place; false when the new size wouldn't fit.
+    @discardableResult
+    func setSize(_ tile: DashTile, _ size: TileSize) -> Bool {
+        guard tile.sizes.contains(size), let i = board.firstIndex(where: { $0.tile == tile }) else { return false }
+        let old = board
+        board[i].size = size
+        guard overflow.isEmpty else { board = old; return false }
+        save()
+        return true
+    }
+
+    /// The next supported size for a tile (cycles).
+    func nextSize(for tile: DashTile) -> TileSize? {
+        guard let cur = size(of: tile), let i = tile.sizes.firstIndex(of: cur), tile.sizes.count > 1 else { return nil }
+        return tile.sizes[(i + 1) % tile.sizes.count]
+    }
+
+    func reset() {
+        board = Self.defaultBoard
         save()
     }
 
     func save() {
-        let s = Saved(order: order, hidden: Array(hidden))
-        if let data = try? JSONEncoder().encode(s) { AppDefaults.shared.set(data, forKey: key) }
+        let saved = board.map { SavedTile(tile: $0.tile.rawValue, size: $0.size.rawValue) }
+        if let data = try? JSONEncoder().encode(saved) { AppDefaults.shared.set(data, forKey: key) }
     }
 
-    func reset() {
-        order = DashTile.allCases
-        hidden = []
-        save()
+    private func repack() {
+        let r = GridPacker.pack(board.map { PackedItem(id: $0.tile, columns: $0.size.columns, rows: $0.size.rows) },
+                                columns: Self.columns, rows: Self.rows)
+        slots = r.placed
+        overflow = r.overflow
     }
 }

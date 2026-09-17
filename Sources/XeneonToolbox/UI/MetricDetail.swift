@@ -23,11 +23,20 @@ struct MetricDetail: Identifiable {
     var processMetric: ProcessMetric? = nil
 }
 
+/// Connection facts for the Network detail.
+struct NetworkInfo: Equatable {
+    var ssid: String?
+    var localIP: String?
+    var publicIP: String?
+    var loading = true
+}
+
 /// Large expanded view of a metric: a history graph + now/avg/peak, and — for
 /// CPU/GPU/Memory — a ranking of the processes using that resource.
 struct MetricDetailView: View {
     let detail: MetricDetail
     var processes: [ProcRow] = []
+    var network: NetworkInfo? = nil
     var onClose: () -> Void = {}
 
     private var current: Double { detail.history.last ?? 0 }
@@ -49,6 +58,11 @@ struct MetricDetailView: View {
                 HStack(alignment: .top, spacing: 22) {
                     VStack(spacing: 16) { graph; stats }.frame(maxWidth: .infinity)
                     processList.frame(width: 380)
+                }
+            } else if let network {
+                HStack(alignment: .top, spacing: 22) {
+                    VStack(spacing: 16) { graph; stats }.frame(maxWidth: .infinity)
+                    connection(network).frame(width: 340)
                 }
             } else {
                 graph.frame(height: 280)
@@ -110,6 +124,32 @@ struct MetricDetailView: View {
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func connection(_ n: NetworkInfo) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("CONNECTION").font(.deck(12, .bold)).tracking(1.2).foregroundStyle(Theme.textFaint)
+            infoRow("wifi", "Wi-Fi", n.ssid ?? "Not on Wi-Fi")
+            infoRow("network", "Local IP", n.localIP ?? "—")
+            infoRow("globe", "Public IP", n.publicIP ?? (n.loading ? "Looking up…" : "Unavailable"))
+            Spacer(minLength: 0)
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func infoRow(_ icon: String, _ label: String, _ value: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(detail.color).frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label).font(.deck(12, .semibold)).foregroundStyle(Theme.textFaint)
+                Text(value).font(.readout(16, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1).minimumScaleFactor(0.7)
+                    .textSelection(.enabled)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).frame(height: 62)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
     }
 
     private static func memSize(_ mb: Double) -> String {

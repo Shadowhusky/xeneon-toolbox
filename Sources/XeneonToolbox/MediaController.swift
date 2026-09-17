@@ -34,6 +34,11 @@ struct NowPlaying: Equatable {
 /// Apple-entitled binaries on macOS 15.4+, so it isn't usable from a notarized
 /// third-party app). Controlling another app needs the one-time Automation
 /// permission macOS prompts for on first use.
+///
+/// Event-driven: both players broadcast a distributed notification on every
+/// track / play-state change, so the (subprocess-spawning) read runs only then,
+/// plus a slow safety poll while a player is running. The old 2 s poll spawned
+/// `osascript` 30 times a minute for nothing.
 @MainActor
 final class MediaController: ObservableObject {
     @Published private(set) var nowPlaying: NowPlaying?
@@ -43,18 +48,48 @@ final class MediaController: ObservableObject {
 
     private var pollTimer: Timer?
     private var artwork: (url: String, image: NSImage)?
+    private var distributedObservers: [NSObjectProtocol] = []
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var started = false
+    private var readInFlight = false
+    private var readAgain = false
 
     private static let spotifyBundle = "com.spotify.client"
     private static let musicBundle = "com.apple.Music"
+    private static let playerNotifications = ["com.spotify.client.PlaybackStateChanged",
+                                              "com.apple.Music.playerInfo",
+                                              "com.apple.iTunes.playerInfo"]
+    private static let safetyPoll: TimeInterval = 20
 
     func start() {
-        guard pollTimer == nil else { return }
-        let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+        guard !started else { return }
+        started = true
+        let dnc = DistributedNotificationCenter.default()
+        distributedObservers = Self.playerNotifications.map { name in
+            dnc.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh() }
+            }
         }
-        RunLoop.main.add(t, forMode: .common)
-        pollTimer = t
+        let wnc = NSWorkspace.shared.notificationCenter
+        workspaceObservers = [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification].map { name in
+            wnc.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                guard let id = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier,
+                      id == Self.spotifyBundle || id == Self.musicBundle else { return }
+                MainActor.assumeIsolated { self?.refresh() }
+            }
+        }
         refresh()
+    }
+
+    func stop() {
+        guard started else { return }
+        started = false
+        distributedObservers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
+        workspaceObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        distributedObservers.removeAll()
+        workspaceObservers.removeAll()
+        pollTimer?.invalidate()
+        pollTimer = nil
     }
 
     func refresh() {
@@ -62,21 +97,55 @@ final class MediaController: ObservableObject {
         let bundles = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         let spotify = bundles.contains(Self.spotifyBundle)
         let music = bundles.contains(Self.musicBundle)
-        guard spotify || music else { nowPlaying = nil; return }
+        updateSafetyPoll(playerRunning: spotify || music)
+        guard spotify || music else {
+            if nowPlaying != nil { nowPlaying = nil }
+            return
+        }
+        // Coalesce: a burst of notifications (track change = several) becomes one
+        // read now and one after it lands.
+        guard !readInFlight else { readAgain = true; return }
+        readInFlight = true
         Task.detached(priority: .utility) {
             let np = (spotify ? Self.read(.spotify) : nil) ?? (music ? Self.read(.music) : nil)
-            await MainActor.run { self.apply(np) }
+            await MainActor.run { self.finishRead(np) }
+        }
+    }
+
+    private func finishRead(_ np: NowPlaying?) {
+        readInFlight = false
+        apply(np)
+        if readAgain { readAgain = false; refresh() }
+    }
+
+    private func updateSafetyPoll(playerRunning: Bool) {
+        if playerRunning {
+            guard pollTimer == nil else { return }
+            let t = Timer(timeInterval: Self.safetyPoll, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh() }
+            }
+            t.tolerance = 5
+            RunLoop.main.add(t, forMode: .common)
+            pollTimer = t
+        } else if let t = pollTimer {
+            t.invalidate()
+            pollTimer = nil
         }
     }
 
     private func apply(_ np: NowPlaying?) {
-        guard var np else { nowPlaying = nil; return }
-        available = true
+        guard var np else {
+            if nowPlaying != nil { nowPlaying = nil }
+            return
+        }
+        if !available { available = true }
         // Reuse cached artwork for the same URL; fetch a new one in the background.
         if let url = np.artworkURL {
             if artwork?.url == url { np.artwork = artwork?.image }
             else { fetchArtwork(url) }
         }
+        // Publish only a real change; the safety poll mostly confirms what's shown.
+        if let cur = nowPlaying, cur == np, abs(cur.elapsedNow() - np.elapsedNow()) < 2 { return }
         nowPlaying = np
     }
 
@@ -100,7 +169,7 @@ final class MediaController: ObservableObject {
     func seek(to seconds: Double) {
         guard let source = nowPlaying?.source else { return }
         // Optimistically move the bar now so it doesn't flick back to the old
-        // position while AppleScript applies the seek and the next poll lands.
+        // position while AppleScript applies the seek and the next read lands.
         if var np = nowPlaying { np.elapsed = seconds; np.asOf = Date(); nowPlaying = np }
         let app = source == .music ? "Music" : "Spotify"
         Task.detached(priority: .userInitiated) {

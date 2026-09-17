@@ -6,6 +6,13 @@ import Foundation
 /// (which stays stale-true after the device vanishes) was checked before device
 /// presence, so a lost digitizer read as "healthy" and recovery never ran.
 public enum TouchRecoveryPolicy {
+    /// Seize-upgrade attempts made back-to-back before backing off.
+    public static let fastRetries = 5
+    /// After the fast budget, retry every this many watchdog ticks (≈ 1 minute
+    /// at the 6 s tick) — forever. A permanent stop is what left the panel acting
+    /// as a trackpad until the user re-toggled touch.
+    public static let slowRetryEvery = 10
+
     /// - Parameters:
     ///   - touchOn: the user wants touch running.
     ///   - deviceDetected: the digitizer is currently delivering/matched.
@@ -15,7 +22,9 @@ public enum TouchRecoveryPolicy {
     ///   - seized: we hold the device exclusively (manager-level; may be stale
     ///     when the device is gone — which is why presence is checked first).
     ///   - seizeRetries: seize-upgrade attempts so far (present-but-not-seized).
-    public static func shouldReacquire(touchOn: Bool, deviceDetected: Bool, displayPresent: Bool, seized: Bool, seizeRetries: Int) -> Bool {
+    ///   - ticksSinceRetry: watchdog ticks since the last seize attempt.
+    public static func shouldReacquire(touchOn: Bool, deviceDetected: Bool, displayPresent: Bool,
+                                       seized: Bool, seizeRetries: Int, ticksSinceRetry: Int) -> Bool {
         guard touchOn else { return false }
         // Device presence FIRST: a lost device reacquires whenever the display is
         // up (forever — it may be replugged at any time), no matter what the
@@ -23,7 +32,7 @@ public enum TouchRecoveryPolicy {
         // wait for the display-change notification instead of churning.
         guard deviceDetected else { return displayPresent }
         // Present but macOS also drives it as a trackpad: retry the exclusive
-        // seize a bounded number of times, then stop churning the panel.
-        return !seized && seizeRetries < 5
+        // seize quickly a few times, then keep trying on a slow cadence.
+        return !seized && (seizeRetries < fastRetries || ticksSinceRetry >= slowRetryEvery)
     }
 }

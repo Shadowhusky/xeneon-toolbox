@@ -9,21 +9,9 @@ struct TileSurface<Content: View>: View {
         content
             .padding(22)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(
-                GeometryReader { geo in
-                    ZStack {
-                        RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
-                            .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom],
-                                                 startPoint: .top, endPoint: .bottom))
-                        // Lit-from-top sheen scales with the tile so wide and narrow
-                        // tiles catch light proportionally.
-                        RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
-                            .fill(RadialGradient(colors: [accent.opacity(0.16), .clear],
-                                                 center: .top, startRadius: 0,
-                                                 endRadius: max(180, geo.size.width * 0.6)))
-                    }
-                }
-            )
+            // The shadow belongs to the surface, not the content: shadowing the
+            // whole tile re-rasterized every tile on every metrics tick.
+            .background(surface)
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
                     .strokeBorder(
@@ -34,13 +22,28 @@ struct TileSurface<Content: View>: View {
             )
             .overlay(alignment: .top) {
                 RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
-                    .fill(Color.white.opacity(0.04))
+                    .fill(Theme.innerHighlight)
                     .frame(height: 1)
                     .padding(.horizontal, 14)
                     .padding(.top, 1)
-                    .blur(radius: 0.5)
             }
-            .shadow(color: .black.opacity(0.45), radius: 18, x: 0, y: 12)
+    }
+
+    private var surface: some View {
+        GeometryReader { geo in
+            ZStack {
+                RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
+                    .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom],
+                                         startPoint: .top, endPoint: .bottom))
+                // Lit-from-top sheen scales with the tile so wide and narrow
+                // tiles catch light proportionally.
+                RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
+                    .fill(RadialGradient(colors: [accent.opacity(0.16), .clear],
+                                         center: .top, startRadius: 0,
+                                         endRadius: max(180, geo.size.width * 0.6)))
+            }
+        }
+        .shadow(color: .black.opacity(0.45), radius: 18, x: 0, y: 12)
     }
 }
 
@@ -70,31 +73,45 @@ struct TileHeader: View {
     }
 }
 
-/// Circular progress with a soft glow and hue-coded arc.
+/// Circular progress with a soft halo and hue-coded arc. Live, the arc is a
+/// Core Animation layer (see `RingLayerView`); off-screen exports get the
+/// equivalent static SwiftUI shapes.
 struct RingGauge<Center: View>: View {
     var value: Double               // 0...1
     var color: Color
     var lineWidth: CGFloat = 12
     @ViewBuilder var center: Center
+    @Environment(\.renderStatic) private var renderStatic
 
     var body: some View {
         ZStack {
+            // A faintly recessed dial face inside the track gives the gauge depth.
+            Circle().fill(Theme.wellFill).padding(lineWidth + 9)
+            if renderStatic { staticRing } else { RingLayerView(value: value, color: color, lineWidth: lineWidth) }
+            center
+        }
+    }
+
+    private var staticRing: some View {
+        let arc = max(0.001, min(1, value))
+        return ZStack {
             Circle()
                 .stroke(Theme.trackFill, lineWidth: lineWidth)
+            // The halo is a wide, faint stroke rather than a blur shadow: a blur
+            // re-rasterizes for every frame of the arc animation.
             Circle()
-                .trim(from: 0, to: max(0.001, min(1, value)))
+                .trim(from: 0, to: arc)
+                .stroke(color.opacity(0.18), style: StrokeStyle(lineWidth: lineWidth + 10, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Circle()
+                .trim(from: 0, to: arc)
                 .stroke(
-                    AngularGradient(colors: [color.opacity(0.55), color],
-                                    center: .center, startAngle: .degrees(-90), endAngle: .degrees(270)),
+                    LinearGradient(colors: [color, color.opacity(0.6)], startPoint: .top, endPoint: .bottom),
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
-                .shadow(color: color.opacity(0.55), radius: 7)
-                // Animate only the ring — animating the ZStack cross-faded the
-                // center number, which read as a flicker between values.
-                .animation(.easeOut(duration: 0.5), value: value)
-            center
         }
+        .padding(5)
     }
 }
 
@@ -121,10 +138,12 @@ struct Sparkline: View {
                         .fill(LinearGradient(colors: [color.opacity(fillOpacity), color.opacity(0)],
                                              startPoint: .top, endPoint: .bottom))
                     line(pts)
+                        .stroke(color.opacity(0.22), style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
+                    line(pts)
                         .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-                        .deckGlow(color, strength: 0.6)
                 }
             }
+            .drawingGroup()
         }
     }
 
@@ -192,22 +211,30 @@ struct TypingDots: View {
     }
 }
 
-/// Thin horizontal capacity bar.
+/// Thin horizontal capacity bar (layer-backed live, static for exports).
 struct CapacityBar: View {
     var fraction: Double
     var color: Color
+    @Environment(\.renderStatic) private var renderStatic
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Theme.trackFill)
-                Capsule()
-                    .fill(LinearGradient(colors: [color.opacity(0.7), color], startPoint: .leading, endPoint: .trailing))
-                    .frame(width: max(4, geo.size.width * CGFloat(max(0, min(1, fraction)))))
-                    .deckGlow(color, strength: 0.8)
+        Group {
+            if renderStatic {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Theme.trackFill)
+                        Capsule()
+                            .fill(LinearGradient(colors: [color.opacity(0.7), color], startPoint: .leading, endPoint: .trailing))
+                            .frame(width: max(4, geo.size.width * CGFloat(max(0, min(1, fraction)))))
+                            .overlay(alignment: .top) {
+                                Capsule().fill(Color.white.opacity(0.22)).frame(height: 2).padding(.horizontal, 3).padding(.top, 1.5)
+                            }
+                    }
+                }
+            } else {
+                BarLayerView(fraction: fraction, color: color)
             }
         }
         .frame(height: 10)
-        .animation(.easeOut(duration: 0.5), value: fraction)
     }
 }

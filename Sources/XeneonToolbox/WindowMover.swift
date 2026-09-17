@@ -26,7 +26,7 @@ enum WindowMover {
         return (0..<Int(count)).map { i -> Display in
             let did = ids[i]
             let b = CGDisplayBounds(did)
-            let isEdge = abs(b.width - 2560) < 2 && abs(b.height - 720) < 2
+            let isEdge = EdgeScreen.isEdge(did)
             let name: String
             if isEdge {
                 name = "Xeneon Edge"

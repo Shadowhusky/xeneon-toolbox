@@ -1,11 +1,59 @@
 import SwiftUI
 import WebKit
+import ToolboxKit
+
+/// A WKWebView that actively takes keyboard focus, so keyboard-driven pages
+/// receive keystrokes instead of letting them fall through the responder chain
+/// unhandled — which is what makes macOS beep on every keypress.
+final class PanelWebView: WKWebView {
+    override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        grabFocus()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // A deliberate tap on the page — taking focus is intended.
+        grabFocus(userInitiated: true)
+        super.mouseDown(with: event)
+    }
+
+    /// The touch driver maps a two-finger pinch to a Command-modified scroll.
+    /// When magnification is enabled (the browser), treat that as page zoom
+    /// centered on the fingers; otherwise scroll normally.
+    override func scrollWheel(with event: NSEvent) {
+        if allowsMagnification, event.modifierFlags.contains(.command) {
+            let factor = 1 + event.scrollingDeltaY * 0.004
+            let target = max(0.5, min(8.0, magnification * factor))
+            setMagnification(target, centeredAt: convert(event.locationInWindow, from: nil))
+            return
+        }
+        super.scrollWheel(with: event)
+    }
+
+    /// Take keyboard focus for the page. Only a user-initiated grab (a tap on the
+    /// web view) may activate the app — a page finishing a load in the background
+    /// must never yank focus from whatever the user is typing in elsewhere. Never
+    /// reorders the window: an orderFront here would hop the panel over a window
+    /// the user has sharing the Edge.
+    func grabFocus(userInitiated: Bool = false) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window else { return }
+            guard userInitiated || NSApp.isActive else { return }
+            if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+            if !window.isKeyWindow { window.makeKey() }
+            window.makeFirstResponder(self)
+        }
+    }
+}
 
 /// Drives a single WKWebView for the Web tab: exposes navigation state to SwiftUI
 /// (back/forward/loading/progress/title/url) and normalizes free-text input into
-/// a URL or a web search. Reuses GameWebView so keyboard-driven pages get focus.
+/// a URL or a web search. Uses PanelWebView so keyboard-driven pages get focus.
 final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
-    let wk: GameWebView
+    let wk: PanelWebView
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var isLoading = false
@@ -21,7 +69,7 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
         let config = WKWebViewConfiguration()
         config.mediaTypesRequiringUserActionForPlayback = []
         config.defaultWebpagePreferences.allowsContentJavaScript = true
-        wk = GameWebView(frame: .zero, configuration: config)
+        wk = PanelWebView(frame: .zero, configuration: config)
         super.init()
         wk.navigationDelegate = self
         wk.uiDelegate = self
@@ -68,15 +116,7 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
 
     /// A scheme'd URL, a bare domain promoted to https, or a Google search.
     static func normalize(_ raw: String) -> URL? {
-        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !s.isEmpty else { return nil }
-        if let u = URL(string: s), let scheme = u.scheme, scheme == "http" || scheme == "https" { return u }
-        if s.contains(".") && !s.contains(" ") {
-            return URL(string: "https://\(s)")
-        }
-        var c = URLComponents(string: "https://www.google.com/search")!
-        c.queryItems = [URLQueryItem(name: "q", value: s)]
-        return c.url
+        WebAddress.resolve(raw)
     }
 
     /// The site's real favicon via Google's favicon service (handles redirects to
@@ -94,7 +134,7 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
     }
 
     func webView(_ w: WKWebView, didStartProvisionalNavigation n: WKNavigation!) { isLoading = true; failed = false }
-    func webView(_ w: WKWebView, didFinish n: WKNavigation!) { isLoading = false; (w as? GameWebView)?.grabFocus() }
+    func webView(_ w: WKWebView, didFinish n: WKNavigation!) { isLoading = false; (w as? PanelWebView)?.grabFocus() }
     func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { isLoading = false; failed = true }
     func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) {
         // Ignore the "cancelled" error that fires when a new load interrupts one.
@@ -105,8 +145,8 @@ final class WebController: NSObject, ObservableObject, WKNavigationDelegate, WKU
 
 struct WebPageView: NSViewRepresentable {
     let controller: WebController
-    func makeNSView(context: Context) -> GameWebView { controller.wk }
-    func updateNSView(_ nsView: GameWebView, context: Context) {}
+    func makeNSView(context: Context) -> PanelWebView { controller.wk }
+    func updateNSView(_ nsView: PanelWebView, context: Context) {}
 }
 
 /// The in-app browser. It's no longer a nav tab of its own — you reach it by tapping
@@ -174,9 +214,9 @@ struct BrowserView: View {
 
     private var addressField: some View {
         HStack(spacing: 9) {
-            Image(systemName: web.failed ? "exclamationmark.triangle.fill" : "lock.fill")
+            Image(systemName: addressIcon)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(web.failed ? Theme.critical : Theme.textFaint)
+                .foregroundStyle(web.failed ? Theme.critical : (web.currentURLString.hasPrefix("http://") ? Theme.warning : Theme.textFaint))
             TextField("Search or enter address", text: $address)
                 .textFieldStyle(.plain)
                 .font(.deck(16, .medium))
@@ -194,6 +234,13 @@ struct BrowserView: View {
         .frame(maxWidth: .infinity)
         .background(Capsule().fill(Color.white.opacity(0.06)))
         .overlay(Capsule().strokeBorder(addressFocused ? accent.opacity(0.7) : Theme.strokeStrong, lineWidth: 1))
+    }
+
+    private var addressIcon: String {
+        if web.failed { return "exclamationmark.triangle.fill" }
+        if web.currentURLString.hasPrefix("https://") { return "lock.fill" }
+        if web.currentURLString.hasPrefix("http://") { return "lock.open.fill" }
+        return "magnifyingglass"
     }
 
     // MARK: - Overlays

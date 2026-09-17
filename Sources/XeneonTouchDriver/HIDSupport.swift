@@ -70,20 +70,14 @@ public func activeDisplays() -> [CGDirectDisplayID] {
     return ids
 }
 
-/// Resolves the Edge's display rect: a preferred id if given, else the active
-/// display matching the panel's 2560x720 geometry.
+/// Resolves the Edge's display rect: a preferred id if given, else the panel
+/// found by identity — in whatever mode macOS currently has it.
 public func findEdgeDisplay(preferred: CGDirectDisplayID?) -> DisplayRect? {
     if let id = preferred {
         let b = CGDisplayBounds(id)
         return DisplayRect(x: b.origin.x, y: b.origin.y, width: b.width, height: b.height)
     }
-    for id in activeDisplays() {
-        let b = CGDisplayBounds(id)
-        if abs(b.width - 2560) < 2 && abs(b.height - 720) < 2 {
-            return DisplayRect(x: b.origin.x, y: b.origin.y, width: b.width, height: b.height)
-        }
-    }
-    return nil
+    return EdgeDisplayLocator.current()?.rect
 }
 
 /// Opens the digitizer. Seizing stops macOS's own cursor handling but macOS

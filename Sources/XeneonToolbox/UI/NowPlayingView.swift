@@ -182,7 +182,7 @@ struct NowPlayingFullView: View {
 
 /// A seekable progress line: tap anywhere to jump, or drag the knob to scrub.
 /// The hit area is much taller than the visible bar so it's easy to grab.
-private struct ScrubBar: View {
+struct ScrubBar: View {
     let np: NowPlaying
     let compact: Bool
     let onSeek: (Double) -> Void
@@ -191,7 +191,7 @@ private struct ScrubBar: View {
     private var knob: CGFloat { compact ? 11 : 14 }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { ctx in
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
             let liveFrac = np.duration > 0 ? min(1, max(0, np.elapsedNow(ctx.date) / np.duration)) : 0
             let frac = dragFrac ?? liveFrac
             let shown = dragFrac.map { $0 * np.duration } ?? np.elapsedNow(ctx.date)

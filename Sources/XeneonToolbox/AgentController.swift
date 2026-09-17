@@ -294,14 +294,13 @@ final class AgentController: ObservableObject {
             // App awareness + control
             tool("get_app_state", "Get the current tab, touch status, and live system stats (CPU, memory, network, disk, uptime)."),
             tool("navigate", "Switch to a tab in the toolbox.",
-                 ["tab": .init(type: .string, enum: ["dashboard", "clock", "tasks", "games", "web", "assistant"])], required: ["tab"]),
+                 ["tab": .init(type: .string, enum: ["dashboard", "deck", "clock", "tasks", "web", "assistant"])], required: ["tab"]),
             tool("set_touch", "Turn the Edge touchscreen driver on or off.",
                  ["enabled": .init(type: .boolean)], required: ["enabled"]),
             tool("set_display_mode", "Change the screen mode: full (normal UI), minimal (clock + basics on black), or sleep (black screen, pauses monitoring AND turns the LCD backlight off to save power). Tapping the screen wakes it.",
                  ["mode": .init(type: .string, enum: ["full", "minimal", "sleep"])], required: ["mode"]),
             tool("set_brightness", "Set the Edge screen backlight from 0 (off) to 100 (full). Use for 'dim the screen' / 'brighten'. To fully turn the screen off, prefer set_display_mode sleep.",
                  ["level": .init(type: .integer)], required: ["level"]),
-            tool("open_game", "Open the Games tab (Rhythm Plus).", [:]),
             tool("show_top_processes", "Show the top CPU-using processes as a visual card on screen.",
                  ["count": .init(type: .integer)]),
             tool("show_card", "Display any data as a touch-friendly card on screen. Give a title and items as \"Label: value\" strings.",
@@ -394,16 +393,17 @@ final class AgentController: ObservableObject {
             guard app.canControlBacklight else { return "I can't adjust the brightness on this Mac." }
             app.applyBrightness(lvl)
             return "Backlight set to \(lvl)%."
-        case "open_game":
-            guard let app else { return "App unavailable." }
-            app.gamePref = "rhythm"; app.route = .games
-            return "Opened Rhythm Plus."
         case "get_app_state":
             guard let app else { return "App unavailable." }
             let s = app.metrics.snap
             let tabName = app.route == .chat ? "assistant" : app.route.rawValue
             var out = "tab=\(tabName); touch=\(app.touchStatus == .active ? "active" : app.touchOn ? "searching" : "off"); cpu=\(Int(s.cpu*100))%; mem=\(Fmt.gb(s.memUsed))/\(Fmt.gb(s.memTotal))GB; diskFree=\(Fmt.gb(s.diskFree))GB; uptime=\(Fmt.uptime(s.uptime))"
             if let b = s.battery { out += "; battery=\(Int(b.level*100))%\(b.charging ? " (charging)" : "")" }
+            if let t = s.thermals, let soc = t.socC {
+                out += "; soc=\(Int(soc.rounded()))°C"
+                if let g = t.gpuC { out += "; gpu=\(Int(g.rounded()))°C" }
+                if let rpm = t.fanRPM.max() { out += "; fan=\(Int(rpm.rounded()))rpm" }
+            }
             if let w = app.weather.weather { out += "; weather=\(w.displayTemp) in \(w.city)" }
             return out
         case "show_top_processes":
@@ -801,12 +801,12 @@ final class AgentController: ObservableObject {
 
     private var systemPrompt: String {
         var p = """
-        You are the built-in assistant inside Xeneon Toolbox, a macOS app on a Corsair Xeneon Edge — a 2560x720 ultrawide touchscreen. Tabs: Dashboard (live system telemetry), Clock (world clocks + focus timer), Tasks (to-dos and reminders), Games (the Rhythm Plus music game), Web (an embedded browser — use open_url to open a page there), and Assistant (you). "Touch" is the embedded driver that lets the user tap the Edge.
+        You are the built-in assistant inside Xeneon Toolbox, a macOS app on a Corsair Xeneon Edge — a 2560x720 ultrawide touchscreen. Tabs: Dashboard (live system telemetry, weather, calendar, tasks, thermals, running apps, clipboard), Deck (a Stream-Deck-style launcher), Clock (world clocks + focus timer), Tasks (to-dos and reminders), Web (an embedded browser — use open_url to open a page there), and Assistant (you). "Touch" is the embedded driver that lets the user tap the Edge.
 
         Guidelines:
         - Answer questions directly here in the Assistant. Use web_search/fetch_url for current facts and get_weather for weather anywhere. Pick the clearest output: show_card for key/value stats or lists, show_table for multi-column comparisons, show_chart for numeric trends, generate_image for pictures. Don't force everything into one format.
         - When you render a card, table, or chart, DON'T also repeat the same data as a text table or list — the card already shows it. Add only a short sentence of insight, if anything.
-        - Only use navigate or open_game when the user explicitly asks to switch tabs or open something — never navigate away just to answer a question.
+        - Only use navigate when the user explicitly asks to switch tabs — never navigate away just to answer a question.
         - Use get_app_state for live system info. Keep answers concise; the screen is small and wide.
         - When the user shares something durable about themselves or their setup (name, preferences, units, recurring needs), quietly call remember so you can use it later. Don't announce it unless asked.
         - The user has a Tasks list (to-dos + reminders). Use add_todo / list_todos / complete_todo / delete_todo to manage it. For "remind me to X at/in …", compute the due datetime from the current local time above and pass it as 'due' so it notifies.
@@ -892,7 +892,6 @@ final class AgentController: ObservableObject {
         case "set_touch": let on = (args["enabled"] as? Bool ?? false); return ("Setting touch…", "Touch \(on ? "on" : "off")")
         case "set_display_mode": let m = args["mode"] as? String ?? ""; return ("Setting display…", "Display → \(m)")
         case "set_brightness": return ("Setting brightness…", "Brightness → \(args["level"] as? Int ?? 0)%")
-        case "open_game": return ("Opening Rhythm Plus…", "Opened Rhythm Plus")
         case "get_app_state": return ("Checking system…", "Checked system stats")
         case "show_top_processes": return nil
         case "show_card": return nil
