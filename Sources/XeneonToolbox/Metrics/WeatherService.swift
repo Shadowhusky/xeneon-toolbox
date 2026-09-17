@@ -5,7 +5,7 @@ import CoreLocation
 /// (typically ~50 m) — far more accurate than IP geolocation, which only finds
 /// the ISP's endpoint. Resolves nil silently when denied or unavailable so the
 /// caller can fall through to IP.
-private final class SystemLocator: NSObject, CLLocationManagerDelegate {
+private final class SystemLocator: NSObject, CLLocationManagerDelegate, @unchecked Sendable {
     private let manager = CLLocationManager()
     private var continuation: CheckedContinuation<CLLocation?, Never>?
 

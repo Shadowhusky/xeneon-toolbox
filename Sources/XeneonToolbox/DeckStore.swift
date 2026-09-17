@@ -119,90 +119,223 @@ struct DeckAction: Codable, Identifiable, Equatable {
     /// An uploaded custom icon, if any — takes priority over the app icon / symbol.
     var customImage: NSImage? {
         guard let p = iconPath, FileManager.default.fileExists(atPath: p) else { return nil }
-        return NSImage(contentsOfFile: p)
+        if let cached = DeckIconCache.shared.object(forKey: p as NSString) { return cached }
+        guard let image = NSImage(contentsOfFile: p) else { return nil }
+        DeckIconCache.shared.setObject(image, forKey: p as NSString)
+        return image
     }
 
     /// Real app icon for `.app` tiles (nil for everything else).
     var appIcon: NSImage? {
         guard kind == .app, FileManager.default.fileExists(atPath: target) else { return nil }
+        if let cached = DeckIconCache.shared.object(forKey: target as NSString) { return cached }
         let img = NSWorkspace.shared.icon(forFile: target)
         img.size = NSSize(width: 96, height: 96)
+        DeckIconCache.shared.setObject(img, forKey: target as NSString)
         return img
+    }
+}
+
+private enum DeckIconCache {
+    static let shared = NSCache<NSString, NSImage>()
+}
+
+struct DeckPage: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var actions: [DeckAction]
+    var manuallyOrdered = false
+
+    private enum CodingKeys: String, CodingKey { case id, name, actions, manuallyOrdered }
+
+    init(id: UUID = UUID(), name: String, actions: [DeckAction], manuallyOrdered: Bool = false) {
+        self.id = id
+        self.name = name
+        self.actions = actions
+        self.manuallyOrdered = manuallyOrdered
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Deck"
+        actions = try c.decodeIfPresent([DeckAction].self, forKey: .actions) ?? []
+        manuallyOrdered = try c.decodeIfPresent(Bool.self, forKey: .manuallyOrdered) ?? false
     }
 }
 
 @MainActor
 final class DeckStore: ObservableObject {
-    @Published private(set) var actions: [DeckAction]
-    @Published private(set) var manuallyOrdered: Bool
-    private let key = "deck.actions.v1"
-    private let manualKey = "deck.manuallyOrdered"
+    @Published private(set) var pages: [DeckPage]
+    @Published private(set) var selectedPageID: DeckPage.ID
+
+    private let pagesKey = "deck.pages.v2"
+    private let selectedPageKey = "deck.selectedPage.v2"
+    private let legacyActionsKey = "deck.actions.v1"
+    private let legacyManualKey = "deck.manuallyOrdered"
 
     init() {
-        if let data = AppDefaults.shared.data(forKey: key),
-           let saved = try? JSONDecoder().decode([DeckAction].self, from: data) {
-            actions = saved
+        let loadedPages: [DeckPage]
+        if let data = AppDefaults.shared.data(forKey: pagesKey),
+           let saved = try? JSONDecoder().decode([DeckPage].self, from: data),
+           !saved.isEmpty {
+            loadedPages = saved
         } else {
-            actions = Self.defaults()
+            let legacy: [DeckAction]
+            if let data = AppDefaults.shared.data(forKey: legacyActionsKey),
+               let saved = try? JSONDecoder().decode([DeckAction].self, from: data) {
+                legacy = saved
+            } else {
+                legacy = Self.defaults()
+            }
+            loadedPages = [DeckPage(name: "Main", actions: legacy,
+                                    manuallyOrdered: AppDefaults.shared.bool(forKey: legacyManualKey))]
         }
-        manuallyOrdered = AppDefaults.shared.bool(forKey: manualKey)
+        pages = loadedPages
+        let savedID = AppDefaults.shared.string(forKey: selectedPageKey).flatMap(UUID.init(uuidString:))
+        selectedPageID = loadedPages.contains(where: { $0.id == savedID }) ? savedID! : loadedPages[0].id
+        persist()
     }
 
-    func add(_ a: DeckAction) { actions.append(a); persist() }
-    func remove(_ id: DeckAction.ID) { actions.removeAll { $0.id == id }; persist() }
+    var selectedPage: DeckPage {
+        pages.first(where: { $0.id == selectedPageID }) ?? pages[0]
+    }
+    var actions: [DeckAction] { selectedPage.actions }
+    var manuallyOrdered: Bool { selectedPage.manuallyOrdered }
+    var canRemovePage: Bool { pages.count > 1 }
+
+    func selectPage(_ id: DeckPage.ID) {
+        guard pages.contains(where: { $0.id == id }), selectedPageID != id else { return }
+        selectedPageID = id
+        AppDefaults.shared.set(id.uuidString, forKey: selectedPageKey)
+    }
+
+    @discardableResult
+    func addPage(named rawName: String? = nil) -> DeckPage.ID {
+        let fallback = "Page \(pages.count + 1)"
+        let trimmed = rawName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let page = DeckPage(name: trimmed.isEmpty ? fallback : trimmed, actions: [])
+        pages.append(page)
+        selectedPageID = page.id
+        persist()
+        return page.id
+    }
+
+    func renamePage(_ id: DeckPage.ID, to rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let i = pages.firstIndex(where: { $0.id == id }) else { return }
+        pages[i].name = name
+        persist()
+    }
+
+    func removePage(_ id: DeckPage.ID) {
+        guard pages.count > 1, let i = pages.firstIndex(where: { $0.id == id }) else { return }
+        let removed = pages.remove(at: i)
+        removed.actions.forEach { removeOwnedIconIfUnused($0.iconPath) }
+        if selectedPageID == id { selectedPageID = pages[min(i, pages.count - 1)].id }
+        persist()
+    }
+
+    func selectPreviousPage() {
+        guard let i = pages.firstIndex(where: { $0.id == selectedPageID }), i > 0 else { return }
+        selectPage(pages[i - 1].id)
+    }
+
+    func selectNextPage() {
+        guard let i = pages.firstIndex(where: { $0.id == selectedPageID }), i + 1 < pages.count else { return }
+        selectPage(pages[i + 1].id)
+    }
+
+    func add(_ a: DeckAction) {
+        mutateSelected { $0.actions.append(a) }
+    }
+
+    func remove(_ id: DeckAction.ID) {
+        guard let action = actions.first(where: { $0.id == id }) else { return }
+        mutateSelected { $0.actions.removeAll { $0.id == id } }
+        removeOwnedIconIfUnused(action.iconPath)
+    }
 
     /// Edit an existing tile in place (rename, re-icon, or fix its target).
     func update(_ id: DeckAction.ID, label: String, symbol: String?, iconPath: String?, target: String?) {
-        guard let i = actions.firstIndex(where: { $0.id == id }) else { return }
-        var a = actions[i]
+        guard let old = actions.first(where: { $0.id == id }) else { return }
+        var a = old
         a.label = label.isEmpty ? a.label : label
         if let symbol { a.symbol = symbol }
         a.iconPath = iconPath
         if let target, !target.isEmpty { a.target = target }
-        actions[i] = a
-        persist()
+        mutateSelected { page in
+            guard let i = page.actions.firstIndex(where: { $0.id == id }) else { return }
+            page.actions[i] = a
+        }
+        if old.iconPath != iconPath { removeOwnedIconIfUnused(old.iconPath) }
     }
 
     /// Set (or clear, with nil) the display an app tile always opens on. Tapping
     /// the tile then opens it there directly instead of on the main display.
     func setPreferredDisplay(_ id: DeckAction.ID, _ name: String?) {
-        guard let i = actions.firstIndex(where: { $0.id == id }) else { return }
-        actions[i].preferredDisplay = name
-        persist()
+        mutateSelected { page in
+            guard let i = page.actions.firstIndex(where: { $0.id == id }) else { return }
+            page.actions[i].preferredDisplay = name
+        }
     }
 
     /// Move `id` to sit before/after `target` — used by drag-to-reorder.
     func move(_ id: DeckAction.ID, target: DeckAction.ID, before: Bool) {
-        guard id != target, let from = actions.firstIndex(where: { $0.id == id }) else { return }
-        let item = actions.remove(at: from)
-        guard var ti = actions.firstIndex(where: { $0.id == target }) else {
-            actions.insert(item, at: min(from, actions.count)); return
+        guard id != target else { return }
+        mutateSelected { page in
+            guard let from = page.actions.firstIndex(where: { $0.id == id }) else { return }
+            let item = page.actions.remove(at: from)
+            guard var ti = page.actions.firstIndex(where: { $0.id == target }) else {
+                page.actions.insert(item, at: min(from, page.actions.count))
+                return
+            }
+            if !before { ti += 1 }
+            page.actions.insert(item, at: min(max(0, ti), page.actions.count))
+            page.manuallyOrdered = true
         }
-        if !before { ti += 1 }
-        actions.insert(item, at: min(max(0, ti), actions.count))
-        setManual(true); persist()
     }
 
     func sort(_ mode: DeckSort) {
-        switch mode {
-        case .name: actions.sort { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
-        case .type: actions.sort {
-            $0.kind.order != $1.kind.order ? $0.kind.order < $1.kind.order
-                : $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending
+        mutateSelected { page in
+            switch mode {
+            case .name: page.actions.sort { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+            case .type: page.actions.sort {
+                $0.kind.order != $1.kind.order ? $0.kind.order < $1.kind.order
+                    : $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending
+            }
+            }
+            page.manuallyOrdered = false
         }
-        }
-        setManual(false); persist()
     }
 
-    func reset() { actions = Self.defaults(); setManual(false); persist() }
-
-    private func setManual(_ v: Bool) {
-        manuallyOrdered = v
-        AppDefaults.shared.set(v, forKey: manualKey)
+    func reset() {
+        let old = actions
+        mutateSelected {
+            $0.actions = Self.defaults()
+            $0.manuallyOrdered = false
+        }
+        old.forEach { removeOwnedIconIfUnused($0.iconPath) }
     }
 
     private func persist() {
-        if let data = try? JSONEncoder().encode(actions) { AppDefaults.shared.set(data, forKey: key) }
+        if let data = try? JSONEncoder().encode(pages) { AppDefaults.shared.set(data, forKey: pagesKey) }
+        AppDefaults.shared.set(selectedPageID.uuidString, forKey: selectedPageKey)
+    }
+
+    private func mutateSelected(_ change: (inout DeckPage) -> Void) {
+        guard let i = pages.firstIndex(where: { $0.id == selectedPageID }) else { return }
+        change(&pages[i])
+        persist()
+    }
+
+    private func removeOwnedIconIfUnused(_ path: String?) {
+        guard let path, path.contains("/XeneonToolbox/deck-icons/") else { return }
+        let stillUsed = pages.flatMap(\.actions).contains { $0.iconPath == path }
+        if !stillUsed {
+            DeckIconCache.shared.removeObject(forKey: path as NSString)
+            try? FileManager.default.removeItem(atPath: path)
+        }
     }
 
     /// A useful starter deck: whichever common apps are installed, plus a couple of
@@ -243,7 +376,7 @@ final class DeckStore: ObservableObject {
     }
 
     /// Installed apps for the picker, sorted by name.
-    static func installedApps() -> [String] {
+    nonisolated static func installedApps() -> [String] {
         let dirs = ["/Applications", "/System/Applications", "/System/Applications/Utilities", "/Applications/Utilities"]
         let fm = FileManager.default
         var paths: [String] = []

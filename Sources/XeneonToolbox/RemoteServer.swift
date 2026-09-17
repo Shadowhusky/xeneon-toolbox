@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Network
 import Darwin
 
@@ -16,11 +17,21 @@ final class RemoteServer: ObservableObject {
     private weak var model: ToolboxModel?
     private var listener: NWListener?
     private var candidates: [UInt16] = []
+    private let accessToken: String
 
     private static let portRange: [UInt16] = Array(8765...8784)
+    private static let tokenKey = "remote.accessToken.v1"
+    private static let maxRequestBytes = 1 << 20
 
     init(model: ToolboxModel) {
         self.model = model
+        if let saved = AppDefaults.shared.string(forKey: Self.tokenKey), saved.count >= 24 {
+            accessToken = saved
+        } else {
+            let generated = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            accessToken = generated
+            AppDefaults.shared.set(generated, forKey: Self.tokenKey)
+        }
     }
 
     func start() {
@@ -56,9 +67,9 @@ final class RemoteServer: ObservableObject {
             listener = l
             port = p
             running = true
-            urls = Self.lanIPv4().map { "http://\($0):\(p)/" }
+            urls = Self.lanIPv4().map { "http://\($0):\(p)/?t=\(accessToken)" }
             fputs("REMOTE ready: http://localhost:\(p)/\n", stderr)
-            urls.forEach { fputs("REMOTE lan: \($0)\n", stderr) }
+            Self.lanIPv4().forEach { fputs("REMOTE lan: http://\($0):\(p)/ (private token omitted from logs)\n", stderr) }
         case .failed:
             l.cancel()
             if listener == nil { tryNextPort() }   // this port was taken — try the next
@@ -80,6 +91,10 @@ final class RemoteServer: ObservableObject {
                 guard let self else { conn.cancel(); return }
                 var buf = acc
                 if let data, !data.isEmpty { buf.append(data) }
+                if buf.count > Self.maxRequestBytes {
+                    self.respond(conn, status: "413 Payload Too Large", type: "text/plain", body: Data("Request too large".utf8))
+                    return
+                }
                 if let req = Self.parse(buf) {
                     let r = self.route(req)
                     self.respond(conn, status: r.status, type: r.type, body: r.body)
@@ -104,6 +119,13 @@ final class RemoteServer: ObservableObject {
     // MARK: - Routing
 
     private func route(_ req: Req) -> (status: String, type: String, body: Data) {
+        guard authorized(req) else {
+            if req.path.hasPrefix("/api/") {
+                return ("403 Forbidden", "application/json", Data(#"{"error":"forbidden"}"#.utf8))
+            }
+            return ("403 Forbidden", "text/html; charset=utf-8",
+                    Data("<!doctype html><meta name=\"viewport\" content=\"width=device-width\"><title>Private remote</title><body style=\"background:#0a0b0d;color:#eef2f8;font:16px system-ui;padding:40px\"><h1>Private remote</h1><p>Open the full link or scan the QR code shown in Xeneon Toolbox Settings.</p></body>".utf8))
+        }
         if req.path == "/" || req.path.isEmpty {
             return ("200 OK", "text/html; charset=utf-8", Data(Self.html.utf8))
         }
@@ -155,13 +177,31 @@ final class RemoteServer: ObservableObject {
             }
             return json(["ok": true])
         case ("GET", "/api/deck"):
-            // The deck from your phone: every runnable tile, in deck order.
-            return json(["tiles": model.deck.actions.map {
-                ["id": $0.id.uuidString, "label": $0.label, "kind": $0.kind.rawValue]
-            }])
+            return json([
+                "selectedPage": model.deck.selectedPageID.uuidString,
+                "pages": model.deck.pages.map { page in
+                    [
+                        "id": page.id.uuidString,
+                        "name": page.name,
+                        "tiles": page.actions.map(deckTile),
+                    ]
+                },
+            ])
+        case ("GET", "/api/deck/icon"):
+            if let idString = req.query["id"], let id = UUID(uuidString: idString),
+               let action = model.deck.pages.lazy.flatMap(\.actions).first(where: { $0.id == id }),
+               let data = deckIconPNG(action) {
+                return ("200 OK", "image/png", data)
+            }
+            return ("404 Not Found", "text/plain", Data())
+        case ("POST", "/api/deck/page"):
+            if let idString = body(req)["id"] as? String, let id = UUID(uuidString: idString) {
+                model.deck.selectPage(id)
+            }
+            return json(["ok": true])
         case ("POST", "/api/deck/run"):
             if let idStr = body(req)["id"] as? String, let id = UUID(uuidString: idStr),
-               let action = model.deck.actions.first(where: { $0.id == id }) {
+               let action = model.deck.pages.lazy.flatMap(\.actions).first(where: { $0.id == id }) {
                 model.runDeck(action)
                 return json(["ok": true])
             }
@@ -254,6 +294,80 @@ final class RemoteServer: ObservableObject {
         }
     }
 
+    // MARK: - Deck icons
+
+    /// The browser remote cannot resolve local app paths or SF Symbols itself.
+    /// Give it either a public favicon or a protected local PNG endpoint.
+    private func deckTile(_ action: DeckAction) -> [String: String] {
+        var tile = [
+            "id": action.id.uuidString,
+            "label": action.label,
+            "kind": action.kind.rawValue,
+        ]
+        if action.customImage == nil, action.kind == .url,
+           let favicon = WebController.faviconURL(action.target)?.absoluteString {
+            tile["icon"] = favicon
+            tile["iconStyle"] = "artwork"
+        } else {
+            tile["icon"] = "/api/deck/icon?id=\(action.id.uuidString)"
+            tile["iconStyle"] = action.customImage != nil || action.appIcon != nil ? "artwork" : "symbol"
+        }
+        return tile
+    }
+
+    private func deckIconPNG(_ action: DeckAction) -> Data? {
+        let image: NSImage
+        if let custom = action.customImage {
+            image = custom
+        } else if let app = action.appIcon {
+            image = app
+        } else {
+            let name = action.symbol ?? Self.fallbackSymbol(for: action.kind)
+            guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: action.label)
+                ?? NSImage(systemSymbolName: Self.fallbackSymbol(for: action.kind), accessibilityDescription: action.label)
+            else { return nil }
+            image = symbol.withSymbolConfiguration(.init(pointSize: 72, weight: .semibold)) ?? symbol
+        }
+
+        let pixels = 128
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                         isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        let canvasSize = NSSize(width: pixels, height: pixels)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: canvasSize).fill()
+        let source = image.size
+        let maximum: CGFloat = action.customImage != nil || action.appIcon != nil ? 112 : 84
+        let scale = min(maximum / max(source.width, 1), maximum / max(source.height, 1))
+        let size = NSSize(width: source.width * scale, height: source.height * scale)
+        let rect = NSRect(x: (canvasSize.width - size.width) / 2,
+                          y: (canvasSize.height - size.height) / 2,
+                          width: size.width, height: size.height)
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+        context.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+
+        return rep.representation(using: .png, properties: [:])
+    }
+
+    private static func fallbackSymbol(for kind: DeckKind) -> String {
+        switch kind {
+        case .app: return "app.fill"
+        case .url: return "globe"
+        case .system: return "gearshape.fill"
+        case .media: return "play.fill"
+        case .command: return "terminal.fill"
+        case .webhook: return "link"
+        case .keystroke: return "keyboard"
+        case .multi: return "square.stack.3d.down.right.fill"
+        }
+    }
+
     // MARK: - HTTP helpers
 
     private struct Req { let method: String; let path: String; let query: [String: String]; let headers: [String: String]; let body: Data }
@@ -265,6 +379,11 @@ final class RemoteServer: ObservableObject {
 
     private func body(_ req: Req) -> [String: Any] {
         (try? JSONSerialization.jsonObject(with: req.body)) as? [String: Any] ?? [:]
+    }
+
+    private func authorized(_ req: Req) -> Bool {
+        guard let supplied = req.query["t"], supplied.utf8.count == accessToken.utf8.count else { return false }
+        return zip(supplied.utf8, accessToken.utf8).reduce(0) { $0 | Int($1.0 ^ $1.1) } == 0
     }
 
     /// Parse a complete HTTP request from the buffer, or nil if more bytes are needed.

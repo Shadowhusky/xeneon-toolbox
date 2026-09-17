@@ -12,6 +12,7 @@ struct AddDeckOverlay: View {
     @State private var tab: Tab = .apps
     @State private var query = ""
     @State private var apps: [String] = []
+    @State private var appsLoading = true
 
     private let cols = [GridItem(.adaptive(minimum: 132, maximum: 160), spacing: 12)]
 
@@ -42,10 +43,14 @@ struct AddDeckOverlay: View {
             .shadow(color: .black.opacity(0.55), radius: 30, y: 12)
         }
         .onAppear {
-            if apps.isEmpty { apps = DeckStore.installedApps() }
             let env = ProcessInfo.processInfo.environment
             if let t = env["XENEON_DECK_TAB"], let tt = Tab(rawValue: t) { tab = tt }
             if let q = env["XENEON_DECK_QUERY"] { query = q }
+        }
+        .task {
+            guard apps.isEmpty else { appsLoading = false; return }
+            apps = await Task.detached(priority: .utility) { DeckStore.installedApps() }.value
+            appsLoading = false
         }
     }
 
@@ -120,7 +125,13 @@ struct AddDeckOverlay: View {
     @ViewBuilder private var content: some View {
         switch tab {
         case .apps:
-            if availableApps.isEmpty {
+            if appsLoading {
+                VStack(spacing: 12) {
+                    DeckSpinner(color: Theme.battery, size: 42)
+                    Text("Finding installed apps…").font(.deck(14)).foregroundStyle(Theme.textSecondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if availableApps.isEmpty {
                 allAddedState("Every installed app is already on your deck.")
             } else {
                 ScrollView(showsIndicators: false) {

@@ -46,6 +46,13 @@ enum ConfigBackup {
             return .fail("No backup found")
         }
         AppLog.info("config", "restoring \(values.count) keys from \(backupURL.path)")
+        // Restore an exact snapshot rather than overlaying it. Overlaying left
+        // newer keys behind (for example deck.pages.v2), which could make an
+        // older backup appear to restore successfully while the current Deck
+        // remained unchanged.
+        for key in AppDefaults.shared.dictionaryRepresentation().keys where AppDefaults.isConfigKey(key) {
+            AppDefaults.shared.removeObject(forKey: key)
+        }
         for (k, v) in values {
             if let wrap = v as? [String: Any], let b64 = wrap["__data__"] as? String, let d = Data(base64Encoded: b64) {
                 AppDefaults.shared.set(d, forKey: k)
