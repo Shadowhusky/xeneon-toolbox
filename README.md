@@ -4,10 +4,12 @@
 
 **Turn the Corsair Xeneon Edge into a Mac companion you actually use.**
 
-A native macOS app for the Edge's 14.5″ · 2560×720 touchscreen — a customizable
-system dashboard, world clocks, tasks & reminders, an AI assistant that can drive
-the app, a web browser, now-playing media controls, and games. All designed for an
-ultrawide strip you operate with your finger.
+A native macOS app for the Edge's 14.5″ · 2560×720 touchscreen — a widget
+dashboard (system vitals, calendar, tasks, thermals, running apps, clipboard,
+now playing), a Stream-Deck launcher, world clocks, tasks & reminders, an AI
+assistant that can drive the app, and a web browser. All designed for an
+ultrawide strip you operate with your finger — and light enough to run all day
+(about 2 % CPU on the dashboard, well under 1 % on the ambient screen).
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111?logo=apple&logoColor=white)
 &nbsp;![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
@@ -44,23 +46,30 @@ apps built for the strip. While the app runs, the panel just works:
 
 ## Highlights
 
-- **Customizable dashboard** — CPU, GPU, memory, network, storage, power, clock
-  and current weather, with hue-coded ring gauges and sparklines. Tap a tile for a
-  detail view (top processes by CPU or memory; tap the Local tile for an
-  **hourly and 6-day weather forecast**; the Power tile shows the machine's **live watt draw** — tap it
-  for a full **energy flow**: watts from the wall fanning out to CPU / GPU /
-  memory / displays, with the heaviest apps), or enter Edit to **drag tiles to rearrange and hide** the
-  ones you don't need — your layout persists. Weather locates via Wi-Fi
-  positioning (with IP fallback), or **pin your exact city** in Settings.
+- **Widget dashboard** — a two-row grid of tiles sized for the strip: clock &
+  weather, CPU, GPU, memory, network, storage and power with hue-coded ring
+  gauges and history graphs, plus **Up Next** (your calendar), **Tasks** (tick them
+  off in place), **Thermals** (chip temperature and fan speed), **Running apps**
+  (tap one to bring it forward, long-press to send it to a screen), **Clipboard**
+  (the last few things you copied — tap to copy again) and **Now Playing**. Tiles
+  come in small, wide and tall sizes; hold the board (or More → Edit dashboard)
+  to drag, resize, remove, or add from the tile gallery — your board persists.
+  Tap a tile for its detail view (top processes; the **hourly and 6-day weather
+  forecast**; the Power tile's **energy flow** from the wall to CPU / GPU /
+  memory / displays; the Network tile's Wi-Fi, local and public IP). Weather
+  locates via Wi-Fi positioning (with IP fallback), or **pin your exact city** in
+  Settings.
 - **Deck** — a Stream-Deck-style page of big, tappable tiles that quick-launch
   apps (with their real icons), open websites (with their real favicons) in the
   built-in browser, fire **keyboard shortcuts** into whatever app is active, run
   shell commands or webhooks, and control media. Apps open on your main monitor
   (never over the panel); **long-press an app tile** to open it on a specific
   display or **pin one so it always opens there**. **Multi tiles** run a sequence
-  of other tiles in one tap. Search to add — anything already on the deck is
-  filtered out — drag to reorder, sort, and give any tile a custom SF Symbol or
-  an uploaded image.
+  of other tiles in one tap. Create and name **multiple Deck pages** for work,
+  media, streaming, or app-specific controls, then step between them from the
+  header (the web remote follows the selected page too). Search to add — anything
+  already on the current page is filtered out — drag to reorder, sort, and give
+  any tile a custom SF Symbol or an uploaded image.
 - **Control Centre** — swipe down from the top-right — from the full UI or the
   ambient screen — for **Wi-Fi, Bluetooth, Focus and appearance controls** with
   macOS semantics: tap the icon to toggle, tap the tile to pick a network,
@@ -71,6 +80,10 @@ apps built for the strip. While the app runs, the panel just works:
   top-left for the ambient screen, and in from a side edge to flip between apps
   with a natural page-turn animation (from the normal UI the swipe enters
   fullscreen as it switches); a first-run tutorial teaches them.
+- **Native resolution, guided** — macOS tends to bring the Edge up at 1920×1080,
+  which stretches the picture and squeezes the Toolbox. The app notices, and
+  offers a one-tap switch to **2560 × 720** (with Undo) or walks you through
+  Displays settings. Touch keeps working in any mode meanwhile.
 - **Now Playing** — control whatever's playing in Spotify or Music: artwork, a
   scrubbable progress bar, and play/skip — on the dashboard and the ambient
   screen. Tap the artwork for a **full-screen player** with big album art and a
@@ -90,7 +103,6 @@ apps built for the strip. While the app runs, the panel just works:
 - **Assistant** — an agentic chat over any OpenAI-compatible model that can read
   your system, drive the app, search the web, manage tasks, and render results as
   cards, tables, charts, or images.
-- **Games** — full web games embedded for the Edge.
 - **Ambient modes** — a minimal clock-and-vitals view with current weather, your
   **next calendar event** (tap it for today's full agenda), and now-playing; plus
   a power-saving sleep mode — dim or switch the screen off entirely to save power.
@@ -109,7 +121,7 @@ apps built for the strip. While the app runs, the panel just works:
 
 ### Deck
 
-A Stream-Deck-style launcher: big tiles that open apps (with their real macOS
+A Stream-Deck-style launcher with named pages: big tiles that open apps (with their real macOS
 icons and a dock-style dot on the ones already running), launch websites (with
 their real favicons) in the built-in browser, fire **recorded keyboard
 shortcuts** system-wide, run shell commands or webhooks, or control media.
@@ -121,8 +133,9 @@ into its floating badge and the app takes the screen (tap the badge to swap back
 **Edit** to drag tiles into any order, remove them, or tap the pencil to
 **rename / re-icon / retarget** a tile in place, **Sort** alphabetically or by
 type (with a confirmation before it replaces a hand-arranged order), and **Add**
-from a searchable picker that hides what's already on the deck — including custom
-actions with an SF Symbol or your own uploaded icon.
+from a searchable picker that hides what's already on the current page — including
+custom actions with an SF Symbol or your own uploaded icon. Tap the page name to
+create, rename, switch, or remove pages without disturbing the others.
 
 ![Deck](docs/img/deck.png)
 
@@ -180,13 +193,6 @@ turns answers into the clearest format — here, a comparison table.
 
 ![Assistant](docs/img/assistant.png)
 
-### Games
-
-Full web games framed for the Edge, with a branded loading state and an offline
-retry. Keyboard-driven games receive your keypresses directly.
-
-![Games](docs/img/games.png)
-
 ### Web
 
 Websites live on the Deck — tap a website tile and it opens right on the Edge in
@@ -197,17 +203,29 @@ the toolbar to save the page you're on back to the Deck with its real favicon.
 
 ### Make it yours
 
-Tap **Edit** in the Configs tile to rearrange the dashboard: drag a tile to a new
-spot, tap **⊖** to hide one (it drops into a tray you can pull it back from), and
-**Reset** to start over. Your arrangement — and the Now Playing bar — persist.
+Hold the board (or tap **More → Edit dashboard**) to rearrange: drag a tile to a
+new spot, tap **⊖** to remove one, tap the **S / W / T** badge to cycle its size,
+and **Add tile** opens a gallery of everything not on the board with the sizes it
+supports. The grid is 2 rows × 8 cells; a small tile takes one cell, wide and
+tall take two. **Reset** restores the starter board. Your board persists.
 
 ![Customizing the dashboard](docs/img/customize.png)
 
+### Resolution guide
+
+If the Edge isn't at its native 2560 × 720 — macOS marks 1920 × 1080 as the
+panel's default — the Toolbox says so and fixes it in one tap, with a 15-second
+Undo, or shows the manual steps when the native mode is hidden.
+
+![Resolution guide](docs/img/resolution.png)
+
 ### Settings
 
-Touch calibration, display modes, weather location (pin your exact city if the
+The panel's resolution and touch status (with a one-tap **Restart touch**),
+calibration, display modes, weather location (pin your exact city if the
 automatic lookup is off), screen brightness (and a true screen-off to save
-power), and conversation management — each in its own labeled panel.
+power), remote control, and conversation management — each in its own labeled
+panel.
 
 ![Settings](docs/img/settings.png)
 
@@ -233,7 +251,7 @@ default, and easy to turn off there.
 - **Voice** — tap the mic to talk to it; speech is transcribed **on-device** (no
   cloud) and sent to the assistant. The web remote has a voice button too.
 - **Drives the app** — knows the current tab and live stats; can navigate, toggle
-  touch, change display mode, set brightness, and open games.
+  touch, change display mode, and set brightness.
 - **Generative UI** — renders results as a key/value card, a multi-column table, a
   bar/line chart, a top-processes card, or a generated image.
 - **Tools** — web search and fetch; list / read / write files; tasks &
@@ -259,9 +277,11 @@ and drags land exactly where you touch.
   with jitter smoothing and momentum scrolling.
 - Runs on a **dedicated high-priority thread**, so a busy UI or a slow brightness
   write can never stall or freeze touch.
-- **Seizes** the digitizer so macOS doesn't also move the cursor, and re-seizes
-  when the app regains focus so touch is always live. The pointer **hides while
-  you touch** and reappears the moment you use a real mouse.
+- **Seizes** the digitizer so macOS doesn't also move the cursor, and keeps it:
+  the driver is rebuilt on every wake, unlock and display change, the panel is
+  tracked by identity (not by resolution) so its position is always current,
+  and a seize macOS refuses is retried forever. The pointer **hides while you
+  touch** and reappears the moment you use a real mouse.
 - A finger gesture is classified as a **tap**, a **scroll** (continuous
   scroll-wheel events, since macOS scroll views ignore drags), or a **control
   drag** for sliders. Whole-screen **edge swipes** exit fullscreen or drop to the
@@ -280,6 +300,9 @@ swift test                 # coordinate mapping, gesture state machine, HID deco
 
 ./scripts/make-app.sh      # builds XeneonToolbox.app (icon + bundled m1ddc for brightness)
 open XeneonToolbox.app
+
+.build/release/xeneon-touch display-modes   # the Edge's identity, current mode and every mode it offers
+.build/release/xeneon-touch set-mode 28     # switch it (mode numbers from display-modes)
 ```
 
 Grant **Xeneon Toolbox** both **Input Monitoring** (read touch) and
@@ -294,10 +317,10 @@ the digitizer.
 | Target | Kind | Purpose |
 | --- | --- | --- |
 | `XeneonTouchCore` | library | Pure, tested logic: coordinate mapping, gesture state machine, HID decode |
-| `XeneonTouchDriver` | library | IOKit HID capture + CoreGraphics injection (`TouchService`) |
+| `XeneonTouchDriver` | library | IOKit HID capture + CoreGraphics injection (`TouchService`), Edge display identity and mode switching |
 | `ToolboxKit` | library | Pure app logic: chat client, config, tasks, world clocks |
 | `XeneonToolbox` | app | SwiftUI apps + embedded touch driver |
-| `xeneon-touch` | CLI | Diagnostics (`diagnose`, `list-displays`) and headless `run` |
+| `xeneon-touch` | CLI | Diagnostics (`diagnose`, `list-displays`, `display-modes`, `set-mode`) and headless `run` |
 
 ---
 

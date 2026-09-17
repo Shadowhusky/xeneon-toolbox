@@ -3,8 +3,8 @@ import Foundation
 extension RemoteServer {
     /// The single-page web remote. Reads its access token from its own URL
     /// (?t=…), polls state, and posts control actions. Styled to match the app
-    /// (dark telemetry deck), responsive for phone + desktop. Icons are inline
-    /// SVG line icons (no emoji) so they inherit the accent colour and stay crisp.
+    /// (dark telemetry deck), responsive for phone + desktop. Navigation uses
+    /// crisp inline SVGs; Deck tiles load their real app, custom, web, or symbol icon.
     static let html = ##"""
 <!doctype html>
 <html lang="en">
@@ -26,7 +26,8 @@ extension RemoteServer {
     background:radial-gradient(120% 80% at 50% -10%, #15212b 0%, var(--bg) 55%);
     color:var(--txt); min-height:100vh;
     font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro",Segoe UI,Roboto,sans-serif;
-    padding:18px; padding-bottom:40px;
+    padding:max(18px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right))
+      max(40px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));
   }
   .wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
   svg{display:block}
@@ -49,6 +50,8 @@ extension RemoteServer {
     flex-direction:column;align-items:center;justify-content:center;gap:7px;font-weight:600;
     transition:transform .08s ease, background .15s ease, border-color .15s, color .15s}
   button:active{transform:scale(.95)}
+  button:disabled{cursor:wait;opacity:.72}
+  button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
   .ico{width:22px;height:22px;flex:0 0 auto}
   button.on{background:#54d6eb1f;border-color:#54d6eb88;color:var(--cyan);box-shadow:0 0 18px #54d6eb33}
   .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -92,9 +95,24 @@ extension RemoteServer {
   .iconbtn.send{background:#54d6eb;border-color:#54d6eb;color:#03222a}
   .iconbtn.mic.live{background:#fb746b;border-color:#fb746b;color:#fff;animation:pulse 1s infinite}
   @keyframes pulse{0%,100%{box-shadow:0 0 0 0 #fb746b66}50%{box-shadow:0 0 0 8px #fb746b00}}
-  .foot{color:var(--faint);font-size:12px;text-align:center}
-  #deck button{min-height:56px;padding:10px 6px;font-size:13px}
-  #deck button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  .foot{color:var(--faint);font-size:12px;text-align:center;margin:4px 0 0}
+  .connection{display:inline-flex;align-items:center;gap:7px}
+  .connection i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 9px #76e29a77}
+  .connection.offline{color:var(--red)} .connection.offline i{background:var(--red);box-shadow:0 0 9px #fb746b77}
+  #deck button{min-height:84px;padding:10px 6px;font-size:13px;position:relative}
+  #deck button>.decklabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  .deckico{width:38px;height:38px;display:grid;place-items:center;color:var(--cyan);transition:transform .18s ease}
+  .deckico img{display:block;width:100%;height:100%;object-fit:contain;border-radius:9px}
+  .deckico img.symbol{filter:invert(82%) sepia(40%) saturate(757%) hue-rotate(145deg) brightness(98%) contrast(88%)}
+  .deckico .ico{width:27px;height:27px}
+  #deck button.running .deckico{animation:deckspin .75s ease-in-out infinite alternate}
+  #deck button.done{border-color:#76e29a88;background:#76e29a18}
+  #deck button.done .deckico{transform:scale(1.1)}
+  @keyframes deckspin{to{transform:scale(.82);opacity:.45}}
+  .deckpages{display:flex;gap:8px;overflow:auto;margin:-2px 0 12px;padding-bottom:2px}
+  .deckpages::-webkit-scrollbar{display:none}
+  .deckpages button{min-height:36px;padding:7px 13px;flex-direction:row;white-space:nowrap;border-radius:999px;font-size:13px}
+  .deckpages .count{color:var(--faint);font-size:11px}
   .np{display:flex;align-items:center;gap:12px}
   .npmeta{flex:1;min-width:0}
   .nptitle{font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -103,7 +121,14 @@ extension RemoteServer {
   .npplay{background:#54d6eb;border-color:#54d6eb;color:#03222a}
   .slider .vvol{color:var(--cyan)}
   #volwrap input{accent-color:var(--cyan)}
-  @media(max-width:380px){.grid{grid-template-columns:repeat(2,1fr)}}
+  .toast{position:fixed;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translate(-50%,18px);
+    max-width:calc(100vw - 32px);padding:10px 14px;border-radius:999px;background:#22262e;border:1px solid var(--stroke2);
+    color:var(--txt);font-size:13px;font-weight:700;box-shadow:0 10px 28px #000a;opacity:0;pointer-events:none;
+    transition:opacity .18s ease,transform .18s ease;z-index:30;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .toast.show{opacity:1;transform:translate(-50%,0)} .toast.error{border-color:#fb746b66;color:#ffd9d5}
+  @media(max-width:520px){header{flex-wrap:wrap}.pills{flex-basis:100%;margin-left:40px;justify-content:flex-start}}
+  @media(max-width:380px){.grid{grid-template-columns:repeat(2,1fr)}.pills{margin-left:0}}
+  @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
 </head>
 <body>
@@ -130,7 +155,9 @@ extension RemoteServer {
 
   <section class="card" id="deckcard" style="display:none">
     <p class="label">DECK</p>
+    <div class="deckpages" id="deckpages"></div>
     <div class="grid" id="deck"></div>
+    <div class="empty" id="deckempty" style="display:none">This Deck page has no actions yet.</div>
   </section>
 
   <section class="card" id="mediacard" style="display:none">
@@ -174,20 +201,31 @@ extension RemoteServer {
     </div>
   </section>
 
-  <p class="foot">Connected to your Edge over the local network</p>
+  <p class="foot"><span class="connection" id="connection"><i></i><span>Connected to your Edge</span></span></p>
 </div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
-const j = (p,m='GET',b)=>fetch(p,
-  {method:m,headers:b?{'Content-Type':'application/json'}:undefined,body:b?JSON.stringify(b):undefined})
-  .then(r=>r.json()).catch(()=>({}));
+const TOKEN=new URLSearchParams(location.search).get('t')||'';
+const auth=p=>p+(p.includes('?')?'&':'?')+'t='+encodeURIComponent(TOKEN);
+const connection=document.getElementById('connection');
+function setConnected(ok){connection.classList.toggle('offline',!ok);connection.querySelector('span').textContent=ok?'Connected to your Edge':'Edge is unreachable';}
+const j = async(p,m='GET',b)=>{
+  try{
+    const r=await fetch(auth(p),{method:m,headers:b?{'Content-Type':'application/json'}:undefined,body:b?JSON.stringify(b):undefined});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const data=await r.json();setConnected(true);return data;
+  }catch(e){setConnected(false);return null;}
+};
 const post=(p,b)=>j(p,'POST',b);
+const toastEl=document.getElementById('toast');let toastTimer=null;
+function toast(message,error=false){toastEl.textContent=message;toastEl.classList.toggle('error',error);toastEl.classList.add('show');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>toastEl.classList.remove('show'),1800);}
 
 const P={
  dashboard:'<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
  tasks:'<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>',
- games:'<rect x="2" y="6" width="20" height="12" rx="4"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/><circle cx="16" cy="11.5" r="1"/><circle cx="18.5" cy="13.5" r="1"/>',
  web:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/>',
  assistant:'<path d="M12 3l1.7 4.6L18.5 9.5l-4.8 1.9L12 16l-1.7-4.6L5.5 9.5l4.8-1.9z"/>',
  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
@@ -218,8 +256,8 @@ document.getElementById('bsun').innerHTML=svg('sun','bsun');
 document.getElementById('mic').innerHTML=svg('mic');
 document.getElementById('send').innerHTML=svg('send');
 
-const PAGES=[['dashboard','dashboard','Dashboard'],['clock','clock','Clock'],['tasks','tasks','Tasks'],
-  ['games','games','Games'],['web','web','Web'],['chat','assistant','Assistant']];
+const PAGES=[['dashboard','dashboard','Dashboard'],['deck','grid','Deck'],['clock','clock','Clock'],['tasks','tasks','Tasks'],
+  ['web','web','Web'],['chat','assistant','Assistant']];
 const DISPLAY=[['full','sun','Wake'],['minimal','moon','Minimal'],['sleep','power','Rest']];
 
 const pagesEl=document.getElementById('pages');
@@ -240,17 +278,40 @@ bright.oninput=()=>{brightv.textContent=bright.value+'%';clearTimeout(brightT);
   brightT=setTimeout(()=>post('/api/brightness',{level:+bright.value}),120);};
 bright.onpointerdown=()=>brightFocused=true; bright.onpointerup=()=>setTimeout(()=>brightFocused=false,400);
 
-// Deck: run any tile from the phone. Loaded once, refreshed occasionally.
-const deckEl=document.getElementById('deck'), deckCard=document.getElementById('deckcard');
+// Deck: mirror every page and use the tile's real app/custom/SF Symbol icon.
+const deckEl=document.getElementById('deck'), deckPages=document.getElementById('deckpages'),
+  deckCard=document.getElementById('deckcard'),deckEmpty=document.getElementById('deckempty');
 let deckSig='';
+function fallbackDeckIcon(box,kind){box.innerHTML=svg(P[kind]?kind:'app');}
+function deckIcon(t){
+  const box=document.createElement('span');box.className='deckico';box.setAttribute('aria-hidden','true');
+  if(!t.icon){fallbackDeckIcon(box,t.kind);return box;}
+  const img=document.createElement('img');img.alt='';img.decoding='async';
+  img.classList.toggle('symbol',t.iconStyle==='symbol');
+  img.onerror=()=>fallbackDeckIcon(box,t.kind);
+  img.src=t.icon.startsWith('/')?auth(t.icon):t.icon;box.appendChild(img);return box;
+}
 async function loadDeck(){
-  const d=await j('/api/deck'); const tiles=(d&&d.tiles)||[];
-  const sig=JSON.stringify(tiles); if(sig===deckSig)return; deckSig=sig;
-  deckEl.innerHTML='';
-  tiles.forEach(t=>{const b=document.createElement('button');
-    b.innerHTML=svg(P[t.kind]?t.kind:'app')+'<span>'+t.label.replace(/</g,'&lt;')+'</span>';
-    b.onclick=()=>post('/api/deck/run',{id:t.id});deckEl.appendChild(b);});
-  deckCard.style.display=tiles.length?'block':'none';
+  const d=await j('/api/deck');if(!d)return;
+  const pages=d.pages||[];
+  const sig=JSON.stringify(d); if(sig===deckSig)return; deckSig=sig;
+  const selected=pages.find(p=>p.id===d.selectedPage)||pages[0], tiles=(selected&&selected.tiles)||[];
+  deckPages.innerHTML=''; deckEl.innerHTML='';
+  pages.forEach(p=>{const b=document.createElement('button');const selectedPage=p.id===selected?.id;
+    b.classList.toggle('on',selectedPage);b.setAttribute('aria-pressed',String(selectedPage));
+    const s=document.createElement('span');s.textContent=p.name;b.appendChild(s);
+    const count=document.createElement('span');count.className='count';count.textContent=String((p.tiles||[]).length);b.appendChild(count);
+    b.onclick=async()=>{b.disabled=true;const result=await post('/api/deck/page',{id:p.id});b.disabled=false;
+      if(!result){toast('Could not switch Deck page',true);return;}deckSig='';loadDeck();};deckPages.appendChild(b);});
+  tiles.forEach(t=>{const b=document.createElement('button');b.title=t.label;b.appendChild(deckIcon(t));
+    const s=document.createElement('span');s.className='decklabel';s.textContent=t.label;b.appendChild(s);
+    b.onclick=async()=>{if(b.disabled)return;b.disabled=true;b.classList.add('running');b.setAttribute('aria-busy','true');
+      const result=await post('/api/deck/run',{id:t.id});b.classList.remove('running');b.removeAttribute('aria-busy');
+      if(result&&result.ok){b.classList.add('done');toast('Ran '+t.label);setTimeout(()=>{b.classList.remove('done');b.disabled=false;},520);}
+      else{b.disabled=false;toast('Could not run '+t.label,true);}};deckEl.appendChild(b);});
+  deckPages.style.display=pages.length>1?'flex':'none';
+  deckEmpty.style.display=pages.length&&!tiles.length?'block':'none';
+  deckCard.style.display=pages.length?'block':'none';
 }
 loadDeck(); setInterval(loadDeck,15000);
 
@@ -318,7 +379,7 @@ function renderCard(c){
       row.appendChild(track);row.appendChild(cell('span','bval',String(p.value)));card.appendChild(row);});
   }else if(c.type==='image'){
     const img=document.createElement('img');img.className='cimg';
-    img.src='/api/image?id='+encodeURIComponent(c.id);card.appendChild(img);
+    img.src=auth('/api/image?id='+encodeURIComponent(c.id));card.appendChild(img);
   }
   return card;
 }

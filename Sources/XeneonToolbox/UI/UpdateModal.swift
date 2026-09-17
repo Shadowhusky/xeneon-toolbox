@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Watches the update checker and presents the modal when an update is available,
-/// unless the panel is in immersive fullscreen (don't interrupt a game).
+/// unless the panel is in immersive fullscreen (don't interrupt the user).
 struct UpdateGate: View {
     @ObservedObject var updater: UpdateChecker
     var fullscreen: Bool

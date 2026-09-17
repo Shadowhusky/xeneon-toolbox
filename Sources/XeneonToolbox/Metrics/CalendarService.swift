@@ -44,12 +44,21 @@ final class CalendarService: ObservableObject {
 
     @Published private(set) var next: NextEvent?
     @Published private(set) var today: [Event] = []
+
+    /// Today's events still ahead (or happening now), for the Up Next tile.
+    var upcoming: [Event] { today.filter { !$0.isPast } }
+    var hasAccess: Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["XENEON_AGENDA"] != nil || env["XENEON_CALENDAR_DEMO"] != nil
+            || EKEventStore.authorizationStatus(for: .event) == .fullAccess
+    }
     private let store = EKEventStore()
     private var timer: Timer?
 
     func start() {
         guard timer == nil else { return }
-        if ProcessInfo.processInfo.environment["XENEON_AGENDA"] != nil { injectMock(); return }
+        let env = ProcessInfo.processInfo.environment
+        if env["XENEON_AGENDA"] != nil || env["XENEON_CALENDAR_DEMO"] != nil { injectMock(); return }
         requestThenRefresh()
         let t = Timer(timeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -117,24 +126,24 @@ final class CalendarService: ObservableObject {
             }
     }
 
-    /// Sample schedule for off-screen agenda mockups (XENEON_AGENDA).
+    /// Sample schedule for off-screen mockups (XENEON_AGENDA opens the agenda,
+    /// XENEON_CALENDAR_DEMO just seeds events). Times are relative to now so
+    /// the Up Next tile always has something ahead.
     private func injectMock() {
-        let cal = Calendar.current
-        let day = cal.startOfDay(for: Date())
-        func at(_ h: Int, _ m: Int) -> Date { cal.date(byAdding: .init(hour: h, minute: m), to: day)! }
         let now = Date()
+        func rel(_ minutes: Int) -> Date { now.addingTimeInterval(TimeInterval(minutes) * 60) }
         let raw: [(String, Date, Date, Bool, (Double, Double, Double))] = [
-            ("Product sync", at(9, 0), at(9, 30), false, (0.20, 0.55, 0.95)),
-            ("Design review", at(11, 0), at(12, 0), false, (0.95, 0.45, 0.25)),
-            ("Lunch with Sam", at(12, 30), at(13, 30), false, (0.35, 0.75, 0.40)),
-            ("Focus block", at(14, 0), at(16, 0), false, (0.62, 0.45, 0.95)),
-            ("Ship v1.10", at(17, 0), at(17, 30), false, (0.95, 0.35, 0.55)),
+            ("Product sync", rel(-150), rel(-120), false, (0.20, 0.55, 0.95)),
+            ("Design review", rel(-20), rel(25), false, (0.95, 0.45, 0.25)),
+            ("Lunch with Sam", rel(60), rel(120), false, (0.35, 0.75, 0.40)),
+            ("Focus block", rel(150), rel(270), false, (0.62, 0.45, 0.95)),
+            ("Ship v1.18", rel(300), rel(330), false, (0.95, 0.35, 0.55)),
         ]
         today = raw.map {
             Event(id: $0.0, title: $0.0, start: $0.1, end: $0.2, allDay: $0.3,
                   calendarColorRGB: $0.4, isNow: $0.1 <= now && $0.2 > now, isPast: $0.2 <= now)
         }
-        next = NextEvent(title: "Focus block", start: at(14, 0), isNow: false)
+        next = NextEvent(title: "Design review", start: rel(-20), isNow: true)
     }
 
     private static func rgb(_ color: CGColor) -> (Double, Double, Double) {

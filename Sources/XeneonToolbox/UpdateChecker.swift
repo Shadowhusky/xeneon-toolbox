@@ -225,7 +225,7 @@ final class UpdateChecker: ObservableObject {
             notes: """
             ## ✨ New
             - **Web tab** — open and save any site right on the Edge, with favicons.
-            - **Fullscreen mode** — every page can fill the panel; games and the browser go fully immersive.
+            - **Fullscreen mode** — every page can fill the panel; the browser goes fully immersive.
 
             ## 🛠 Improved
             - The phone remote can now push a URL straight to the Edge.

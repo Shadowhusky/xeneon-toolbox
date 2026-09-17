@@ -88,7 +88,7 @@ final class SystemToggles: ObservableObject {
 
     /// The joined network's name: CoreWLAN when Location access allows it,
     /// otherwise networksetup (which is not redacted).
-    private nonisolated static func currentSSID() -> String? {
+    nonisolated static func currentSSID() -> String? {
         if let ssid = CWWiFiClient.shared().interface()?.ssid() { return ssid }
         let device = CWWiFiClient.shared().interface()?.interfaceName ?? "en0"
         let p = Process()

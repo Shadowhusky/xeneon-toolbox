@@ -137,7 +137,7 @@ struct ChatView: View {
               prompt: "Make a table comparing the RTX 4090, RTX 4080 Super, and RX 7900 XTX by VRAM, TDP, and price", tint: Theme.gpu),
         .init(icon: "magnifyingglass", label: "Latest AI news",
               prompt: "Search the web for the latest AI news and summarize the top items", tint: Theme.netUp),
-        .init(icon: "gamecontroller.fill", label: "Play Rhythm Plus", prompt: "Open Rhythm Plus", tint: Theme.battery),
+        .init(icon: "bell.badge.fill", label: "Remind me", prompt: "Remind me to stretch in 30 minutes", tint: Theme.battery),
         .init(icon: "music.note", label: "What's playing?", prompt: "What's playing right now?", tint: Theme.memory),
     ]
 

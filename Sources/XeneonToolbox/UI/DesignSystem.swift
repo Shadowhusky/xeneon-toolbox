@@ -25,10 +25,16 @@ enum Theme {
     static let batteryLow = Color(red: 0.98, green: 0.45, blue: 0.42)
     static let accent = Color(red: 0.33, green: 0.84, blue: 0.92)
     static let time = Color(red: 0.70, green: 0.78, blue: 0.88)     // ice — clock identity, distinct from cpu cyan
+    static let heat = Color(red: 1.0, green: 0.58, blue: 0.36)      // coral — thermals
 
     // Semantic state hues — one place to escalate any metric.
     static let warning = netUp          // amber
     static let critical = batteryLow    // red
+
+    /// A metric's colour under load: its own hue until 75 %, amber to 90 %, red above.
+    static func pressure(_ fraction: Double, base: Color) -> Color {
+        fraction >= 0.9 ? critical : fraction >= 0.75 ? warning : base
+    }
 
     static let labelTracking: CGFloat = 1.8
 
@@ -43,6 +49,9 @@ enum Theme {
 
     // The "empty" substrate behind any gauge/bar/track — one shared material.
     static let trackFill = Color.white.opacity(0.07)
+    // Elevation cues: a recessed well for graphs/gauges, a 1 px top highlight on surfaces.
+    static let wellFill = Color.black.opacity(0.22)
+    static let innerHighlight = Color.white.opacity(0.06)
 
     // The signature hue-coded bloom. One calibrated recipe for every accent.
     static let glowOpacity: Double = 0.55
@@ -53,6 +62,25 @@ extension View {
     /// The deck's signature accent bloom, applied consistently.
     func deckGlow(_ color: Color, strength: CGFloat = 1) -> some View {
         shadow(color: color.opacity(Theme.glowOpacity), radius: Theme.glowRadius * strength)
+    }
+}
+
+/// A recessed area inside a tile — graphs and gauges sit in one so the surface
+/// reads as layered rather than flat.
+struct Well<Content: View>: View {
+    var corner: CGFloat = 14
+    var inset: CGFloat = 10
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .padding(inset)
+            .background(RoundedRectangle(cornerRadius: corner, style: .continuous).fill(Theme.wellFill))
+            .overlay(RoundedRectangle(cornerRadius: corner, style: .continuous).strokeBorder(Color.black.opacity(0.3), lineWidth: 1))
+            .overlay(alignment: .top) {
+                RoundedRectangle(cornerRadius: corner, style: .continuous)
+                    .fill(Color.white.opacity(0.03)).frame(height: 1).padding(.horizontal, 10).padding(.top, 1)
+            }
     }
 }
 

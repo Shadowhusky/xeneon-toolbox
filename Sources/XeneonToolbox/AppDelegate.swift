@@ -23,7 +23,7 @@ final class KeyableWindow: NSPanel {
 
 
     // A touchscreen deck has no keyboard chrome; if a keystroke reaches the window
-    // unhandled (no text field or game focused), swallow it instead of letting
+    // unhandled (no text field focused), swallow it instead of letting
     // macOS sound the system alert beep. Menu shortcuts (⌘C etc.) use a separate
     // key-equivalent path and are unaffected.
     override func keyDown(with event: NSEvent) { /* swallow — no beep */ }
@@ -102,7 +102,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         win.backgroundColor = .black
         win.hasShadow = false
         win.acceptsMouseMovedEvents = true
-        win.contentView = FirstMouseHostingView(rootView: RootView(model: model, metrics: model.metrics))
+        let host = FirstMouseHostingView(rootView: RootView(model: model, metrics: model.metrics))
+        // The window is always exactly the panel's size, so the hosting view must
+        // not derive min/ideal/max sizes from the SwiftUI tree — each of those is
+        // a full layout pass, and AppKit asked for them on every display frame.
+        host.sizingOptions = []
+        win.contentView = host
         self.window = win
 
         placeWindow()
@@ -178,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Positions the main window. With the Edge connected it becomes a borderless
     /// kiosk covering the panel, above the menu bar so Esc/⌘ gestures can't exit
-    /// (and so they reach the game). Without the Edge it stays a normal, movable,
+    /// (and so they reach the page). Without the Edge it stays a normal, movable,
     /// closable window on the main display — never an untitled cover with no way to
     /// move or quit it.
     private func placeWindow() {
@@ -190,6 +195,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             win.becomesKeyOnlyIfNeeded = false
             win.isFloatingPanel = false
             win.level = .normal
+            // Dev measurement/capture hook: place the window explicitly (Cocoa
+            // coordinates), borderless so a window capture is exactly the UI.
+            if let spec = ProcessInfo.processInfo.environment["XENEON_DEV_FRAME"] {
+                let v = spec.split(separator: ",").compactMap { Double($0) }
+                win.styleMask = [.borderless, .nonactivatingPanel]
+                if v.count == 4 { win.setFrame(NSRect(x: v[0], y: v[1], width: v[2], height: v[3]), display: true) }
+            }
             win.makeKeyAndOrderFront(nil)
             return
         }
@@ -231,10 +243,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             win.setFrame(NSRect(origin: origin, size: size), display: true)
             win.makeKeyAndOrderFront(nil)
         }
+        model.edgePresent = devMode || EdgeScreen.isPresent
+        model.refreshDisplayIssue()
     }
 
     @objc private func screenParametersChanged(_ note: Notification) {
         placeWindow()
+        // The panel's global rect may have moved (arrangement, mode, another
+        // display's resolution) — the driver maps touches onto it, so refresh now.
+        model.refreshTouchDisplay()
         // The panel powers its touch controller with the display: when the Edge
         // (re)appears, the digitizer re-enumerates a beat later — reacquire it.
         if ToolboxModel.edgeDisplayActive() {
@@ -262,10 +279,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startYieldWatch() {
         guard yieldTimer == nil else { return }
-        let t = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.updateYield() }
         }
-        t.tolerance = 0.25
+        t.tolerance = 0.5
         RunLoop.main.add(t, forMode: .common)
         yieldTimer = t
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -360,10 +377,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.touchOn = true; model.edgeDetected = true   // show Touch "Active" in demo renders
         model.metrics.start()
         model.weather.start()
+        model.runningApps.refresh()
+        let env = ProcessInfo.processInfo.environment
+        if env["XENEON_CALENDAR_DEMO"] != nil || env["XENEON_AGENDA"] != nil { model.calendar.start() }
         DispatchQueue.main.asyncAfter(deadline: .now() + warmup) { [self] in
             let content = RootView(model: model, metrics: model.metrics)
                 .frame(width: 2560, height: 720)
                 .environment(\.colorScheme, .dark)
+                .environment(\.renderStatic, true)   // ImageRenderer can't draw the layer-backed gauges
             let renderer = ImageRenderer(content: content)
             renderer.scale = CGFloat(scale)
             guard let cg = renderer.cgImage else { fputs("render failed\n", stderr); NSApp.terminate(nil); return }
@@ -402,9 +423,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = main
     }
 
-    private func edgeScreen() -> NSScreen? {
-        NSScreen.screens.first {
-            abs($0.frame.width - 2560) < 2 && abs($0.frame.height - 720) < 2
-        }
-    }
+    private func edgeScreen() -> NSScreen? { EdgeScreen.nsScreen() }
 }

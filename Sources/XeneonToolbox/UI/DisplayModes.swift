@@ -58,7 +58,7 @@ struct MinimalView: View {
     }
 
     private var clockBlock: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+        TimelineView(.everyMinute) { ctx in
             VStack(alignment: .leading, spacing: 6) {
                 Text(ctx.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
                     .font(.readout(176, .medium)).tracking(-3)

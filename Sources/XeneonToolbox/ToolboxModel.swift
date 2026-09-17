@@ -6,7 +6,7 @@ import ToolboxKit
 enum DisplayMode { case full, minimal, sleep }
 
 enum AppRoute: String, CaseIterable, Identifiable {
-    case dashboard, deck, clock, tasks, games, web, chat
+    case dashboard, deck, clock, tasks, web, chat
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -14,7 +14,6 @@ enum AppRoute: String, CaseIterable, Identifiable {
         case .deck: return "Deck"
         case .clock: return "Clock"
         case .tasks: return "Tasks"
-        case .games: return "Games"
         case .web: return "Web"
         case .chat: return "Assistant"
         }
@@ -25,7 +24,6 @@ enum AppRoute: String, CaseIterable, Identifiable {
         case .deck: return "square.grid.3x3.fill"
         case .clock: return "clock.fill"
         case .tasks: return "checklist"
-        case .games: return "gamecontroller.fill"
         case .web: return "globe"
         case .chat: return "sparkles"
         }
@@ -37,7 +35,6 @@ enum AppRoute: String, CaseIterable, Identifiable {
         case .deck: return Theme.battery
         case .clock: return Theme.time
         case .tasks: return Theme.netUp
-        case .games: return Theme.gpu
         case .web: return Theme.disk
         case .chat: return Theme.memory
         }
@@ -67,6 +64,9 @@ final class ToolboxModel: ObservableObject {
     let audioOutput = AudioOutput()
     let keepAwake = KeepAwake()
     let focusTimer = FocusTimer()
+    let runningApps = RunningAppsMonitor()
+    let clipboard = ClipboardStore()
+    let dashboardCommands = DashboardCommands()
     let canControlBacklight = Backlight.isAvailable
     @Published var brightness: Int = 90          // Edge backlight 0–100 (DDC)
     private var preDimBrightness = 90             // restored when waking from sleep
@@ -88,7 +88,13 @@ final class ToolboxModel: ObservableObject {
             } else {
                 pageTransition = .fade
             }
+            updateMetricsCadence()
         }
+    }
+
+    /// Fast telemetry only while the dashboard is actually on screen.
+    private func updateMetricsCadence() {
+        metrics.setCadence(displayMode == .full && route == .dashboard ? .fast : .slow)
     }
     private(set) var pageTransition: PageTransition = .fade   // read in the same render pass
     private var swipeDirection: Int?
@@ -106,17 +112,59 @@ final class ToolboxModel: ObservableObject {
         fsTutorialSeen = true
         AppDefaults.shared.set(true, forKey: "tutorial.fullscreen.seen")
     }
-    @Published var pullFrac: Double?                     // 0…1 minimal-screen bottom while dragging it in/out from an edge
-    @Published var controlExt: Double = 0                // 0…1 how far the control centre is pulled down
+    /// Touch-rate values (shade pull, control-centre pull, long-press) live apart
+    /// so only the overlays drawing them re-render — not the whole panel.
+    let gestures = PanelGestures()
     @Published var pendingWebURL: String?                // a URL the Web tab should open (agent/remote)
     @Published var showNowPlaying = (AppDefaults.shared.object(forKey: "ui.showNowPlaying") as? Bool) ?? true {
         didSet { AppDefaults.shared.set(showNowPlaying, forKey: "ui.showNowPlaying") }
     }
     @Published var showSettings = false
+    @Published var showRailMenu = false         // the rail's "⋯" menu
     @Published var showAgenda = false           // today's calendar schedule overlay
     @Published var showNowPlayingFull = false   // full-screen media view
     @Published var crashPrompt: CrashReport?   // last session's crash — offer to report it
     var exportMode = false   // static input bar etc. for off-screen mockup renders
+
+    /// Whether the kiosk has a panel to live on; false shows the connect screen.
+    @Published var edgePresent = true
+    /// A scaled Edge mode the user should fix (nil = native or dismissed).
+    @Published var displayIssue: DisplayIssue?
+    @Published var displayFixAppliedAt: Date?
+    @Published var displayFixFailed = false
+
+    /// Re-check the Edge's mode (launch, every screen-parameters change). While
+    /// an Undo window is open the issue stays visible even though the mode is now
+    /// native, so the user can still back out.
+    func refreshDisplayIssue() {
+        if let fresh = DisplayModeAdvisor.check() {
+            if displayFixAppliedAt == nil { displayFixFailed = false }
+            displayIssue = fresh
+        } else if displayFixAppliedAt == nil {
+            displayIssue = nil
+        }
+    }
+
+    func applyDisplayFix() {
+        guard let issue = displayIssue else { return }
+        if DisplayModeAdvisor.apply(issue) { displayFixAppliedAt = Date(); displayFixFailed = false }
+        else { displayFixFailed = true }
+    }
+
+    func undoDisplayFix() {
+        if let issue = displayIssue { _ = DisplayModeAdvisor.undo(issue) }
+        displayFixAppliedAt = nil
+    }
+
+    func keepDisplayFix() {
+        displayFixAppliedAt = nil
+        displayIssue = nil
+    }
+
+    func dismissDisplayIssue() {
+        if let issue = displayIssue { DisplayModeAdvisor.dismiss(issue) }
+        displayIssue = nil
+    }
 
     func sendCrashReport() {
         guard let report = crashPrompt else { return }
@@ -147,8 +195,9 @@ final class ToolboxModel: ObservableObject {
     @Published var touchOn = false
     @Published var edgeDetected = false
     @Published var touchSeized = false          // exclusive hold; false = macOS also acts as trackpad
-    private var seizeRetries = 0                 // bounded so we don't thrash when macOS won't yield
-    @Published var gamePref = "rhythm"
+    private var seizeRetries = 0                 // fast seize attempts so far (policy backs off after a few)
+    private var ticksSinceRetry = 0              // watchdog ticks since the last seize attempt
+    @Published var lastTouchInputAt: Date?       // liveness for the Settings diagnostics row
 
     // Touch calibration — flips persist and rebuild the driver when changed.
     @Published var flipX = AppDefaults.shared.bool(forKey: "touch.flipX") { didSet { applyCalibration() } }
@@ -160,14 +209,15 @@ final class ToolboxModel: ObservableObject {
     func setDisplay(_ mode: DisplayMode) {
         let wasSleep = (displayMode == .sleep)
         if mode == .sleep {
-            metrics.stop(); weather.stop()
+            metrics.stop(); weather.stop(); media.stop(); clipboard.stop()
             dimBacklightForSleep()              // LCD: actually cut the backlight to save power
         } else {
-            metrics.start(); weather.start()
+            metrics.start(); weather.start(); media.start(); clipboard.start()
             if wasSleep { restoreBacklight() }
         }
         if mode != .full { fullscreen = false }   // don't wake straight back into immersive mode
         displayMode = mode
+        updateMetricsCadence()
     }
 
     /// Move the screen to sleep with the backlight off (the real power-saving "off").
@@ -330,17 +380,27 @@ final class ToolboxModel: ObservableObject {
         let t = Timer(timeInterval: 6, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                if self.edgeDetected && self.touch.isSeized { self.seizeRetries = 0 }
+                let seen = self.touch.lastReportAt
+                if seen != self.lastTouchInputAt { self.lastTouchInputAt = seen }
+                if self.edgeDetected && self.touch.isSeized {
+                    self.seizeRetries = 0
+                    // A healthy driver still needs the panel's current rect — the
+                    // arrangement can change without any HID event.
+                    self.touch.refreshDisplay()
+                }
+                self.ticksSinceRetry += 1
                 // Decision order lives in the tested policy — presence before the
                 // seize flag, which goes stale-true when the device vanishes (the
                 // "touch dead until wake, mouse fine" bug).
                 guard TouchRecoveryPolicy.shouldReacquire(
                     touchOn: self.touchOn, deviceDetected: self.edgeDetected,
                     displayPresent: Self.edgeDisplayActive(),
-                    seized: self.touch.isSeized, seizeRetries: self.seizeRetries) else { return }
+                    seized: self.touch.isSeized, seizeRetries: self.seizeRetries,
+                    ticksSinceRetry: self.ticksSinceRetry) else { return }
                 AppLog.info("touch", self.edgeDetected
                     ? "watchdog: present but not seized — retrying exclusive seize"
                     : "watchdog: digitizer missing — reacquiring")
+                self.ticksSinceRetry = 0
                 self.reacquireTouch()
             }
         }
@@ -358,10 +418,34 @@ final class ToolboxModel: ObservableObject {
         pendingReacquire?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.pendingReacquire = nil
-            self?.reacquireTouch()
+            self?.forceReacquire(reason: "wake / display event")
         }
         pendingReacquire = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
+    }
+
+    /// Rebuild the driver even when its flags look healthy. Every "touch is dead
+    /// until I re-toggle it" report was cured by exactly this rebuild, and the
+    /// events that call it (system wake, unlock, the Edge (re)appearing) are rare
+    /// moments when nobody is mid-touch — so skipping it to save ~100 ms was the
+    /// wrong trade.
+    func forceReacquire(reason: String) {
+        guard touchOn else { return }
+        AppLog.info("touch", "rebuilding driver (\(reason))")
+        touch.stop()
+        edgeDetected = false
+        attemptAcquire()
+    }
+
+    /// Push the panel's current global rect into the driver (display arrangement
+    /// or mode changed) without a rebuild.
+    func refreshTouchDisplay() { touch.refreshDisplay() }
+
+    /// The one-tap equivalent of toggling touch off and on.
+    func restartTouch() {
+        AppLog.info("touch", "manual restart")
+        stopTouch()
+        startTouch()
     }
 
     private func makeTouch() -> TouchService {
@@ -413,7 +497,7 @@ final class ToolboxModel: ObservableObject {
     private func handleShadePull(_ fraction: Double, _ phase: EdgePhase) {
         guard !hiddenToBadge, displayMode == .full, !dismissing else { return }
         switch phase {
-        case .began, .changed: pullFrac = fraction
+        case .began, .changed: gestures.pullFrac = fraction
         case .ended: commit(to: fraction > 0.32 ? .minimal : .full, settle: fraction > 0.32 ? 1 : 0)
         }
     }
@@ -423,13 +507,13 @@ final class ToolboxModel: ObservableObject {
     private func handleControlPull(_ fraction: Double, _ phase: EdgePhase) {
         guard !hiddenToBadge, displayMode != .sleep else { return }
         switch phase {
-        case .began, .changed: controlExt = controlExtent(fraction)
-        case .ended: withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { controlExt = fraction > 0.3 ? 1 : 0 }
+        case .began, .changed: gestures.controlExt = controlExtent(fraction)
+        case .ended: withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { gestures.controlExt = fraction > 0.3 ? 1 : 0 }
         }
     }
 
     func closeControlCenter() {
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { controlExt = 0 }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { gestures.controlExt = 0 }
     }
 
     /// Pull up from the bottom edge. Closes the control centre if it's open; else in
@@ -438,22 +522,22 @@ final class ToolboxModel: ObservableObject {
         guard !hiddenToBadge else { return }   // gestures belong to the app on the Edge
         switch phase {
         case .began:
-            if controlExt > 0.5 {
+            if gestures.controlExt > 0.5 {
                 closingControl = true
-                controlExt = controlExtent(fraction)
+                gestures.controlExt = controlExtent(fraction)
             } else if displayMode == .minimal {
                 dismissing = true
                 var t = Transaction(); t.disablesAnimations = true
                 withTransaction(t) { setDisplay(.full) }
-                pullFrac = fraction
+                gestures.pullFrac = fraction
             }
         case .changed:
-            if closingControl { controlExt = controlExtent(fraction) }
-            else if dismissing { pullFrac = fraction }
+            if closingControl { gestures.controlExt = controlExtent(fraction) }
+            else if dismissing { gestures.pullFrac = fraction }
         case .ended:
             if closingControl {
                 closingControl = false
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { controlExt = fraction < 0.45 ? 0 : 1 }
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { gestures.controlExt = fraction < 0.45 ? 0 : 1 }
             } else if dismissing {
                 dismissing = false
                 commit(to: fraction < 0.6 ? .full : .minimal, settle: fraction < 0.6 ? 0 : 1)
@@ -467,11 +551,11 @@ final class ToolboxModel: ObservableObject {
     /// clear the overlay in the same step — the destination is already shown when
     /// the overlay goes, so neither screen flashes.
     private func commit(to mode: DisplayMode, settle: Double) {
-        withAnimation(.easeOut(duration: 0.16)) { pullFrac = settle } completion: {
+        withAnimation(.easeOut(duration: 0.16)) { gestures.pullFrac = settle } completion: {
             var t = Transaction(); t.disablesAnimations = true
             withTransaction(t) {
                 self.setDisplay(mode)
-                self.pullFrac = nil
+                self.gestures.pullFrac = nil
             }
         }
     }
@@ -506,12 +590,13 @@ final class ToolboxModel: ObservableObject {
         if ProcessInfo.processInfo.environment["XENEON_SETTINGS"] != nil { showSettings = true }
         if ProcessInfo.processInfo.environment["XENEON_FULLSCREEN"] != nil { fullscreen = true }
         if let u = ProcessInfo.processInfo.environment["XENEON_OPEN_URL"] { route = .web; pendingWebURL = u }
-        if let s = ProcessInfo.processInfo.environment["XENEON_SHADE"], let v = Double(s) { pullFrac = v }
-        if ProcessInfo.processInfo.environment["XENEON_CONTROL"] != nil { controlExt = 1 }
+        if let s = ProcessInfo.processInfo.environment["XENEON_SHADE"], let v = Double(s) { gestures.pullFrac = v }
+        if ProcessInfo.processInfo.environment["XENEON_CONTROL"] != nil { gestures.controlExt = 1 }
         if ProcessInfo.processInfo.environment["XENEON_TUTORIAL"] != nil {
             displayMode = .full; fullscreen = true; showFsTutorial = true
         }
         if ProcessInfo.processInfo.environment["XENEON_AGENDA"] != nil { showAgenda = true }
+        if ProcessInfo.processInfo.environment["XENEON_RESOLUTION_DEMO"] != nil { displayIssue = DisplayModeAdvisor.check() }
         migrateWebAppsToDeck()
     }
 
@@ -532,12 +617,19 @@ final class ToolboxModel: ObservableObject {
     func onAppear() {
         crashPrompt = CrashReporter.pendingReport()
         metrics.start()
+        updateMetricsCadence()
         weather.start()
         todos.start()
         calendar.start()
         startTouchRecovery()
         media.start()
-        startTouch()
+        runningApps.start()
+        clipboard.start()
+        // Dev hooks: leave the digitizer alone (another instance may hold it), or
+        // just look active for screenshots.
+        let env = ProcessInfo.processInfo.environment
+        if env["XENEON_DEMO_TOUCH"] != nil { touchOn = true; edgeDetected = true }
+        else if env["XENEON_NO_TOUCH"] == nil { startTouch() }
         if remoteEnabled { remote.start() }
         if ProcessInfo.processInfo.environment["XENEON_UPDATE_DEMO"] != nil { updater.demo() } else { updater.start() }
         if canControlBacklight {
@@ -611,42 +703,24 @@ final class ToolboxModel: ObservableObject {
         touch.flushPointer()
     }
 
-    /// Long-press is detected only while the deck is showing tappable tiles.
-    func setDeckLongPress(_ on: Bool) { touch.longPressEnabled = on }
+    /// Long-press is detected only while a page with long-pressable content is
+    /// showing (deck tiles, the dashboard board).
+    func setLongPressEnabled(_ on: Bool) { touch.longPressEnabled = on }
 
-    /// A deck tile was long-pressed, at a point in Edge-local (window) coordinates.
-    /// DeckView reads this, hit-tests its tile frames, and shows the screen picker.
-    @Published var deckLongPressAt: CGPoint?
-
+    /// A long-press landed, at a point in Edge-local (window) coordinates. The
+    /// page on screen hit-tests its frames against `gestures.longPressAt`.
     private func handleLongPress(_ screenPoint: (x: Double, y: Double)) {
         // Driver point is top-left global; the borderless window fills the Edge,
         // so window-local = point − Edge origin, which matches SwiftUI `.global`.
         let origin = Self.edgeOrigin()
-        deckLongPressAt = CGPoint(x: screenPoint.x - origin.x, y: screenPoint.y - origin.y)
+        gestures.longPressAt = CGPoint(x: screenPoint.x - origin.x, y: screenPoint.y - origin.y)
     }
 
-    private static func edgeOrigin() -> CGPoint {
-        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
-        var count: UInt32 = 0
-        CGGetActiveDisplayList(16, &ids, &count)
-        for i in 0..<Int(count) {
-            let b = CGDisplayBounds(ids[i])
-            if abs(b.width - 2560) < 2, abs(b.height - 720) < 2 { return b.origin }
-        }
-        return .zero
-    }
+    private static func edgeOrigin() -> CGPoint { EdgeScreen.origin }
 
     /// Is the Edge an active display right now? While it's asleep/unplugged its
     /// touch controller is unpowered, so digitizer recovery waits for its return.
-    static func edgeDisplayActive() -> Bool {
-        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
-        var count: UInt32 = 0
-        CGGetActiveDisplayList(16, &ids, &count)
-        return (0..<Int(count)).contains { i in
-            let b = CGDisplayBounds(ids[i])
-            return abs(b.width - 2560) < 2 && abs(b.height - 720) < 2
-        }
-    }
+    static func edgeDisplayActive() -> Bool { EdgeScreen.isPresent }
 
     func toggleFullscreen() { fullscreen.toggle() }
 

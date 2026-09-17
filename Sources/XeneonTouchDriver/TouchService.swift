@@ -82,6 +82,7 @@ final class TouchDriver: @unchecked Sendable {
     var onBottomPull: ((Double, EdgePhase) -> Void)?   // bottom-edge pull-up (dismiss / exit)
     var onSwipeApp: ((Bool) -> Void)?                  // side-edge swipe inward — true = next app
     var onLongPress: ((ScreenPoint) -> Void)?          // finger held still — screen point (top-left global)
+    var onReport: ((CFAbsoluteTime) -> Void)?          // any HID report seen (liveness for diagnostics)
     var sideSwipeEnabled = false                       // app-switch swipes (set true in fullscreen)
     var longPressEnabled = false                       // detect long-press (set true only on the deck)
 
@@ -229,8 +230,30 @@ final class TouchDriver: @unchecked Sendable {
         }
     }
 
-    func deviceRemoved() {
+    /// Re-read where the Edge sits. Display arrangement and mode changes move the
+    /// panel's global rect without touching the HID device, so a rect captured at
+    /// connect time silently maps every tap to the wrong place until a rebuild.
+    func refreshDisplay() {
         guard calSource != .none else { return }
+        let fresh = findEdgeDisplay(preferred: preferredDisplayID)
+        guard fresh != display else { return }
+        let hadDisplay = display != nil
+        display = fresh
+        touchDiag("display rect → " + (fresh.map { "\(Int($0.x)),\(Int($0.y)) \(Int($0.width))x\(Int($0.height))" } ?? "none"))
+        if fresh == nil { onPresenceChanged?(false) }
+        else if !hadDisplay { onPresenceChanged?(true) }
+    }
+
+    func deviceRemoved(_ device: IOHIDDevice) {
+        guard calSource != .none else { return }
+        // The WCH controller exposes several HID interfaces. Losing a secondary one
+        // (the mouse-style interface re-enumerating) must not tear down a live
+        // digitizer — that tear-down, with no re-match to follow, left the panel
+        // dead until the user re-toggled touch.
+        if calSource == .digitizer, let live = reportDevice, live !== device {
+            touchDiag("secondary HID interface removed — digitizer kept")
+            return
+        }
         onSeizeState?(nil)
         for action in recognizer.reset() { post(action) }
         for action in machine.reset() { post(action) }
@@ -306,6 +329,7 @@ final class TouchDriver: @unchecked Sendable {
         let dt = lastReportTime.map { max(0.0001, now - $0) } ?? (1.0 / 120.0)
         lastReportTime = now
         lastReportDt = dt
+        onReport?(now)
 
         let raws = DigitizerReport.parse(payload: payload)
         if !raws.isEmpty && !announcedActive { announcedActive = true; onPresenceChanged?(true) }
@@ -368,6 +392,7 @@ final class TouchDriver: @unchecked Sendable {
             touchDiag(String(format: "value cb: page=0x%02X usage=0x%02X value=%ld", page, usage, IOHIDValueGetIntegerValue(value)))
         }
         guard !digitizerActive else { return }   // digitizer owns input once live
+        onReport?(CFAbsoluteTimeGetCurrent())
         decoder.ingest(page: page, usage: usage, value: IOHIDValueGetIntegerValue(value))
 
         guard let cal = calibration, let disp = display, let x = decoder.rawX, let y = decoder.rawY else { return }
@@ -627,6 +652,11 @@ final class TouchDriver: @unchecked Sendable {
             for action in self.machine.reset() { self.post(action) }
             self.gestureActive = false
             self.filters.removeAll()
+            // An edge swipe whose final "up" never arrived must not keep swallowing
+            // the next touch's pointer events.
+            self.edgeKind = .none; self.topActive = false; self.topControl = false
+            self.bottomActive = false; self.sideActive = false
+            self.edgeSuppress = false; self.edgeAnchored = false
         }
         RunLoop.current.add(timer, forMode: .common)
         watchdogTimer = timer
@@ -653,9 +683,9 @@ private let deviceMatchedCallback: IOHIDDeviceCallback = { context, _, _, device
     Unmanaged<TouchDriver>.fromOpaque(context).takeUnretainedValue().deviceConnected(device)
 }
 
-private let deviceRemovedCallback: IOHIDDeviceCallback = { context, _, _, _ in
+private let deviceRemovedCallback: IOHIDDeviceCallback = { context, _, _, device in
     guard let context else { return }
-    Unmanaged<TouchDriver>.fromOpaque(context).takeUnretainedValue().deviceRemoved()
+    Unmanaged<TouchDriver>.fromOpaque(context).takeUnretainedValue().deviceRemoved(device)
 }
 
 public struct TouchServiceConfig: Sendable {
@@ -729,9 +759,26 @@ public final class TouchService: @unchecked Sendable {
     /// driver's own thread. Call when the UI changes interaction modes so a
     /// stuck press can never deaden the whole panel.
     public func flushPointer() {
+        onDriverThread { $0.releaseHeld() }
+    }
+
+    /// Re-read the Edge's global rect (display arrangement or mode changed) without
+    /// tearing the driver down. Cheap; safe to call on every watchdog tick.
+    public func refreshDisplay() {
+        onDriverThread { $0.refreshDisplay() }
+    }
+
+    /// When the digitizer last delivered any report — "last input 4 s ago" in
+    /// Settings, so a silent driver can be told apart from an idle user.
+    public var lastReportAt: Date? {
+        lock.withLock { lastReport.map { Date(timeIntervalSinceReferenceDate: $0) } }
+    }
+    private var lastReport: CFAbsoluteTime?
+
+    private func onDriverThread(_ work: @escaping (TouchDriver) -> Void) {
         let (drv, rl): (TouchDriver?, CFRunLoop?) = lock.withLock { (driver, runLoop) }
         guard let drv, let rl else { return }
-        CFRunLoopPerformBlock(rl, CFRunLoopMode.commonModes.rawValue) { drv.releaseHeld() }
+        CFRunLoopPerformBlock(rl, CFRunLoopMode.commonModes.rawValue) { work(drv) }
         CFRunLoopWakeUp(rl)
     }
 
@@ -770,6 +817,10 @@ public final class TouchService: @unchecked Sendable {
         driver.onBottomPull = { [weak self] f, p in self?.onBottomPull?(f, p) }
         driver.onSwipeApp = { [weak self] next in self?.onSwipeApp?(next) }
         driver.onLongPress = { [weak self] p in self?.onLongPress?(p) }
+        driver.onReport = { [weak self] t in
+            guard let self else { return }
+            self.lock.withLock { self.lastReport = t }
+        }
         driver.sideSwipeEnabled = sideSwipeEnabled
         driver.dragAnywhereEnabled = dragAnywhereEnabled
         driver.longPressEnabled = longPressEnabled

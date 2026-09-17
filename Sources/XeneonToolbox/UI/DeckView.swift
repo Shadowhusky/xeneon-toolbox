@@ -5,11 +5,13 @@ import AppKit
 /// websites, control media, or fire in-app system actions. Editable, sortable,
 /// drag-to-reorder, and persisted.
 struct DeckView: View {
-    @ObservedObject var model: ToolboxModel
+    let model: ToolboxModel
     @ObservedObject var deck: DeckStore
+    @ObservedObject var gestures: PanelGestures
     @State private var editing = false
     @State private var showAdd = false
     @State private var showSortMenu = false
+    @State private var showPageManager = false
     @State private var pending: PendingAction?
 
     private enum PendingAction: Equatable { case sort(DeckSort), reset }
@@ -23,71 +25,13 @@ struct DeckView: View {
     @State private var screenPickerAction: DeckAction?
     @State private var editingAction: DeckAction?
 
-    /// Select-then-place: a window/profile/new-window row is "armed", and the
-    /// screen buttons become its placement targets.
-    enum ArmedSession: Equatable {
-        case window(id: Int, title: String)
-        case profile(ChromeProfiles.Profile)
-        case newWindow
-
-        var label: String {
-            switch self {
-            case .window(_, let t): return t
-            case .profile(let p): return "New window · \(p.name)"
-            case .newWindow: return "New window"
-            }
-        }
-    }
-    @State private var armed: ArmedSession?
-
     private let space = "deckgrid"
     private let columns = [GridItem(.adaptive(minimum: 178, maximum: 220), spacing: 16)]
 
     var body: some View {
         VStack(spacing: 14) {
             header
-            // Scrolls when browsing (a big deck overflows the panel), but scrolling
-            // is disabled in edit mode so the ScrollView can't swallow the reorder
-            // drag — in edit mode the touch driver sends mouse drags, not scrolls.
-            ScrollView(showsIndicators: false) {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(deck.actions) { action in
-                        DeckTile(action: action, editing: editing, lifted: dragging == action.id,
-                                 running: action.kind == .app && runningApps.contains(action.target),
-                                 pinned: action.kind == .app && action.preferredDisplay != nil,
-                                 onRun: { model.runDeck($0) })
-                            // In edit mode the tiles stop consuming touches, so the grid's
-                            // drag gesture actually receives them. This is the exact reason
-                            // the dashboard reorder works and the deck's earlier version
-                            // (a live Button on top) never did — the Button ate the drag.
-                            .allowsHitTesting(!editing)
-                            .background(GeometryReader { p in
-                                Color.clear
-                                    .preference(key: DeckFrameKey.self, value: [action.id: p.frame(in: .named(space))])
-                                    .preference(key: DeckGlobalFrameKey.self, value: [action.id: p.frame(in: .global)])
-                            })
-                            // Remove badge sits OUTSIDE the disabled tile, so it stays tappable.
-                            .overlay(alignment: .topTrailing) {
-                                if editing && dragging != action.id { removeBadge(action.id) }
-                            }
-                            .overlay(alignment: .topLeading) {
-                                if editing && dragging != action.id { editBadge(action) }
-                            }
-                    }
-                    if editing { AddTile { withAnimation(Motion.smooth) { showAdd = true } } }
-                }
-                .coordinateSpace(name: space)
-                .onPreferenceChange(DeckFrameKey.self) { frames = $0 }
-                .onPreferenceChange(DeckGlobalFrameKey.self) { globalFrames = $0 }
-                .overlay { floatingDragged }
-                .contentShape(Rectangle())
-                // Exactly the dashboard's working pattern: a plain drag, active over the
-                // tiles only in edit mode (.all); otherwise taps pass through (.subviews).
-                .gesture(reorderGesture, including: editing ? .all : .subviews)
-                .padding(.bottom, 6)
-            }
-            .scrollDisabled(editing)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            deckScroller
         }
         // The Add overlay unmounts INSTANTLY (no removal transition): an implicit
         // `.animation(value: showAdd)` used to drive its fade-out, and when
@@ -95,19 +39,25 @@ struct DeckView: View {
         // — leaving the dimming backdrop invisible but still hit-testable over
         // the whole page ("stuck deck" — can't tap Done, can't drag).
         .overlay { if showAdd { AddDeckOverlay(deck: deck) { showAdd = false }.transition(.opacity) } }
+        .overlay { if showPageManager { DeckPageManager(deck: deck) { showPageManager = false } } }
         .overlay { if showSortMenu { sortMenu } }
         .overlay { if let p = pending { confirmModal(p) } }
-        .overlay { if let a = screenPickerAction { screenPicker(a) } }
+        .overlay {
+            if let a = screenPickerAction {
+                ScreenPickerOverlay(model: model, deck: deck, action: a, running: runningApps.contains(a.target)) { screenPickerAction = nil }
+            }
+        }
         .overlay { if let a = editingAction { TileEditForm(deck: deck, action: a) { editingAction = nil } } }
         .animation(Motion.standard, value: editing)
+        .animation(Motion.pop, value: showPageManager)
         .animation(Motion.pop, value: screenPickerAction)
         .animation(Motion.pop, value: pending)
         .animation(Motion.pop, value: editingAction)
         // A long-press on an app tile (detected by the driver) opens a picker to
         // choose which display to open/move the app on.
-        .onChange(of: model.deckLongPressAt) {
-            guard !editing, let pt = model.deckLongPressAt else { return }
-            model.deckLongPressAt = nil
+        .onChange(of: gestures.longPressAt) {
+            guard !editing, let pt = gestures.longPressAt else { return }
+            gestures.longPressAt = nil
             guard let id = globalFrames.first(where: { $0.value.contains(pt) })?.key,
                   let action = deck.actions.first(where: { $0.id == id }) else { return }
             // App tiles get the "open on which display" picker; every other kind
@@ -119,27 +69,16 @@ struct DeckView: View {
         .onAppear {
             if ProcessInfo.processInfo.environment["XENEON_DECK_EDIT"] != nil { editing = true }
             if ProcessInfo.processInfo.environment["XENEON_DECK_ADD"] != nil { editing = true; showAdd = true }
+            if ProcessInfo.processInfo.environment["XENEON_DECK_PAGES"] != nil { showPageManager = true }
             if let v = ProcessInfo.processInfo.environment["XENEON_DECK_SCREENPICKER"] {
                 // "1" = first app tile; any other value picks the tile by label.
                 screenPickerAction = deck.actions.first { $0.kind == .app && (v == "1" || $0.label == v) }
             }
             // Headless check of select-then-place: "<tile label>|<screen name>"
-            // arms the first window of that tile's app and places it after 3s.
+            // opens the picker; the picker arms and places (see ScreenPickerOverlay).
             if let spec = ProcessInfo.processInfo.environment["XENEON_TEST_PLACE"] {
-                let parts = spec.split(separator: "|").map(String.init)
-                if parts.count == 2, let action = deck.actions.first(where: { $0.kind == .app && $0.label == parts[0] }) {
-                    screenPickerAction = action
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                        let windows = WindowMover.windows(appPath: action.target)
-                        guard let w = windows.first, let d = WindowMover.displays().first(where: { $0.name == parts[1] }) else {
-                            AppLog.error("deck", "TEST_PLACE: no window or screen for \(spec)"); return
-                        }
-                        armed = .window(id: w.id, title: w.title)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                            executeArmed(.window(id: w.id, title: w.title), on: d, action: action, windows: windows)
-                        }
-                    }
-                }
+                let label = spec.split(separator: "|").map(String.init).first ?? ""
+                screenPickerAction = deck.actions.first(where: { $0.kind == .app && $0.label == label })
             }
             syncReorderDragging()
             syncLongPress()
@@ -151,12 +90,66 @@ struct DeckView: View {
         // `dragging` id would wedge the grid.
         .onChange(of: editing) { dragging = nil; syncReorderDragging(); syncLongPress() }
         .onChange(of: showAdd) { dragging = nil; syncReorderDragging(); syncLongPress() }
-        .onChange(of: screenPickerAction) { armed = nil; syncLongPress() }
-        .onDisappear { dragging = nil; model.setReorderDragging(false); model.setDeckLongPress(false) }
+        .onChange(of: showPageManager) { dragging = nil; syncReorderDragging(); syncLongPress() }
+        .onChange(of: deck.selectedPageID) {
+            dragging = nil
+            frames = [:]
+            globalFrames = [:]
+            screenPickerAction = nil
+        }
+        .onChange(of: screenPickerAction) { syncLongPress() }
+        .onDisappear { dragging = nil; model.setReorderDragging(false); model.setLongPressEnabled(false) }
         // Dock-style running indicators on app tiles.
         .task { refreshRunning() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)) { _ in refreshRunning() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didTerminateApplicationNotification)) { _ in refreshRunning() }
+    }
+
+    private var deckScroller: some View {
+        // Scrolls when browsing (a big deck overflows the panel), but scrolling
+        // is disabled in edit mode so the ScrollView can't swallow the reorder drag.
+        ScrollView(showsIndicators: false) {
+            Group {
+                if deck.actions.isEmpty && !editing { emptyState }
+                else { tileGrid }
+            }
+            .padding(.bottom, 6)
+        }
+        .scrollDisabled(editing)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var tileGrid: some View {
+        LazyVGrid(columns: columns, spacing: 16) {
+            ForEach(deck.actions) { action in tile(action) }
+            if editing { AddTile { withAnimation(Motion.smooth) { showAdd = true } } }
+        }
+        .coordinateSpace(name: space)
+        .onPreferenceChange(DeckFrameKey.self) { frames = $0 }
+        .onPreferenceChange(DeckGlobalFrameKey.self) { globalFrames = $0 }
+        .overlay { floatingDragged }
+        .contentShape(Rectangle())
+        .gesture(reorderGesture, including: editing ? .all : .subviews)
+    }
+
+    private func tile(_ action: DeckAction) -> some View {
+        DeckTile(action: action, editing: editing, lifted: dragging == action.id,
+                 running: action.kind == .app && runningApps.contains(action.target),
+                 pinned: action.kind == .app && action.preferredDisplay != nil,
+                 onRun: { model.runDeck($0) })
+            // In edit mode the live Button stops consuming touches so the grid can reorder.
+            .allowsHitTesting(!editing)
+            .background(GeometryReader { p in
+                Color.clear
+                    .preference(key: DeckFrameKey.self, value: [action.id: p.frame(in: .named(space))])
+                    .preference(key: DeckGlobalFrameKey.self, value: [action.id: p.frame(in: .global)])
+            })
+            .overlay(alignment: .topTrailing) {
+                if editing && dragging != action.id { removeBadge(action.id) }
+            }
+            .overlay(alignment: .topLeading) {
+                if editing && dragging != action.id { editBadge(action) }
+            }
     }
 
     // MARK: Header
@@ -165,6 +158,7 @@ struct DeckView: View {
         HStack(spacing: 10) {
             Image(systemName: "square.grid.3x3.fill").font(.system(size: 18, weight: .bold)).foregroundStyle(Theme.battery)
             Text("Deck").font(.deck(24, .bold)).foregroundStyle(Theme.textPrimary)
+            pageNavigator
             if editing {
                 Text("Drag tiles to reorder · tap ⊖ to remove")
                     .font(.deck(13, .medium)).foregroundStyle(Theme.textFaint)
@@ -172,11 +166,72 @@ struct DeckView: View {
                     .transition(.opacity)
             }
             Spacer()
-            deckButton("Sort", "arrow.up.arrow.down", tint: Theme.textSecondary) { withAnimation(Motion.snappy) { showSortMenu.toggle() } }
+            if deck.actions.count > 1 {
+                deckButton("Sort", "arrow.up.arrow.down", tint: Theme.textSecondary) { withAnimation(Motion.snappy) { showSortMenu.toggle() } }
+            }
             if editing { deckButton("Reset", "arrow.counterclockwise", tint: Theme.textSecondary) { pending = .reset } }
             deckButton(editing ? "Done" : "Edit", editing ? "checkmark" : "square.and.pencil",
                        tint: editing ? Theme.battery : Theme.textSecondary) { withAnimation(Motion.standard) { editing.toggle() } }
         }
+    }
+
+    private var pageNavigator: some View {
+        HStack(spacing: 4) {
+            Button { deck.selectPreviousPage() } label: {
+                Image(systemName: "chevron.left").font(.system(size: 12, weight: .bold))
+                    .frame(width: 34, height: 38)
+            }
+            .buttonStyle(.pressable)
+            .disabled(deck.selectedPageID == deck.pages.first?.id)
+
+            Button { showPageManager = true } label: {
+                VStack(spacing: 0) {
+                    Text(deck.selectedPage.name).font(.deck(13, .semibold)).lineLimit(1)
+                    Text("\((deck.pages.firstIndex { $0.id == deck.selectedPageID } ?? 0) + 1) of \(deck.pages.count)")
+                        .font(.readout(10, .semibold)).foregroundStyle(Theme.textFaint)
+                }
+                .foregroundStyle(Theme.textSecondary)
+                .padding(.horizontal, 10).frame(minWidth: 112, maxWidth: 180, minHeight: 38)
+                .background(Capsule().fill(Color.white.opacity(0.06)))
+                .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
+                .contentShape(Capsule())
+            }.buttonStyle(.pressable)
+
+            Button { deck.selectNextPage() } label: {
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold))
+                    .frame(width: 34, height: 38)
+            }
+            .buttonStyle(.pressable)
+            .disabled(deck.selectedPageID == deck.pages.last?.id)
+        }
+        .foregroundStyle(Theme.textSecondary)
+        .padding(.leading, 4)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "square.grid.3x3.square")
+                .font(.system(size: 54, weight: .medium))
+                .foregroundStyle(Theme.battery)
+                .deckGlow(Theme.battery, strength: 0.7)
+            Text("This page is ready for your shortcuts")
+                .font(.deck(22, .bold)).foregroundStyle(Theme.textPrimary)
+            Text("Add apps, websites, hotkeys, commands, media controls, or multi-step actions.")
+                .font(.deck(14)).foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+            Button {
+                editing = true
+                showAdd = true
+            } label: {
+                Label("Add your first tile", systemImage: "plus")
+                    .font(.deck(16, .bold)).foregroundStyle(.black)
+                    .padding(.horizontal, 24).frame(height: 50)
+                    .background(Capsule().fill(Theme.battery))
+                    .contentShape(Capsule())
+            }.buttonStyle(.pressable)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 118)
     }
 
     private func deckButton(_ label: String, _ icon: String, tint: Color, action: @escaping () -> Void) -> some View {
@@ -226,9 +281,9 @@ struct DeckView: View {
 
     private func confirmModal(_ action: PendingAction) -> some View {
         let isReset = action == .reset
-        let title = isReset ? "Reset the deck?" : "Replace your current order?"
+        let title = isReset ? "Reset this page?" : "Replace your current order?"
         let body = isReset
-            ? "This restores the default tiles and removes everything you've added and arranged."
+            ? "This restores the starter tiles on “\(deck.selectedPage.name)” and removes everything you've added to this page."
             : "Sorting will overwrite your current tile order. Tiles you added stay."
         let confirmLabel = isReset ? "Reset" : "Sort"
         let tint = isReset ? Theme.batteryLow : Theme.battery
@@ -267,255 +322,11 @@ struct DeckView: View {
     // MARK: Reorder
 
     private func syncReorderDragging() {
-        model.setReorderDragging(editing && !showAdd)
+        model.setReorderDragging(editing && !showAdd && !showPageManager)
     }
 
     private func syncLongPress() {
-        model.setDeckLongPress(!editing && !showAdd && screenPickerAction == nil)
-    }
-
-    // MARK: Screen picker (long-press an app tile)
-
-    private func screenPicker(_ action: DeckAction) -> some View {
-        let displays = WindowMover.displays()
-        let running = runningApps.contains(action.target)
-        let currentName = running ? WindowMover.currentDisplayName(appPath: action.target) : nil
-        let windows = running ? WindowMover.windows(appPath: action.target) : []
-        let profiles = ChromeProfiles.profiles(appPath: action.target)
-        // Read the live tile so the pin state reflects edits made in this modal.
-        let pinned = (deck.actions.first { $0.id == action.id } ?? action).preferredDisplay
-        let hasLeft = running || !profiles.isEmpty
-        return ModalScaffold(onDismiss: { screenPickerAction = nil }) {
-            VStack(spacing: 16) {
-                HStack(spacing: 12) {
-                    DeckActionIcon(action: action, size: 40)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(action.label).font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
-                        if let a = armed {
-                            Text("Now tap a screen to place: \(a.label)")
-                                .font(.deck(13, .semibold)).foregroundStyle(Theme.battery)
-                                .lineLimit(1).truncationMode(.middle)
-                        } else {
-                            Text(running ? "Switch a window, open a new one, or move it to a screen"
-                                         : "Open on a screen · pin one to always open there")
-                                .font(.deck(13)).foregroundStyle(Theme.textSecondary)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                HStack(alignment: .top, spacing: 14) {
-                    if hasLeft {
-                        VStack(spacing: 10) {
-                            if !windows.isEmpty {
-                                pickerLabel("WINDOWS")
-                                ScrollView(showsIndicators: false) {
-                                    VStack(spacing: 8) {
-                                        ForEach(windows) { w in windowRow(action, w) }
-                                    }
-                                }
-                                .frame(maxHeight: windows.count > 3 ? 172 : .infinity)
-                                .fixedSize(horizontal: false, vertical: windows.count <= 3)
-                            }
-                            if !profiles.isEmpty {
-                                pickerLabel(windows.isEmpty ? "PROFILES" : "NEW WINDOW AS")
-                                ForEach(profiles) { p in profileRow(action, p) }
-                            }
-                            if running && profiles.isEmpty { newWindowRow(action) }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .top)
-                    }
-                    VStack(spacing: 10) {
-                        pickerLabel(armed != nil ? "PLACE ON" : (running ? "MOVE TO" : "OPEN ON"))
-                        ForEach(displays) { d in
-                            displayRow(action, d, pinned: pinned == d.name, current: currentName == d.name, windows: windows)
-                        }
-                        if running && !profiles.isEmpty { newWindowRow(action) }
-                        if running { quitRow(action) }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .top)
-                }
-            }
-            .padding(24).frame(width: hasLeft ? 980 : 520)
-            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
-        }
-    }
-
-    private func pickerLabel(_ s: String) -> some View {
-        Text(s).font(.deck(11, .bold)).tracking(1.4).foregroundStyle(Theme.textFaint)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// One of the app's open windows — tap to bring exactly it to the front;
-    /// tap the screen glyph to arm it, then pick a screen to move it there.
-    private func windowRow(_ action: DeckAction, _ w: WindowMover.AppWindow) -> some View {
-        sessionRow(icon: "macwindow", tint: Theme.accent, title: w.title,
-                   trailing: "arrow.up.forward",
-                   isArmed: armed == .window(id: w.id, title: w.title),
-                   mainAction: { WindowMover.raise(w, appPath: action.target); screenPickerAction = nil },
-                   armAs: .window(id: w.id, title: w.title))
-    }
-
-    /// A Chromium browser profile ("user") — tap to focus-or-open that profile's
-    /// window; arm it to choose which screen the new window lands on.
-    private func profileRow(_ action: DeckAction, _ p: ChromeProfiles.Profile) -> some View {
-        sessionRow(icon: "person.crop.circle", tint: Theme.memory, title: p.name,
-                   trailing: "plus.square.on.square",
-                   isArmed: armed == .profile(p),
-                   mainAction: { ChromeProfiles.open(appPath: action.target, profileDir: p.dir); screenPickerAction = nil },
-                   armAs: .profile(p))
-    }
-
-    /// Generic "New Window" (activate + ⌘N); arm it to place the new window.
-    private func newWindowRow(_ action: DeckAction) -> some View {
-        sessionRow(icon: "plus.rectangle.on.rectangle", tint: Theme.accent, title: "New window",
-                   trailing: nil,
-                   isArmed: armed == .newWindow,
-                   mainAction: { WindowMover.openNewWindow(appPath: action.target); screenPickerAction = nil },
-                   armAs: .newWindow)
-    }
-
-    /// A session row: the body runs the default action; the trailing screen
-    /// glyph arms select-then-place (tap a screen next to put it there).
-    private func sessionRow(icon: String, tint: Color, title: String, trailing: String?,
-                            isArmed: Bool, mainAction: @escaping () -> Void, armAs: ArmedSession) -> some View {
-        HStack(spacing: 8) {
-            Button(action: mainAction) {
-                HStack(spacing: 12) {
-                    Image(systemName: icon).font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(tint).frame(width: 26)
-                    Text(title).font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
-                        .lineLimit(1).truncationMode(.tail)
-                    Spacer(minLength: 0)
-                    if let trailing {
-                        Image(systemName: trailing).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .padding(.horizontal, 14).frame(height: 52).frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(isArmed ? Theme.battery.opacity(0.12) : tint.opacity(tint == Theme.memory ? 0.08 : 0.03)))
-                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .strokeBorder(isArmed ? Theme.battery.opacity(0.55) : Theme.stroke, lineWidth: 1))
-                .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            }.buttonStyle(.pressable)
-            // Arm toggle: "send to a screen…"
-            Button {
-                withAnimation(Motion.snappy) { armed = isArmed ? nil : armAs }
-            } label: {
-                Image(systemName: isArmed ? "display.and.arrow.down" : "display")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(isArmed ? Theme.battery : Theme.textFaint)
-                    .frame(width: 48, height: 52)
-                    .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(isArmed ? Theme.battery.opacity(0.14) : Color.white.opacity(0.05)))
-                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .strokeBorder(isArmed ? Theme.battery.opacity(0.55) : Theme.stroke, lineWidth: 1))
-                    .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            }.buttonStyle(.pressable)
-        }
-    }
-
-    /// Carry out a select-then-place: put the armed window (or the window the
-    /// armed action is about to create) on the chosen display.
-    private func executeArmed(_ a: ArmedSession, on d: WindowMover.Display,
-                              action: DeckAction, windows: [WindowMover.AppWindow]) {
-        if d.isEdge { model.hideToBadge() }
-        switch a {
-        case .window(let id, let title):
-            if let w = windows.first(where: { $0.title == title }) ?? windows.first(where: { $0.id == id }) {
-                WindowMover.move(w, appPath: action.target, to: d)
-            }
-        case .profile(let p):
-            ChromeProfiles.open(appPath: action.target, profileDir: p.dir)
-            WindowMover.placeUpcomingWindow(appPath: action.target, on: d, before: windows)
-        case .newWindow:
-            WindowMover.openNewWindow(appPath: action.target)
-            // ⌘N fires ~0.45s after activation — start watching a beat later.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-                WindowMover.placeUpcomingWindow(appPath: action.target, on: d, before: windows)
-            }
-        }
-        armed = nil
-        screenPickerAction = nil
-    }
-
-    private func displayRow(_ action: DeckAction, _ d: WindowMover.Display, pinned: Bool, current: Bool,
-                            windows: [WindowMover.AppWindow]) -> some View {
-        let placing = armed != nil
-        let tint = placing ? Theme.battery : (pinned ? Theme.battery : Theme.accent)
-        // Choosing the Edge hands the screen over: the panel collapses into the
-        // floating badge and the app opens where the Toolbox was.
-        let subtitle = placing ? (d.isEdge ? "Place here · Toolbox hides to badge" : "Place here")
-            : current ? "Currently here"
-            : pinned ? "Always opens here"
-            : d.isEdge ? "Toolbox hides into the badge"
-            : "\(Int(d.bounds.width))×\(Int(d.bounds.height))"
-        return HStack(spacing: 10) {
-            // Tap the row body → place the armed session here, or open the app.
-            Button {
-                if let a = armed {
-                    executeArmed(a, on: d, action: action, windows: windows)
-                } else {
-                    if d.isEdge { model.hideToBadge() }
-                    WindowMover.open(appPath: action.target, on: d)
-                    screenPickerAction = nil
-                }
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: d.isEdge ? "rectangle.bottomthird.inset.filled" : "display")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(tint).frame(width: 30)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(d.name).font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
-                        Text(subtitle)
-                            .font(.deck(12))
-                            .foregroundStyle(placing || current || pinned ? Theme.battery : Theme.textFaint)
-                    }
-                    Spacer(minLength: 0)
-                    if current {
-                        Circle().fill(Theme.battery).frame(width: 7, height: 7).deckGlow(Theme.battery, strength: 0.8)
-                    }
-                    Image(systemName: "arrow.up.forward").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.textFaint)
-                }
-                .padding(.horizontal, 16).frame(height: 60).frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(placing ? Theme.battery.opacity(0.10) : pinned ? Theme.battery.opacity(0.12) : Color.white.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(placing ? Theme.battery.opacity(0.6) : pinned ? Theme.battery.opacity(0.5) : Theme.stroke, lineWidth: placing ? 1.5 : 1))
-                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }.buttonStyle(.pressable)
-            // Pin toggle → make this the tile's default (tap opens here from now on).
-            Button {
-                withAnimation(Motion.snappy) { deck.setPreferredDisplay(action.id, pinned ? nil : d.name) }
-            } label: {
-                Image(systemName: pinned ? "pin.fill" : "pin")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(pinned ? Theme.battery : Theme.textFaint)
-                    .frame(width: 54, height: 60)
-                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(pinned ? Theme.battery.opacity(0.12) : Color.white.opacity(0.06)))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(pinned ? Theme.battery.opacity(0.5) : Theme.stroke, lineWidth: 1))
-                    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }.buttonStyle(.pressable)
-        }
-    }
-
-    private func quitRow(_ action: DeckAction) -> some View {
-        Button {
-            WindowMover.quit(appPath: action.target)
-            screenPickerAction = nil
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "xmark.circle.fill").font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Theme.batteryLow).frame(width: 30)
-                Text("Quit \(action.label)").font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16).frame(height: 60).frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.batteryLow.opacity(0.12)))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.batteryLow.opacity(0.4), lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }.buttonStyle(.pressable)
+        model.setLongPressEnabled(!editing && !showAdd && !showPageManager && screenPickerAction == nil)
     }
 
     private func refreshRunning() {
@@ -680,6 +491,127 @@ private struct DeckTile: View {
                 .foregroundStyle(tint)
                 .frame(width: 60, height: 60)
                 .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(tint.opacity(0.14)))
+        }
+    }
+}
+
+private struct DeckPageManager: View {
+    @ObservedObject var deck: DeckStore
+    let onClose: () -> Void
+    @State private var draft = ""
+    @State private var confirmDelete = false
+
+    var body: some View {
+        ModalScaffold(onDismiss: onClose) {
+            VStack(spacing: 16) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Deck pages").font(.deck(22, .bold)).foregroundStyle(Theme.textPrimary)
+                        Text("Separate work, media, streaming, or app-specific controls.")
+                            .font(.deck(13)).foregroundStyle(Theme.textSecondary)
+                    }
+                    Spacer()
+                    Button(action: onClose) {
+                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(Theme.textSecondary)
+                            .frame(width: 42, height: 42)
+                            .background(Circle().fill(Color.white.opacity(0.07)))
+                    }.buttonStyle(.pressable)
+                }
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 8) {
+                        ForEach(deck.pages) { page in
+                            Button {
+                                deck.selectPage(page.id)
+                                draft = page.name
+                                confirmDelete = false
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: page.id == deck.selectedPageID ? "square.grid.3x3.fill" : "square.grid.3x3")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundStyle(page.id == deck.selectedPageID ? Theme.battery : Theme.textFaint)
+                                        .frame(width: 28)
+                                    Text(page.name).font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary)
+                                    Spacer()
+                                    Text("\(page.actions.count) \(page.actions.count == 1 ? "tile" : "tiles")")
+                                        .font(.deck(12)).foregroundStyle(Theme.textFaint)
+                                    if page.id == deck.selectedPageID {
+                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.battery)
+                                    }
+                                }
+                                .padding(.horizontal, 14).frame(height: 52)
+                                .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                    .fill(page.id == deck.selectedPageID ? Theme.battery.opacity(0.11) : Color.white.opacity(0.05)))
+                                .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                    .strokeBorder(page.id == deck.selectedPageID ? Theme.battery.opacity(0.42) : Theme.stroke, lineWidth: 1))
+                                .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                            }.buttonStyle(.pressable)
+                        }
+                    }
+                }
+                .frame(maxHeight: 280)
+
+                HStack(spacing: 10) {
+                    DeckField(label: "Selected page name", text: $draft, placeholder: deck.selectedPage.name)
+                    Button {
+                        deck.renamePage(deck.selectedPageID, to: draft)
+                        draft = deck.selectedPage.name
+                    } label: {
+                        Text("Rename").font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
+                            .padding(.horizontal, 18).frame(height: 48)
+                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.07)))
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                    }
+                    .buttonStyle(.pressable)
+                    .padding(.top, 19)
+                }
+
+                if confirmDelete {
+                    HStack(spacing: 10) {
+                        Text("Delete “\(deck.selectedPage.name)” and all its tiles?")
+                            .font(.deck(14)).foregroundStyle(Theme.textSecondary)
+                        Spacer()
+                        Button("Cancel") { confirmDelete = false }
+                            .buttonStyle(.plain).foregroundStyle(Theme.textSecondary)
+                        Button("Delete") {
+                            deck.removePage(deck.selectedPageID)
+                            draft = deck.selectedPage.name
+                            confirmDelete = false
+                        }
+                        .buttonStyle(.plain).foregroundStyle(Theme.batteryLow)
+                    }
+                    .frame(minHeight: 44)
+                } else {
+                    HStack(spacing: 10) {
+                        Button {
+                            deck.addPage()
+                            draft = deck.selectedPage.name
+                        } label: {
+                            Label("New page", systemImage: "plus")
+                                .font(.deck(15, .bold)).foregroundStyle(.black)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.battery))
+                        }.buttonStyle(.pressable)
+                        Button {
+                            confirmDelete = true
+                        } label: {
+                            Label("Delete page", systemImage: "trash")
+                                .font(.deck(15, .semibold))
+                                .foregroundStyle(deck.canRemovePage ? Theme.batteryLow : Theme.textFaint)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
+                        }
+                        .buttonStyle(.pressable)
+                        .disabled(!deck.canRemovePage)
+                    }
+                }
+            }
+            .padding(24).frame(width: 680, height: 610)
+            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.ultraThinMaterial))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
+            .shadow(color: .black.opacity(0.55), radius: 28, y: 10)
+            .onAppear { draft = deck.selectedPage.name }
         }
     }
 }

@@ -14,7 +14,19 @@ final class TodoStore: ObservableObject {
             .appendingPathComponent(".config/xeneon-toolbox/todos.json")
     }
 
-    init() { load() }
+    init() {
+        if ProcessInfo.processInfo.environment["XENEON_TODOS_DEMO"] != nil { items = Self.demo; return }
+        load()
+    }
+
+    /// Sample items for off-screen mockups (never saved unless edited).
+    private static var demo: [TodoItem] {
+        let now = Date()
+        return [TodoItem(title: "Send the invoice to Acme", dueAt: now.addingTimeInterval(-3600)),
+                TodoItem(title: "Review pull request #128", dueAt: now.addingTimeInterval(2.5 * 3600)),
+                TodoItem(title: "Water the plants"),
+                TodoItem(title: "Book dentist appointment", dueAt: now.addingTimeInterval(26 * 3600))]
+    }
 
     // UNUserNotificationCenter aborts the process unless we're a real bundle
     // (it's nil for the bare CLI binary). Gate all notification use on this.
@@ -22,9 +34,16 @@ final class TodoStore: ObservableObject {
 
     func start() {
         guard notificationsAvailable else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-        // Re-sync OS reminders with current items on launch.
-        for item in items where item.dueAt != nil && !item.done { schedule(item) }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
+            guard granted else { return }
+            // On first launch, scheduling before the permission sheet completes can
+            // silently drop every existing reminder. Re-sync only after permission
+            // is known, and return to the store's main-actor isolation.
+            Task { @MainActor in
+                guard let self else { return }
+                for item in self.items where item.dueAt != nil && !item.done { self.schedule(item) }
+            }
+        }
     }
 
     /// Sorted for display: open items first (by due date then created), done last.

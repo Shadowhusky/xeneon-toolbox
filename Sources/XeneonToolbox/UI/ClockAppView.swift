@@ -20,7 +20,9 @@ struct ClockAppView: View {
 private struct NowCard: View {
     var body: some View {
         TileSurface(accent: Theme.accent) {
-            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+            // HH:MM, date and the day bar tick per minute; only the small seconds
+            // readout runs at 1 Hz, inside a fixed frame so nothing else re-lays-out.
+            TimelineView(.everyMinute) { ctx in
                 let now = ctx.date
                 VStack(alignment: .leading, spacing: 0) {
                     TileHeader(title: "Now", systemImage: "clock.fill", accent: Theme.accent)
@@ -30,9 +32,11 @@ private struct NowCard: View {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(now, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
                             .font(.readout(116, .bold)).foregroundStyle(Theme.textPrimary)
-                        Text(now, format: .dateTime.second(.twoDigits))
-                            .font(.readout(40, .bold)).foregroundStyle(Theme.accent)
-                            .shadow(color: Theme.accent.opacity(0.5), radius: 8)
+                        TimelineView(.periodic(from: .now, by: 1)) { sec in
+                            Text(sec.date, format: .dateTime.second(.twoDigits))
+                                .font(.readout(40, .bold)).foregroundStyle(Theme.accent)
+                                .frame(width: 76, alignment: .leading)
+                        }
                     }
                     .lineLimit(1).minimumScaleFactor(0.5)
                     Text(now, format: .dateTime.month(.wide).day().year())
@@ -48,7 +52,7 @@ private struct NowCard: View {
 /// The page's signature element: a full-day gradient (deep night → dawn → midday
 /// → dusk → night) with a glowing marker at the current moment — you read where
 /// you are in the day at a glance.
-private struct DayProgressBar: View {
+struct DayProgressBar: View {
     let date: Date
     private static let band = [
         Color(red: 0.10, green: 0.11, blue: 0.28),   // night
@@ -233,7 +237,7 @@ private struct WorldRow: View {
     var onRemove: () -> Void
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+        TimelineView(.everyMinute) { ctx in
             let now = ctx.date
             let tz = clock.timeZone ?? .current
             let day = WorldClockInfo.isDaytime(in: tz, at: now)
