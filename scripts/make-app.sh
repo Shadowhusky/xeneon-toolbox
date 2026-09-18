@@ -58,6 +58,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSLocationWhenInUseUsageDescription</key><string>Xeneon Toolbox uses your approximate location to show local weather and nearby Wi-Fi network names.</string>
     <key>NSAppleEventsUsageDescription</key><string>Xeneon Toolbox controls Music/Spotify playback, system volume, and appearance via Apple Events.</string>
     <key>NSBluetoothAlwaysUsageDescription</key><string>Xeneon Toolbox lists your paired Bluetooth devices so you can connect or disconnect them from the Control Centre.</string>
+    <key>NSCalendarsUsageDescription</key><string>Xeneon Toolbox shows your next calendar event on the ambient screen.</string>
     <key>NSCalendarsFullAccessUsageDescription</key><string>Xeneon Toolbox shows your next calendar event on the ambient screen.</string>
 </dict>
 </plist>

@@ -148,7 +148,11 @@ enum AppPermission: String, CaseIterable, Identifiable {
         case .accessibility:
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             completion(AXIsProcessTrustedWithOptions(opts))
-        case .calendar: Self.eventStore.requestFullAccessToEvents { granted, _ in completion(granted) }
+        case .calendar:
+            Self.eventStore.requestFullAccessToEvents { granted, error in
+                if let error { AppLog.error("permissions", "calendar request: \(error.localizedDescription) (\((error as NSError).domain) \((error as NSError).code))") }
+                completion(granted)
+            }
         case .location: Self.locationManager.requestWhenInUseAuthorization(); completion(nil)
         case .microphone: AVCaptureDevice.requestAccess(for: .audio) { completion($0) }
         case .speech: SFSpeechRecognizer.requestAuthorization { completion($0 == .authorized) }
@@ -170,7 +174,7 @@ enum AppPermission: String, CaseIterable, Identifiable {
                   let bundle = Bundle.main.bundleIdentifier else {
                 completion(granted ?? (self.status == .granted)); return
             }
-            AppLog.info("permissions", "\(self.title): refused without a prompt — clearing the stale grant and asking again")
+            AppLog.info("permissions", "\(self.title): refused without a prompt — clearing any stale grant and asking again")
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
             p.arguments = ["reset", service, bundle]
