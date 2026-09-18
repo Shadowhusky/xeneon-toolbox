@@ -1,29 +1,9 @@
 import SwiftUI
+import AppKit
 
-enum ProcessMetric {
-    case cpu, mem, active   // active = "most active" (by CPU), used for GPU where per-process isn't available
-    var title: String {
-        switch self {
-        case .cpu: return "Top processes · CPU"
-        case .mem: return "Top processes · Memory"
-        case .active: return "Most active processes"
-        }
-    }
-    var byMemory: Bool { self == .mem }
-    func value(_ r: ProcRow) -> Double { byMemory ? r.mem : r.cpu }
-}
+enum MetricKind { case cpu, gpu, memory, network }
 
-struct MetricDetail: Identifiable {
-    let id = UUID()
-    let title: String
-    let icon: String
-    let color: Color
-    let history: [Double]
-    let asPercent: Bool          // else treat values as bytes/sec
-    var processMetric: ProcessMetric? = nil
-}
-
-/// Connection facts for the Network detail.
+/// Connection facts for the Network panel.
 struct NetworkInfo: Equatable {
     var ssid: String?
     var localIP: String?
@@ -31,141 +11,322 @@ struct NetworkInfo: Equatable {
     var loading = true
 }
 
-/// Large expanded view of a metric: a history graph + now/avg/peak, and — for
-/// CPU/GPU/Memory — a ranking of the processes using that resource.
-struct MetricDetailView: View {
-    let detail: MetricDetail
-    var processes: [ProcRow] = []
-    var network: NetworkInfo? = nil
+/// The full-strip console behind a gauge tile: the number and its history on
+/// the left, what it's made of in the middle, who's responsible (with a way to
+/// act on it) on the right.
+struct MetricConsole: View {
+    let kind: MetricKind
+    let frame: MetricsFrame
+    let detail: SystemDetail
+    let processes: [ProcRow]
+    let network: NetworkInfo
+    var onBoost: () -> Void = {}
     var onClose: () -> Void = {}
 
-    private var current: Double { detail.history.last ?? 0 }
-    private var avg: Double { detail.history.isEmpty ? 0 : detail.history.reduce(0, +) / Double(detail.history.count) }
-    private var peak: Double { detail.history.max() ?? 0 }
+    private var snap: MetricsSnapshot { frame.snap }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 10) {
-                Image(systemName: detail.icon).font(.system(size: 20, weight: .bold)).foregroundStyle(detail.color)
-                Text(detail.title).font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
-                Spacer()
-                CircleIconButton(icon: "xmark", size: 42, action: onClose)
-            }
-
-            if detail.processMetric != nil {
-                HStack(alignment: .top, spacing: 22) {
-                    VStack(spacing: 16) { graph; stats }.frame(maxWidth: .infinity)
-                    processList.frame(width: 380)
-                }
-            } else if let network {
-                HStack(alignment: .top, spacing: 22) {
-                    VStack(spacing: 16) { graph; stats }.frame(maxWidth: .infinity)
-                    connection(network).frame(width: 340)
-                }
-            } else {
-                graph.frame(height: 280)
-                stats
+        DetailShell(title: title, icon: icon, tint: tint, subtitle: subtitle, actions: actions, onClose: onClose) {
+            HStack(alignment: .top, spacing: 16) {
+                left.frame(maxWidth: .infinity, maxHeight: .infinity)
+                middle.frame(width: 560).frame(maxHeight: .infinity, alignment: .top)
+                right.frame(width: 640).frame(maxHeight: .infinity, alignment: .top)
             }
         }
-        .padding(28)
-        .frame(width: 980, height: 520)
-        .background(RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)))
-        .bezel(corner: 24, tint: detail.color)
-        .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
     }
 
-    private var graph: some View {
-        Sparkline(values: detail.history, color: detail.color, fillOpacity: 0.22,
-                  ceiling: detail.asPercent ? 1.0 : nil)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.03)))
-    }
+    // MARK: Identity
 
-    private var stats: some View {
-        HStack(spacing: 0) {
-            stat("Now", current); divider; stat("Average", avg); divider; stat("Peak", peak)
+    private var title: String {
+        switch kind { case .cpu: return "Processor"; case .gpu: return "Graphics"; case .memory: return "Memory"; case .network: return "Network" }
+    }
+    private var icon: String {
+        switch kind { case .cpu: return "cpu.fill"; case .gpu: return "cube.transparent.fill"; case .memory: return "memorychip.fill"; case .network: return "dot.radiowaves.up.forward" }
+    }
+    private var tint: Color {
+        switch kind { case .cpu: return Theme.cpu; case .gpu: return Theme.gpu; case .memory: return Theme.memory; case .network: return Theme.netDown }
+    }
+    private var subtitle: String {
+        switch kind {
+        case .cpu:
+            let split = detail.efficiencyCores > 0 ? "\(detail.performanceCores) performance and \(detail.efficiencyCores) efficiency cores" : "\(detail.cores.count) cores"
+            return detail.chip.isEmpty ? split : "\(detail.chip), \(split)"
+        case .gpu:
+            return [detail.gpuName, detail.gpuCores > 0 ? "\(detail.gpuCores) cores" : ""].filter { !$0.isEmpty }.joined(separator: ", ")
+        case .memory:
+            return "\(Fmt.gb(snap.memTotal)) GB unified memory"
+        case .network:
+            if let ssid = network.ssid { return "Wi-Fi, \(ssid)" }
+            if detail.interface.isEmpty { return "" }
+            let label = detail.interfaces.first { $0.name == detail.interface }?.label
+            return "Connected over \(label ?? detail.interface)"
+        }
+    }
+    private var actions: [DetailAction] {
+        let monitor = DetailAction(title: "Activity Monitor", icon: "waveform.path.ecg", tint: Theme.textSecondary) {
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"), configuration: .init())
+        }
+        let boost = DetailAction(title: "Boost", icon: "bolt.circle.fill", tint: Theme.accent, run: onBoost)
+        switch kind {
+        case .cpu, .memory: return [boost, monitor]
+        case .gpu: return [monitor]
+        case .network:
+            return [DetailAction(title: "Network settings", icon: "gearshape.fill", tint: Theme.textSecondary) {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.Network-Settings.extension") { NSWorkspace.shared.open(url) }
+            }]
         }
     }
 
-    @ViewBuilder private var processList: some View {
-        let metric = detail.processMetric ?? .cpu
-        let isMem = metric.byMemory
-        let maxRSS = max(1, processes.map(\.rssMB).max() ?? 1)
-        VStack(alignment: .leading, spacing: 10) {
-            Text(metric.title).font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
-            if processes.isEmpty {
-                Text("Reading processes…").font(.deck(14)).foregroundStyle(Theme.textFaint)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    // MARK: Left: the number and its history
+
+    private var history: [Double] {
+        switch kind { case .cpu: return frame.cpu; case .gpu: return frame.gpu; case .memory: return frame.mem; case .network: return frame.netRx }
+    }
+
+    @ViewBuilder private var left: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if kind == .network { networkHeadline } else { percentHeadline }
+            if kind == .network {
+                GridGraph(series: [(frame.netRx, Theme.netDown), (frame.netTx, Theme.netUp)], topLabel: "last \(history.count * 2) s")
             } else {
-                ForEach(processes.prefix(9)) { r in
-                    let frac = isMem ? min(1, r.rssMB / maxRSS) : min(1, r.cpu / 100)
-                    HStack(spacing: 12) {
-                        Text(r.name).font(.deck(14, .medium)).foregroundStyle(Theme.textPrimary)
-                            .lineLimit(1).frame(width: 142, alignment: .leading)
-                        GeometryReader { g in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(Color.white.opacity(0.08))
-                                Capsule().fill(LinearGradient(colors: [detail.color.opacity(0.7), detail.color],
-                                                              startPoint: .leading, endPoint: .trailing))
-                                    .frame(width: max(4, g.size.width * frac))
-                            }
-                        }
-                        .frame(height: 10)
-                        Text(isMem ? Self.memSize(r.rssMB) : "\(Int(r.cpu.rounded()))%")
-                            .font(.readout(14, .bold)).foregroundStyle(detail.color)
-                            .frame(width: 64, alignment: .trailing)
+                GridGraph(series: [(history, tint)], ceiling: 1, topLabel: "100%")
+            }
+        }
+    }
+
+    private var percentHeadline: some View {
+        let now = history.last ?? 0, avg = history.isEmpty ? 0 : history.reduce(0, +) / Double(history.count), peak = history.max() ?? 0
+        return HStack(alignment: .bottom, spacing: 28) {
+            HeroStat(value: "\(Int((now * 100).rounded()))", unit: "%", caption: kind == .memory ? "in use now" : "load now", tint: tint)
+            MiniStat(value: Fmt.percent(avg), caption: "average")
+            MiniStat(value: Fmt.percent(peak), caption: "peak", tint: Theme.pressure(peak, base: Theme.textPrimary))
+            if kind == .memory { MiniStat(value: "\(Fmt.gb(snap.memUsed)) GB", caption: "of \(Fmt.gb(snap.memTotal)) GB") }
+            if kind == .cpu, let t = snap.thermals?.socC { MiniStat(value: "\(Int(t.rounded()))°", caption: "chip temperature", tint: Theme.heat) }
+            if kind == .gpu, let t = snap.thermals?.gpuC { MiniStat(value: "\(Int(t.rounded()))°", caption: "GPU temperature", tint: Theme.heat) }
+        }
+    }
+
+    private var networkHeadline: some View {
+        let down = Fmt.rate(snap.netRx), up = Fmt.rate(snap.netTx)
+        let peakDown = Fmt.rate(frame.netRx.max() ?? 0), peakUp = Fmt.rate(frame.netTx.max() ?? 0)
+        return HStack(alignment: .bottom, spacing: 28) {
+            HeroStat(value: down.value, unit: down.unit, caption: "download", tint: Theme.netDown, size: 72)
+            HeroStat(value: up.value, unit: up.unit, caption: "upload", tint: Theme.netUp, size: 72)
+            MiniStat(value: peakDown.value + " " + peakDown.unit, caption: "peak down", tint: Theme.netDown)
+            MiniStat(value: peakUp.value + " " + peakUp.unit, caption: "peak up", tint: Theme.netUp)
+        }
+    }
+
+    // MARK: Middle: what it's made of
+
+    @ViewBuilder private var middle: some View {
+        VStack(spacing: 14) {
+            switch kind {
+            case .cpu: coresPanel; loadPanel
+            case .gpu: enginePanel; gpuMemoryPanel; gpuFacts; Spacer(minLength: 0)
+            case .memory: compositionPanel; swapPanel
+            case .network: connectionPanel; totalsPanel; Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var coresPanel: some View {
+        let eff = detail.cores.filter(\.efficiency), perf = detail.cores.filter { !$0.efficiency }
+        return ConsolePanel(title: "Cores", trailing: detail.cores.isEmpty ? nil : "\(detail.cores.count) total") {
+            if detail.cores.isEmpty {
+                Text("Reading cores…").font(.deck(14)).foregroundStyle(Theme.textFaint).frame(maxWidth: .infinity, minHeight: 150)
+            } else {
+                GeometryReader { g in
+                    let gap: CGFloat = eff.isEmpty ? 0 : 20
+                    let unit = (g.size.width - gap) / CGFloat(detail.cores.count)
+                    HStack(alignment: .bottom, spacing: gap) {
+                        if !eff.isEmpty { CoreGroup(label: "Efficiency", cores: eff, tint: Theme.netDown).frame(width: unit * CGFloat(eff.count)) }
+                        CoreGroup(label: eff.isEmpty ? "Cores" : "Performance", cores: perf, tint: Theme.cpu).frame(width: unit * CGFloat(perf.count))
                     }
-                    .frame(height: 26)
                 }
-                Spacer(minLength: 0)
+                .frame(minHeight: 170, maxHeight: .infinity)
             }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    private func connection(_ n: NetworkInfo) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Connection").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
-            infoRow("wifi", "Wi-Fi", n.ssid ?? "Not on Wi-Fi")
-            infoRow("network", "Local IP", n.localIP ?? "—")
-            infoRow("globe", "Public IP", n.publicIP ?? (n.loading ? "Looking up…" : "Unavailable"))
+    private var loadPanel: some View {
+        ConsolePanel(title: "Load average", trailing: "\(detail.processCount) processes") {
+            HStack(spacing: 10) {
+                ForEach(Array(zip(["1 min", "5 min", "15 min"], detail.loadAverage + [0, 0, 0])), id: \.0) { label, value in
+                    MiniStat(value: String(format: "%.2f", value), caption: label)
+                }
+                if let rpm = snap.thermals?.fanRPM.max() { MiniStat(value: "\(Int(rpm.rounded()))", caption: "fan rpm") }
+            }
+        }
+    }
+
+    private var enginePanel: some View {
+        ConsolePanel(title: "Engine") {
+            VStack(spacing: 14) {
+                MeterRow(label: "Overall", fraction: snap.gpu, value: Fmt.percent(snap.gpu), tint: Theme.gpu)
+                if let r = detail.gpuRenderer { MeterRow(label: "Renderer", fraction: r, value: Fmt.percent(r), tint: Theme.gpu) }
+                if let t = detail.gpuTiler { MeterRow(label: "Tiler", fraction: t, value: Fmt.percent(t), tint: Theme.ice) }
+            }
+        }
+    }
+
+    @ViewBuilder private var gpuMemoryPanel: some View {
+        if let used = detail.gpuMemoryInUse {
+            let budget = detail.gpuWorkingSet > 0 ? detail.gpuWorkingSet : snap.memTotal
+            ConsolePanel(title: "Graphics memory", trailing: detail.gpuMemoryAllocated.map { "\(Self.bytes($0)) allocated" }) {
+                MeterRow(label: "In use", fraction: budget > 0 ? min(1, Double(used) / Double(budget)) : 0,
+                         value: "\(Self.bytes(used)) of \(Self.bytes(budget))", tint: Theme.gpu)
+            }
+        }
+    }
+
+    private var gpuFacts: some View {
+        ConsolePanel(title: "Details") {
+            VStack(spacing: 2) {
+                if !detail.gpuName.isEmpty { FactRow(icon: "cube.transparent", label: "Chip", value: detail.gpuName) }
+                if detail.gpuCores > 0 { FactRow(icon: "square.grid.3x3", label: "GPU cores", value: "\(detail.gpuCores)") }
+                if !detail.gpuFamily.isEmpty { FactRow(icon: "sparkles", label: "Graphics API", value: detail.gpuFamily) }
+                if let w = snap.systemWatts { FactRow(icon: "bolt", label: "System draw", value: String(format: "%.1f W", w)) }
+            }
+        }
+    }
+
+    private var compositionPanel: some View {
+        let parts: [(String, UInt64, Color)] = [
+            ("App memory", detail.memApp, Theme.memory), ("Wired", detail.memWired, Theme.heat),
+            ("Compressed", detail.memCompressed, Theme.netUp), ("Cached files", detail.memCached, Theme.disk), ("Free", detail.memFree, Theme.textFaint),
+        ]
+        let total = max(1, parts.reduce(UInt64(0)) { $0 + $1.1 })
+        return ConsolePanel(title: "What's in memory") {
+            VStack(spacing: 14) {
+                GeometryReader { g in
+                    HStack(spacing: 2) {
+                        ForEach(parts, id: \.0) { p in
+                            RoundedRectangle(cornerRadius: 4, style: .continuous).fill(p.2.opacity(p.0 == "Free" ? 0.35 : 0.9))
+                                .frame(width: max(2, (g.size.width - 8) * CGFloat(Double(p.1) / Double(total))))
+                        }
+                    }
+                }
+                .frame(height: 18)
+                VStack(spacing: 2) {
+                    ForEach(parts, id: \.0) { p in
+                        HStack(spacing: 10) {
+                            RoundedRectangle(cornerRadius: 3).fill(p.2.opacity(p.0 == "Free" ? 0.35 : 0.9)).frame(width: 12, height: 12)
+                            Text(p.0).font(.deck(14, .medium)).foregroundStyle(Theme.textSecondary)
+                            Spacer()
+                            Text(Self.bytes(p.1)).font(.readout(14, .semibold)).foregroundStyle(Theme.textPrimary)
+                        }
+                        .frame(minHeight: 30, maxHeight: 52)
+                    }
+                }
+            }
+        }
+    }
+
+    private var swapPanel: some View {
+        let level = detail.pressureLevel
+        let (word, color): (String, Color) = level >= 4 ? ("Critical", Theme.critical) : level >= 2 ? ("Elevated", Theme.warning) : ("Normal", Theme.battery)
+        return ConsolePanel(title: "Pressure and swap") {
+            HStack(spacing: 10) {
+                HStack(spacing: 8) { Lamp(color: color, on: true, size: 8); MiniStat(value: word, caption: "memory pressure", tint: color) }
+                MiniStat(value: Self.bytes(detail.swapUsed), caption: detail.swapTotal > 0 ? "swap, of \(Self.bytes(detail.swapTotal))" : "swap used")
+            }
+        }
+    }
+
+    private var connectionPanel: some View {
+        ConsolePanel(title: "Connection") {
+            VStack(spacing: 2) {
+                FactRow(icon: "wifi", label: "Wi-Fi", value: network.ssid ?? (detail.rssi != nil ? "Connected" : "Not on Wi-Fi"))
+                if let rssi = detail.rssi { FactRow(icon: "cellularbars", label: "Signal", value: "\(rssi) dBm, \(Self.signalWord(rssi))") }
+                if let rate = detail.txRateMbps, rate > 0 { FactRow(icon: "speedometer", label: "Link rate", value: "\(Int(rate)) Mbps") }
+                if let router = detail.router { FactRow(icon: "wifi.router", label: "Router", value: router, copyable: true) }
+                if let dns = detail.dns.first { FactRow(icon: "signpost.right", label: "DNS", value: dns, copyable: true) }
+            }
+        }
+    }
+
+    private var totalsPanel: some View {
+        ConsolePanel(title: "Since startup", trailing: "up \(Fmt.uptime(snap.uptime))") {
+            HStack(spacing: 10) {
+                MiniStat(value: Self.bytes(detail.bytesIn), caption: "downloaded", tint: Theme.netDown)
+                MiniStat(value: Self.bytes(detail.bytesOut), caption: "uploaded", tint: Theme.netUp)
+            }
+        }
+    }
+
+    private var interfacesPanel: some View {
+        ConsolePanel(title: "Interfaces", trailing: detail.interfaces.isEmpty ? nil : "\(detail.interfaces.count) active") {
+            VStack(spacing: 2) {
+                ForEach(detail.interfaces.prefix(5)) { i in
+                    FactRow(icon: i.name == detail.interface ? "arrow.up.arrow.down.circle.fill" : "circle.dotted",
+                            label: "\(i.label)  \(i.name)", value: i.address,
+                            tint: i.name == detail.interface ? Theme.netDown : Theme.textFaint, copyable: true)
+                }
+            }
             Spacer(minLength: 0)
         }
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    private func infoRow(_ icon: String, _ label: String, _ value: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(detail.color).frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(.deck(12, .semibold)).foregroundStyle(Theme.textFaint)
-                Text(value).font(.readout(16, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1).minimumScaleFactor(0.7)
-                    .textSelection(.enabled)
+    // MARK: Right: who, and what you can do about it
+
+    @ViewBuilder private var right: some View {
+        switch kind {
+        case .cpu: ProcessTable(title: "Busiest processes", rows: processes, byMemory: false, tint: Theme.cpu)
+        case .gpu: ProcessTable(title: "Most active processes", note: "macOS doesn't report GPU use per process", rows: processes, byMemory: false, tint: Theme.gpu)
+        case .memory: ProcessTable(title: "Using the most memory", rows: processes, byMemory: true, tint: Theme.memory)
+        case .network:
+            VStack(spacing: 14) {
+                ConsolePanel(title: "Addresses") {
+                    VStack(spacing: 2) {
+                        FactRow(icon: "network", label: "This Mac", value: network.localIP ?? "—", copyable: network.localIP != nil)
+                        FactRow(icon: "globe", label: "Public", value: network.publicIP ?? (network.loading ? "Looking up…" : "Unavailable"), copyable: network.publicIP != nil)
+                    }
+                }
+                interfacesPanel
             }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14).frame(height: 62)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
     }
 
-    private static func memSize(_ mb: Double) -> String {
-        mb >= 1024 ? String(format: "%.1f GB", mb / 1024) : String(format: "%.0f MB", mb)
+    // MARK: Formatting
+
+    private static func bytes(_ b: UInt64) -> String {
+        let f = ByteCountFormatter(); f.countStyle = .memory; f.allowedUnits = [.useMB, .useGB, .useTB]
+        return f.string(fromByteCount: Int64(min(b, UInt64(Int64.max))))
     }
+    private static func signalWord(_ rssi: Int) -> String {
+        rssi >= -55 ? "excellent" : rssi >= -67 ? "good" : rssi >= -75 ? "fair" : "weak"
+    }
+}
 
-    private var divider: some View { Rectangle().fill(Theme.stroke).frame(width: 1, height: 48) }
+/// One group of cores as vertical segment meters.
+private struct CoreGroup: View {
+    let label: String
+    let cores: [CoreLoad]
+    let tint: Color
 
-    private func stat(_ label: String, _ value: Double) -> some View {
-        VStack(spacing: 4) {
-            Text(format(value)).font(.readout(34, .bold)).foregroundStyle(detail.color)
-            Text(label).font(.deck(12, .semibold)).foregroundStyle(Theme.textFaint)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 5) {
+                ForEach(cores) { core in
+                    VStack(spacing: 3) {
+                        ForEach((0..<12).reversed(), id: \.self) { i in
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                .fill(Double(i) < (core.load * 12).rounded() ? Theme.pressure(core.load, base: tint) : Theme.trackFill)
+                                .frame(maxWidth: 22, maxHeight: .infinity)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            HStack {
+                Text(label).font(.deck(12, .medium)).foregroundStyle(Theme.textFaint)
+                Spacer(minLength: 4)
+                Text(Fmt.percent(cores.isEmpty ? 0 : cores.map(\.load).reduce(0, +) / Double(cores.count)))
+                    .font(.readout(12, .semibold)).foregroundStyle(tint)
+            }
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private func format(_ v: Double) -> String {
-        if detail.asPercent { return "\(Int((v * 100).rounded()))%" }
-        let r = Fmt.rate(v); return r.value + r.unit
     }
 }

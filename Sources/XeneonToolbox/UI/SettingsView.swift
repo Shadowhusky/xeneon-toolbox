@@ -309,7 +309,7 @@ struct SettingsView: View {
 }
 
 /// Search-and-pin the weather city, or return to automatic IP location.
-private struct WeatherLocationPicker: View {
+struct WeatherLocationPicker: View {
     @ObservedObject var weather: WeatherService
     @State private var query = ""
     @State private var results: [WeatherLocation] = []

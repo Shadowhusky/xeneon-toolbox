@@ -17,7 +17,7 @@ struct DashboardView: View {
     @ObservedObject var gestures: PanelGestures
     @ObservedObject var commands: DashboardCommands
 
-    enum DetailKind { case cpu, gpu, memory, network }
+    typealias DetailKind = MetricKind
     @State private var detailKind: DetailKind?
     @State private var showWeather = false
     @State private var showEnergy = false
@@ -35,6 +35,7 @@ struct DashboardView: View {
     @State private var dockFrames: [String: CGRect] = [:]
     @State private var dockPicker: DeckAction?
     @State private var netInfo = NetworkInfo()
+    @State private var sysDetail = SystemDetail()
     @State private var revealed = false
     @Environment(\.renderStatic) private var renderStatic
 
@@ -52,14 +53,14 @@ struct DashboardView: View {
 
             if let kind = detailKind, !editing {
                 ModalScaffold(dim: 0.62, onDismiss: { close() }) {
-                    MetricDetailView(detail: detail(for: kind), processes: procs,
-                                     network: kind == .network ? netInfo : nil) { close() }
+                    MetricConsole(kind: kind, frame: metrics.frame, detail: sysDetail, processes: procs, network: netInfo,
+                                  onBoost: { close(); model.showBoost = true }, onClose: { close() })
                 }
                 .zIndex(1)
             }
             if showWeather, !editing {
                 ModalScaffold(dim: 0.62, onDismiss: { showWeather = false }) {
-                    WeatherDetailView(weather: weather.weather, loading: !weather.firstAttemptDone) { showWeather = false }
+                    WeatherDetailView(service: weather) { showWeather = false }
                 }
                 .zIndex(1)
             }
@@ -89,10 +90,10 @@ struct DashboardView: View {
             switch env["XENEON_DETAIL"] {
             case "cpu": open(.cpu); case "gpu": open(.gpu)
             case "memory": open(.memory); case "network": open(.network)
-            case "weather": showWeather = true
             default: break
             }
             if env["XENEON_ENERGY"] != nil { openEnergy() }
+            if env["XENEON_DETAIL"] == "weather" { showWeather = true }
             if env["XENEON_EDIT"] != nil { commands.editing = true }
             if env["XENEON_GALLERY"] != nil { commands.editing = true; showGallery = true }
             syncDriver()
@@ -373,8 +374,8 @@ struct DashboardView: View {
     private func open(_ kind: DetailKind) {
         detailKind = kind
         procs = []
-        if kind != .network { startSampling(byMemory: kind == .memory) }
-        else { loadNetworkInfo() }
+        startSampling(byMemory: kind == .memory, network: kind == .network)
+        if kind == .network { loadNetworkInfo() }
     }
 
     private func loadNetworkInfo() {
@@ -400,7 +401,7 @@ struct DashboardView: View {
         showEnergy = true
         procs = []
         power.start()
-        startSampling(byMemory: false)
+        startSampling(byMemory: false, network: false)
     }
 
     private func closeEnergy() {
@@ -410,34 +411,19 @@ struct DashboardView: View {
         procs = []
     }
 
-    private func startSampling(byMemory: Bool) {
+    private func startSampling(byMemory: Bool, network: Bool) {
         sampleTask?.cancel()
+        let sampler = DetailSampler()
         sampleTask = Task { @MainActor in
             while !Task.isCancelled {
-                let rows = await Task.detached(priority: .utility) {
-                    ProcessSampler.sample(byMemory: byMemory, count: 14)
+                let (rows, detail) = await Task.detached(priority: .utility) {
+                    (ProcessSampler.sample(byMemory: byMemory, count: 14), sampler.sample(network: network))
                 }.value
                 if Task.isCancelled { break }
                 procs = rows
+                sysDetail = detail
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
-        }
-    }
-
-    private func detail(for kind: DetailKind) -> MetricDetail {
-        switch kind {
-        case .cpu:
-            return MetricDetail(title: "Processor", icon: "cpu.fill", color: Theme.cpu,
-                                history: metrics.cpuHistory, asPercent: true, processMetric: .cpu)
-        case .gpu:
-            return MetricDetail(title: "Graphics", icon: "cube.transparent.fill", color: Theme.gpu,
-                                history: metrics.gpuHistory, asPercent: true, processMetric: .active)
-        case .memory:
-            return MetricDetail(title: "Memory", icon: "memorychip.fill", color: Theme.memory,
-                                history: metrics.memHistory, asPercent: true, processMetric: .mem)
-        case .network:
-            return MetricDetail(title: "Network · Download", icon: "dot.radiowaves.up.forward", color: Theme.netDown,
-                                history: metrics.netRxHistory, asPercent: false)
         }
     }
 }

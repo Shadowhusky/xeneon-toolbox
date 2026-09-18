@@ -53,6 +53,7 @@ struct DayForecast: Equatable, Identifiable {
     let code: Int
     let highC: Double
     let lowC: Double
+    var rainChance: Int? = nil
     var id: Double { date.timeIntervalSince1970 }
     var symbol: String { Weather.symbol(for: code) }
     func high() -> String { Weather.temp(highC) }
@@ -67,6 +68,7 @@ struct HourForecast: Equatable, Identifiable {
     let date: Date
     let code: Int
     let tempC: Double
+    var rainChance: Int? = nil
     var id: Double { date.timeIntervalSince1970 }
     var symbol: String { Weather.symbol(for: code) }
     func temp() -> String { Weather.temp(tempC) }
@@ -84,6 +86,10 @@ struct Weather: Equatable {
     var lowC: Double? = nil
     var windKph: Double? = nil
     var humidity: Int? = nil
+    var feelsLikeC: Double? = nil
+    var uvIndex: Double? = nil
+    var sunrise: Date? = nil
+    var sunset: Date? = nil
     var days: [DayForecast] = []
     var hours: [HourForecast] = []
 
@@ -217,21 +223,25 @@ final class WeatherService: ObservableObject {
     private static func demo() -> Weather {
         let now = Date()
         let hourStart = Calendar.current.date(bySetting: .minute, value: 0, of: now) ?? now
-        let hourly: [(Int, Double)] = [(2, 21), (2, 22), (1, 23), (0, 24), (0, 24), (1, 22), (3, 20), (61, 18)]
-        let daily: [(Int, Double, Double)] = [(2, 25, 16), (61, 21, 15), (3, 22, 14), (0, 26, 15), (1, 27, 17), (2, 24, 16)]
+        let temps: [Double] = [21, 22, 23, 24, 24, 23, 22, 20, 19, 18, 17, 17, 16, 16, 15, 15, 16, 17, 19, 21, 22, 24, 25, 25]
+        let codes = [2, 2, 1, 0, 0, 1, 2, 3, 61, 61, 3, 2, 2, 1, 1, 0, 0, 0, 1, 1, 2, 2, 1, 0]
+        let rain = [5, 5, 0, 0, 0, 10, 20, 40, 70, 65, 35, 20, 10, 5, 5, 0, 0, 0, 0, 5, 10, 10, 5, 0]
+        let daily: [(Int, Double, Double, Int)] = [(2, 25, 16, 20), (61, 21, 15, 70), (3, 22, 14, 40), (0, 26, 15, 0), (1, 27, 17, 5), (2, 24, 16, 15), (0, 26, 17, 0)]
+        let day = Calendar.current.startOfDay(for: now)
         return Weather(
             tempC: 22, code: 2, city: "Seattle", highC: 25, lowC: 16, windKph: 14, humidity: 58,
+            feelsLikeC: 23, uvIndex: 5, sunrise: day.addingTimeInterval(6.6 * 3600), sunset: day.addingTimeInterval(19.4 * 3600),
             days: daily.enumerated().map { i, d in
-                DayForecast(date: Calendar.current.date(byAdding: .day, value: i, to: now)!, code: d.0, highC: d.1, lowC: d.2)
+                DayForecast(date: Calendar.current.date(byAdding: .day, value: i, to: now)!, code: d.0, highC: d.1, lowC: d.2, rainChance: d.3)
             },
-            hours: hourly.enumerated().map { i, h in
-                HourForecast(date: hourStart.addingTimeInterval(Double(i + 1) * 3600), code: h.0, tempC: h.1)
+            hours: temps.indices.map { i in
+                HourForecast(date: hourStart.addingTimeInterval(Double(i) * 3600), code: codes[i], tempC: temps[i], rainChance: rain[i])
             })
     }
 
     func refresh() async {
         guard let loc = await geolocate(),
-              let url = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(loc.lat)&longitude=\(loc.lon)&current=temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=6"),
+              let url = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(loc.lat)&longitude=\(loc.lon)&current=temperature_2m,apparent_temperature,weather_code,relative_humidity_2m,wind_speed_10m&hourly=temperature_2m,weather_code,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max&timezone=auto&forecast_days=7"),
               let (data, _) = try? await URLSession.shared.data(from: url),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let cur = json["current"] as? [String: Any],
@@ -241,6 +251,7 @@ final class WeatherService: ObservableObject {
         var w = Weather(tempC: temp, code: code, city: loc.city)
         w.humidity = (cur["relative_humidity_2m"] as? Double).map { Int($0.rounded()) } ?? (cur["relative_humidity_2m"] as? Int)
         w.windKph = cur["wind_speed_10m"] as? Double
+        w.feelsLikeC = cur["apparent_temperature"] as? Double
 
         if let daily = json["daily"] as? [String: Any],
            let times = daily["time"] as? [String],
@@ -248,11 +259,17 @@ final class WeatherService: ObservableObject {
            let highs = daily["temperature_2m_max"] as? [Double],
            let lows = daily["temperature_2m_min"] as? [Double] {
             let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current
+            let rain = daily["precipitation_probability_max"] as? [Any] ?? []
             var days: [DayForecast] = []
             for i in 0..<min(times.count, codes.count, highs.count, lows.count) {
                 guard let d = f.date(from: times[i]) else { continue }
-                days.append(DayForecast(date: d, code: codes[i], highC: highs[i], lowC: lows[i]))
+                days.append(DayForecast(date: d, code: codes[i], highC: highs[i], lowC: lows[i],
+                                        rainChance: i < rain.count ? (rain[i] as? NSNumber)?.intValue : nil))
             }
+            let clock = DateFormatter(); clock.dateFormat = "yyyy-MM-dd'T'HH:mm"; clock.timeZone = .current
+            w.sunrise = (daily["sunrise"] as? [String])?.first.flatMap(clock.date(from:))
+            w.sunset = (daily["sunset"] as? [String])?.first.flatMap(clock.date(from:))
+            w.uvIndex = ((daily["uv_index_max"] as? [Any])?.first as? NSNumber)?.doubleValue
             w.days = days
             if let today = days.first { w.highC = today.highC; w.lowC = today.lowC }
         }
@@ -265,12 +282,14 @@ final class WeatherService: ObservableObject {
             f.formatOptions = [.withInternetDateTime, .withColonSeparatorInTimeZone]
             let plain = DateFormatter(); plain.dateFormat = "yyyy-MM-dd'T'HH:mm"; plain.timeZone = .current
             let now = Date()
+            let rain = hourly["precipitation_probability"] as? [Any] ?? []
             var hours: [HourForecast] = []
             for i in 0..<min(times.count, codes.count, temps.count) {
                 guard let d = plain.date(from: times[i]) ?? f.date(from: times[i]) else { continue }
                 if d < now.addingTimeInterval(-3600) { continue }   // from the current hour on
-                hours.append(HourForecast(date: d, code: codes[i], tempC: temps[i]))
-                if hours.count >= 12 { break }
+                hours.append(HourForecast(date: d, code: codes[i], tempC: temps[i],
+                                          rainChance: i < rain.count ? (rain[i] as? NSNumber)?.intValue : nil))
+                if hours.count >= 24 { break }
             }
             w.hours = hours
         }

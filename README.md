@@ -59,11 +59,19 @@ apps built for the strip. While the app runs, the panel just works:
   actions** (Boost, keep awake, dark mode, screenshot, lock, sleep display).
   Tiles come in small, wide and tall sizes; hold the board (or More → Edit dashboard)
   to drag, resize, remove, or add from the tile gallery — your board persists.
-  Tap a tile for its detail view (top processes; the **hourly and 6-day weather
-  forecast**; the Power tile's **energy flow** from the wall to CPU / GPU /
-  memory / displays; the Network tile's Wi-Fi, local and public IP). Weather
-  locates via Wi-Fi positioning (with IP fallback), or **pin your exact city** in
-  Settings.
+  Tap a tile for its **console**, a full-width panel you can act from:
+  Processor shows every core, load averages and the busiest apps with a **Quit**
+  button beside each; Memory breaks down app, wired, compressed and cached
+  memory with pressure and swap; Graphics shows renderer and tiler load and GPU
+  memory; Network lists signal, link rate, router, DNS and every active
+  interface with copy buttons; Power draws the **energy flow** to CPU / GPU /
+  memory / displays; Weather plots the **next 24 hours** with rain chance beside
+  the 7-day outlook; Up next lays **today out as a timeline**. Each has shortcuts
+  to Boost, Activity Monitor or the matching Settings pane. Weather locates via
+  Wi-Fi positioning (with IP fallback), or **pin your exact city** in Settings
+  or from the console.
+
+  ![Weather console](docs/img/weather.png)
 - **Deck** — a Stream-Deck-style page of big, tappable tiles that quick-launch
   apps (with their real icons), open websites (with their real favicons) in the
   built-in browser, fire **keyboard shortcuts** into whatever app is active, run

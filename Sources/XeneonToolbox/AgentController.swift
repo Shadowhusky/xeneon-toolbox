@@ -11,6 +11,7 @@ struct ProcRow: Identifiable, Codable {
     let cpu: Double      // percent
     let mem: Double      // percent of physical memory
     var rssMB: Double = 0 // resident memory in MB
+    var pid: Int32 = 0
 }
 
 struct CardRow: Identifiable, Codable {

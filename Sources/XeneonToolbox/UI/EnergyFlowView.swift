@@ -8,6 +8,7 @@ struct EnergyFlowView: View {
     @ObservedObject var power: PowerTelemetry
     var topApps: [ProcRow] = []
     var onClose: () -> Void
+    @State private var history: [Double] = []
 
     private struct Consumer: Identifiable {
         let id: String
@@ -36,18 +37,11 @@ struct EnergyFlowView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 10) {
-                Image(systemName: "bolt.fill").font(.system(size: 20, weight: .bold)).foregroundStyle(Theme.battery)
-                Text("Energy").font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
-                Spacer()
-                CircleIconButton(icon: "xmark", size: 42, action: onClose)
-            }
-
+        DetailShell(title: "Energy", icon: "bolt.fill", tint: Theme.battery, subtitle: summary, actions: actions, onClose: onClose) {
             if !power.warmedUp {
                 // The SoC counters need two samples for a delta — briefly measuring.
                 VStack(spacing: 14) {
-                    ProgressView().controlSize(.large)
+                    DeckSpinner(size: 36)
                     Text("Measuring power…").font(.deck(16)).foregroundStyle(Theme.textSecondary)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if power.snap.systemIn == nil && !power.snap.blocksAvailable {
@@ -57,23 +51,38 @@ struct EnergyFlowView: View {
                         .font(.deck(16)).foregroundStyle(Theme.textSecondary)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                flow
-                if !topApps.isEmpty { highPower }
+                HStack(alignment: .top, spacing: 16) {
+                    flow.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProcessTable(title: "Using the most power", note: "ranked by processor use", rows: topApps, byMemory: false, tint: Theme.netUp)
+                        .frame(width: 640)
+                }
             }
         }
-        .padding(26)
-        .frame(width: 1040, height: 560)
-        .background(RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)))
-        .bezel(corner: 24, tint: Theme.battery)
-        .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
+        .onReceive(power.$snap) { s in
+            guard power.warmedUp else { return }
+            history = Array((history + [s.wall ?? s.blocksTotal]).suffix(60))
+        }
+    }
+
+    private var summary: String {
+        let s = power.snap
+        guard power.warmedUp else { return "Where the watts go, measured live" }
+        guard let sys = s.systemIn else { return "The chip is using \(Self.watts(s.blocksTotal)) right now" }
+        return s.external ? "Drawing \(Self.watts(sys)) from the wall" : "Drawing \(Self.watts(sys)) from the battery"
+    }
+
+    private var actions: [DetailAction] {
+        let pane = power.snap.batteryInstalled ? "com.apple.Battery-Settings.extension" : "com.apple.Energy-Saver-Settings.extension"
+        return [DetailAction(title: power.snap.batteryInstalled ? "Battery settings" : "Energy settings", icon: "gearshape.fill", tint: Theme.textSecondary) {
+            if let url = URL(string: "x-apple.systempreferences:\(pane)") { NSWorkspace.shared.open(url) }
+        }]
     }
 
     // MARK: - Flow diagram
 
     private var flow: some View {
         HStack(spacing: 0) {
-            source.frame(width: 210)
+            source.frame(width: 300)
             SankeyBands(consumers: consumers.map { ($0.color, $0.watts) })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             // Rows spread evenly over the full height — the same slots the
@@ -83,7 +92,7 @@ struct EnergyFlowView: View {
                     consumerRow(c).frame(maxHeight: .infinity)
                 }
             }
-            .frame(width: 250)
+            .frame(width: 320)
         }
     }
 
@@ -92,13 +101,13 @@ struct EnergyFlowView: View {
         return VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Image(systemName: "powerplug.fill").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.battery)
-                    Text(s.external ? "Wall" : "Battery").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
+                    Image(systemName: s.wall == nil ? "cpu.fill" : "powerplug.fill").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.battery)
+                    Text(s.wall == nil ? "Chip total" : s.external ? "Wall" : "Battery").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
                 }
-                if let wall = s.wall {
-                    Text(Self.watts(wall)).font(.readout(44, .bold)).foregroundStyle(Theme.textPrimary)
-                } else {
-                    Text("—").font(.readout(44, .bold)).foregroundStyle(Theme.textFaint)
+                Text(Self.watts(s.wall ?? s.blocksTotal)).font(.readout(44, .bold)).foregroundStyle(Theme.textPrimary)
+                if s.wall == nil {
+                    Text("This Mac doesn't report what it draws at the plug.")
+                        .font(.deck(12)).foregroundStyle(Theme.textFaint).fixedSize(horizontal: false, vertical: true)
                 }
                 if let loss = s.adapterLoss, loss >= 0.1 {
                     Text("adapter loses \(Self.watts(loss))").font(.deck(12)).foregroundStyle(Theme.textFaint)
@@ -137,7 +146,15 @@ struct EnergyFlowView: View {
                 .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.04)))
                 .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
             }
-            Spacer(minLength: 0)
+            if history.count > 1 {
+                ConsolePanel(title: "Last two minutes", trailing: "peak \(Self.watts(history.max() ?? 0))") {
+                    Sparkline(values: history, color: Theme.battery, fillOpacity: 0.2, ceiling: (history.max() ?? 1) * 1.15)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .frame(maxHeight: .infinity)
+            } else {
+                Spacer(minLength: 0)
+            }
         }
     }
 
@@ -152,24 +169,6 @@ struct EnergyFlowView: View {
         .padding(.horizontal, 14).padding(.vertical, 9)
         .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(c.color.opacity(0.08)))
         .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(c.color.opacity(0.25), lineWidth: 1))
-    }
-
-    // MARK: - High power apps
-
-    private var highPower: some View {
-        HStack(spacing: 14) {
-            Text("High power use").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
-            ForEach(topApps.prefix(3)) { p in
-                HStack(spacing: 8) {
-                    Text(p.name).font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
-                    Text("\(Int(p.cpu))% CPU").font(.readout(12, .semibold)).foregroundStyle(Theme.netUp)
-                }
-                .padding(.horizontal, 12).padding(.vertical, 7)
-                .background(Capsule().fill(Color.white.opacity(0.06)))
-                .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
-            }
-            Spacer(minLength: 0)
-        }
     }
 
     private static func watts(_ w: Double) -> String {

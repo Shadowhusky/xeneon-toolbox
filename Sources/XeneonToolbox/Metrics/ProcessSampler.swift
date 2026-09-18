@@ -21,7 +21,7 @@ enum ProcessSampler {
             // pid pcpu pmem rss comm…
             guard parts.count >= 5, let cpu = Double(parts[1]), let mem = Double(parts[2]), let rssKB = Double(parts[3]) else { continue }
             let name = parts[4...].joined(separator: " ")
-            rows.append(ProcRow(name: name, cpu: cpu, mem: mem, rssMB: rssKB / 1024))
+            rows.append(ProcRow(name: name, cpu: cpu, mem: mem, rssMB: rssKB / 1024, pid: Int32(parts[0]) ?? 0))
         }
         rows.sort { byMemory ? $0.rssMB > $1.rssMB : $0.cpu > $1.cpu }
         return Array(rows.prefix(max(1, count)))
