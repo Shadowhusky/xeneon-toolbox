@@ -36,6 +36,9 @@ final class CursorController {
     private var tapSource: CFRunLoopSource?
     private var hideDepth = 0
     private let enabled = ProcessInfo.processInfo.environment["XENEON_NOHIDECURSOR"] == nil
+    /// Fires (at most a few times a second) when a real pointing device moves.
+    var onRealPointerInput: (() -> Void)?
+    private var lastRealInput: CFAbsoluteTime = 0
 
     func start() {
         guard enabled, tap == nil else { return }
@@ -95,5 +98,7 @@ final class CursorController {
 
     private func showCursor() {
         while hideDepth > 0 { CGDisplayShowCursor(CGMainDisplayID()); hideDepth -= 1 }
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastRealInput > 0.2 { lastRealInput = now; onRealPointerInput?() }
     }
 }

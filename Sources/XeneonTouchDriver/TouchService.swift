@@ -69,6 +69,14 @@ final class TouchDriver: @unchecked Sendable {
     private var watchdogTimer: Timer?
     private var gestureActive = false
 
+    // After a gesture the pointer goes back to where it was before the finger
+    // landed, so a tap on the strip never strands the cursor away from the
+    // display the user is working on.
+    private var cursorReturn = CursorReturn()
+    private var pointerLocation: ScreenPoint? {
+        CGEvent(source: nil).map { ScreenPoint(x: $0.location.x, y: $0.location.y) }
+    }
+
     private let debug = ProcessInfo.processInfo.environment["XENEON_TOUCH_DEBUG"] != nil
     private var reportLogCount = 0
     private var valueLogCount = 0
@@ -302,7 +310,25 @@ final class TouchDriver: @unchecked Sendable {
         longPress.reset()
         cancelMomentum()
         cancelWatchdog()
+        returnPointer()
         unregisterReportCallback()
+    }
+
+    /// A real mouse or trackpad moved: the user owns the pointer, so don't send it
+    /// back when the current touch ends.
+    func realPointerMoved() { cursorReturn.realPointerMoved() }
+
+    /// Ends the report: tracks whether a gesture is live, and once every finger has
+    /// lifted (and nothing is coasting) sends the pointer home.
+    private func finishReport(contact: Bool) {
+        gestureActive = contact
+        rearmWatchdog()
+        if !contact && momentumTimer == nil { returnPointer() }
+    }
+
+    private func returnPointer() {
+        guard let home = cursorReturn.destination() else { return }
+        postMouse(.mouseMoved, home)   // tagged, so the arrow stays hidden until a real device moves it
     }
 
     // MARK: - Digitizer (multi-touch) path
@@ -352,6 +378,7 @@ final class TouchDriver: @unchecked Sendable {
         }
         filters = filters.filter { seen.contains($0.key) }
         if let first = contacts.first { lastPoint = first.point }
+        if !contacts.isEmpty && !gestureActive { cursorReturn.touchBegan(pointerAt: pointerLocation) }
         feedEdge(down: !contacts.isEmpty, point: contacts.first?.point)
 
         // Once an edge gesture engages, swallow this contact's pointer/scroll so the
@@ -359,15 +386,13 @@ final class TouchDriver: @unchecked Sendable {
         if edgeSuppress {
             if !edgeCancelled { for action in recognizer.reset() { post(action) }; edgeCancelled = true }
             cancelMomentum()
-            gestureActive = !contacts.isEmpty
-            rearmWatchdog()
+            finishReport(contact: !contacts.isEmpty)
             return
         }
         edgeCancelled = false
 
         if feedLongPress(count: contacts.count, point: contacts.first?.point) {
-            gestureActive = !contacts.isEmpty
-            rearmWatchdog()
+            finishReport(contact: !contacts.isEmpty)
             return
         }
 
@@ -377,8 +402,7 @@ final class TouchDriver: @unchecked Sendable {
         // A finger touching cancels any coasting inertia and any momentum the
         // single→multi handoff's `.scroll(.ended)` may have just spawned.
         if !contacts.isEmpty { cancelMomentum() }
-        gestureActive = !contacts.isEmpty
-        rearmWatchdog()
+        finishReport(contact: !contacts.isEmpty)
     }
 
     // MARK: - Mouse fallback path
@@ -399,23 +423,21 @@ final class TouchDriver: @unchecked Sendable {
         if !announcedActive { announcedActive = true; onPresenceChanged?(true) }
         let point = CoordinateMapper.mapToScreen(rawX: x, rawY: y, calibration: cal, display: disp)
         lastPoint = point
+        if decoder.contact && !gestureActive { cursorReturn.touchBegan(pointerAt: pointerLocation) }
         feedEdge(down: decoder.contact, point: point)
         if edgeSuppress {
             if !edgeCancelled { for action in machine.reset() { post(action) }; edgeCancelled = true }
-            gestureActive = decoder.contact
-            rearmWatchdog()
+            finishReport(contact: decoder.contact)
             return
         }
         edgeCancelled = false
         if feedLongPress(count: decoder.contact ? 1 : 0, point: decoder.contact ? point : nil) {
-            gestureActive = decoder.contact
-            rearmWatchdog()
+            finishReport(contact: decoder.contact)
             return
         }
         machine.dragAnywhere = dragAnywhereEnabled
         for action in machine.update(contact: decoder.contact, point: point) { post(action) }
-        gestureActive = decoder.contact   // self-cancels when a real release arrives
-        rearmWatchdog()
+        finishReport(contact: decoder.contact)   // self-cancels when a real release arrives
     }
 
     /// Observes the primary finger for edge gestures (additive — taps, scrolls and
@@ -517,12 +539,13 @@ final class TouchDriver: @unchecked Sendable {
         case .drag(let p):    postMouse(.leftMouseDragged, p)
         case .release(let p):
             postMouse(.leftMouseUp, p)
-            // Warp off-screen in this same cycle. A tap posts down+up at the
-            // finger point (which shows the cursor there); parking only via the
-            // async CursorController leaves the arrow blinking at the tap point
-            // for a frame. Doing it here means WindowServer composites just once,
-            // with the cursor already clipped at the corner.
-            if let c = parkCorner { postMouse(.mouseMoved, c) }
+            // Leave the tap point in this same cycle: back to where the pointer was
+            // before the finger landed, or the off-screen corner when that's
+            // unknown. Parking only via the async CursorController leaves the arrow
+            // blinking at the tap point for a frame; doing it here means
+            // WindowServer composites just once, with the cursor already away.
+            if let home = cursorReturn.destination() { postMouse(.mouseMoved, home) }
+            else if let c = parkCorner { postMouse(.mouseMoved, c) }
         case .scroll(let dx, let dy, let phase):
             if phase == .began, let sync = pendingCursorSync {
                 postMouse(.mouseMoved, sync)   // scrolls follow the pointer — place it once
@@ -542,6 +565,7 @@ final class TouchDriver: @unchecked Sendable {
         let pos = CGPoint(x: p.x, y: p.y)
         if let ev = CGEvent(mouseEventSource: eventSource, mouseType: type, mouseCursorPosition: pos, mouseButton: .left) {
             ev.post(tap: .cgSessionEventTap)
+            cursorReturn.posted()
         }
     }
 
@@ -601,6 +625,7 @@ final class TouchDriver: @unchecked Sendable {
         if command { ev.flags = .maskCommand }
         if let p = loc { ev.location = CGPoint(x: p.x, y: p.y) }
         ev.post(tap: .cgSessionEventTap)
+        if loc != nil { cursorReturn.posted() }
     }
 
     // MARK: - Momentum
@@ -625,6 +650,7 @@ final class TouchDriver: @unchecked Sendable {
             if speed < 45 {
                 self.emitScroll(dx: dx, dy: dy, scrollPhase: 0, momentumPhase: 3, command: false, moveFirst: false, at: corner)
                 t.invalidate(); self.momentumTimer = nil
+                if !self.gestureActive { self.returnPointer() }
                 return
             }
             self.emitScroll(dx: dx, dy: dy, scrollPhase: 0,
@@ -652,6 +678,8 @@ final class TouchDriver: @unchecked Sendable {
             for action in self.machine.reset() { self.post(action) }
             self.gestureActive = false
             self.filters.removeAll()
+            self.cancelMomentum()
+            self.returnPointer()
             // An edge swipe whose final "up" never arrived must not keep swallowing
             // the next touch's pointer events.
             self.edgeKind = .none; self.topActive = false; self.topControl = false
@@ -760,6 +788,12 @@ public final class TouchService: @unchecked Sendable {
     /// stuck press can never deaden the whole panel.
     public func flushPointer() {
         onDriverThread { $0.releaseHeld() }
+    }
+
+    /// Tell the driver a real mouse or trackpad moved, so a touch in progress
+    /// won't send the pointer back to where it was when the finger landed.
+    public func realPointerMoved() {
+        onDriverThread { $0.realPointerMoved() }
     }
 
     /// Re-read the Edge's global rect (display arrangement or mode changed) without
