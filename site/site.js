@@ -43,7 +43,6 @@ const TILE_RECTS = {
 };
 const FOCUS = ["cpu", "upNext", "running", "nowPlaying", "clock"];
 const STRIP = ["dashboard", "console", "deck", "clock", "assistant", "control-center", "boost"];
-const HERO = ["dashboard", "deck", "clock", "assistant", "control-center"];
 const SCREENS = ["dashboard", "console", "deck", "clock", "assistant", "control-center", "boost", "minimal"];
 
 const screenShader = {
@@ -129,10 +128,17 @@ const tileShader = {
 async function world() {
   const canvas = document.getElementById("world");
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
-  // Retina canvases are where the time goes: render to a pixel budget, and shrink it if frames run long.
+  // Retina canvases are where the time goes: render to a pixel budget that grows while the GPU has room
+  // and shrinks when frames run long. The level a machine settles on is remembered for the next visit.
   const small = () => innerWidth < 900 || innerHeight < 620;
-  let quality = 1;
-  const pixelRatio = () => clamp(Math.sqrt((small() ? 1.5e6 : 2.5e6) * quality / (innerWidth * innerHeight)), 0.7, Math.min(devicePixelRatio, 2));
+  const remembered = (() => { try { return parseFloat(localStorage.getItem("xt.quality")); } catch { return NaN; } })();
+  let quality = clamp(remembered || 1, 0.4, 8), ceiling = Infinity, samples = small() ? 2 : 4;
+  // Where GPU time can be read, headroom goes into supersampling (Apple GPUs stop at 4× MSAA); never past 9 MP.
+  const gl = renderer.getContext();
+  const timerExt = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+  const ratioCap = () => small() ? Math.min(devicePixelRatio, 2)
+    : Math.min(devicePixelRatio * (timerExt ? 1.4 : 1), 3, Math.sqrt(9e6 / (innerWidth * innerHeight)));
+  const pixelRatio = () => clamp(Math.sqrt((small() ? 1.5e6 : 2.5e6) * quality / (innerWidth * innerHeight)), 0.7, ratioCap());
   renderer.setPixelRatio(pixelRatio());
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -144,7 +150,7 @@ async function world() {
   scene.environmentIntensity = 0.45;
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
 
-  const target = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, samples: small() ? 2 : 4 });
+  const target = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, samples });
   const composer = new EffectComposer(renderer, target);
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.45, 0.75, 0.9);
@@ -166,12 +172,13 @@ async function world() {
   const tick = () => bootProgress(++loaded / total);
   const texLoader = new THREE.TextureLoader();
   const textures = {};
-  const jobs = SCREENS.map(async (name) => {
-    const t = await texLoader.loadAsync(`assets/screens/${name}.webp`);
+  const loadScreen = async (file) => {
+    const t = await texLoader.loadAsync(`assets/screens/${file}.webp`);
     t.colorSpace = THREE.SRGBColorSpace; t.flipY = false; t.anisotropy = renderer.capabilities.getMaxAnisotropy();
     t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter;
-    textures[name] = t; tick();
-  });
+    return t;
+  };
+  const jobs = SCREENS.map(async (name) => { textures[name] = await loadScreen(name); tick(); });
   const gltfJob = new GLTFLoader().loadAsync("assets/3d/edge.glb").then((g) => { tick(); return g; });
   const [gltf] = await Promise.all([gltfJob, ...jobs]);
 
@@ -328,25 +335,47 @@ async function world() {
     pointer.x = (e.clientX / innerWidth) * 2 - 1; pointer.y = -((e.clientY / innerHeight) * 2 - 1); pointer.lastMove = clock;
   }, { passive: true });
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-  let rippleAt = 0, heroIdx = 0, lastTouch = -10;
-  canvas.addEventListener("click", (e) => {
+  let rippleAt = 0, lastTouch = -10;
+  const onScreen = (e) => {
     ndc.set((e.clientX / innerWidth) * 2 - 1, -((e.clientY / innerHeight) * 2 - 1));
     ray.setFromCamera(ndc, camera);
     const hit = ray.intersectObject(screenMesh, false)[0];
-    if (!hit || !hit.uv) return;
+    return hit && hit.uv ? hit : null;
+  };
+  // Every stop of the tour as a scroll position. A tap on the glass moves to the next one (the left edge
+  // goes back), so what the screen shows and what the caption says both come from the scroll position.
+  const stops = () => {
+    const at = (name, local) => { const i = names.indexOf(name), m = metrics[i]; return m.top + local * (i === metrics.length - 1 ? m.h - innerHeight * 0.75 : m.h); };
+    return [0,
+      ...STRIP.map((_, k) => at("strip", 0.58 * (k + 0.5) / STRIP.length)),
+      at("apart", 0.4),
+      ...FOCUS.map((_, f) => at("tiles", 0.58 * (0.2 + 0.8 * (f + 0.5) / FOCUS.length))),
+      at("night", 0.36), at("land", 0.7)];
+  };
+  canvas.addEventListener("click", (e) => {
+    const hit = onScreen(e);
+    if (!hit) return;
     screenMat.uniforms.ripples.value[rippleAt++ % 4].set(hit.uv.x, hit.uv.y, clock); lastTouch = clock;
-    if (where().idx === 0) heroIdx = (heroIdx + 1) % HERO.length;
+    const list = stops(), y = scrollY;
+    const to = hit.uv.x < 0.2 ? list.filter((v) => v < y - 8).pop() : list.find((v) => v > y + 8);
+    if (to !== undefined) scrollTo({ top: to, behavior: reduce ? "auto" : "smooth" });
   });
+  let hoverAt = 0;
+  canvas.addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse" || e.timeStamp - hoverAt < 80) return;
+    hoverAt = e.timeStamp; canvas.style.cursor = onScreen(e) ? "pointer" : "";
+  }, { passive: true });
 
   // ----- Screen pages wipe from one to the next
-  let pageNow = "dashboard", pageNext = null, wipe = 0;
+  let pageNow = "dashboard", pageNext = null, wipe = 0, wipeRate = 1;
   const showPage = (name, dt) => {
     if (pageNext) {
-      wipe += dt / 1.25; screenMat.uniforms.mixT.value = clamp(wipe);
+      wipe += dt / 1.25 * wipeRate; screenMat.uniforms.mixT.value = clamp(wipe);
       if (wipe >= 1) { pageNow = pageNext; pageNext = null; screenMat.uniforms.texA.value = textures[pageNow]; screenMat.uniforms.mixT.value = 0; }
     } else if (name !== pageNow) {
       pageNext = name; wipe = 0; screenMat.uniforms.texB.value = textures[name];
     }
+    wipeRate = pageNext && name !== pageNext ? 3.2 : 1;      // the story has moved on: finish this turn quickly
   };
 
   // ----- Frame
@@ -371,17 +400,71 @@ async function world() {
   const ease5 = (x) => { x = clamp(x); return x * x * x * (x * (6 * x - 15) + 10); };
   const tmpV = new THREE.Vector3(), tmpT = new THREE.Vector3(), tmpP = new THREE.Vector3(), lookAt = new THREE.Vector3();
 
+  // ----- Adaptive quality. GPU time per frame where the browser reports it (it shows headroom before a
+  // frame is ever dropped); otherwise late frames. Up: pixels first, then 8× MSAA. Down: the reverse.
+  let query = null, gpuMs = 0, gpuFrames = 0;
+  const timed = (draw) => {
+    if (!timerExt) return draw();
+    if (query) {
+      if (!gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE)) return draw();
+      if (!gl.getParameter(timerExt.GPU_DISJOINT_EXT)) { gpuMs += gl.getQueryParameter(query, gl.QUERY_RESULT) / 1e6; gpuFrames++; }
+      gl.deleteQuery(query); query = null;
+    }
+    query = gl.createQuery(); gl.beginQuery(timerExt.TIME_ELAPSED_EXT, query); draw(); gl.endQuery(timerExt.TIME_ELAPSED_EXT);
+  };
+  const setSamples = (n) => {
+    samples = n;
+    for (const t of [composer.renderTarget1, composer.renderTarget2]) { t.samples = n; t.dispose(); }
+  };
+  // Once the canvas outresolves the 2560-wide captures, the dashboard (the one the tiles are cut from) is
+  // swapped for its 5120-wide capture.
+  let sharp = false;
+  const sharpen = async () => {
+    if (sharp || small() || renderer.getPixelRatio() < 1.7 || renderer.capabilities.maxTextureSize < 5120) return;
+    sharp = true;
+    const t = await loadScreen("dashboard-2x").catch(() => null);
+    if (!t) return;
+    const old = textures.dashboard; textures.dashboard = t;
+    for (const tile of tiles) tile.mat.uniforms.map.value = t;
+    for (const k of ["texA", "texB"]) if (screenMat.uniforms[k].value === old) screenMat.uniforms[k].value = t;
+    old.dispose();
+  };
+  const applyQuality = () => {
+    const pr = pixelRatio();
+    renderer.setPixelRatio(pr); composer.setPixelRatio(pr); sharpen();
+    try { localStorage.setItem("xt.quality", quality.toFixed(2)); } catch {}
+  };
+  const stepDown = () => {
+    ceiling = quality;
+    if (samples > 4) setSamples(4);
+    else if (quality > 0.4) { quality = Math.max(0.4, quality * 0.78); if (quality < 0.6 && samples > 2) setSamples(2); applyQuality(); }
+  };
+  // `share` is the part of the frame budget the GPU used (null when the browser can't say).
+  const stepUp = (share) => {
+    if (pixelRatio() < ratioCap() - 0.01) { if ((share === null || share < 0.45) && quality * 1.3 < ceiling) { quality *= 1.3; applyQuality(); } }
+    else if (samples < 8 && !small() && ceiling === Infinity && renderer.capabilities.maxSamples >= 8) setSamples(8);   // a smaller step than more pixels
+  };
+
   let last = performance.now();
-  let lastRaf = performance.now(), slow = 0, fast = 0, frameNo = 0, lastActive = 0;
+  let judgedLast = null;
+  let lastRaf = performance.now(), late = 0, judged = 0, vsync = 1 / 60, frameNo = 0, lastActive = 0, lastChange = 0;
   function frame(now) {
     requestAnimationFrame(frame);
     if (document.hidden) { last = now; lastRaf = now; return; }
     const raw = (now - lastRaf) / 1000; lastRaf = now;
-    if (raw < 0.2 && clock - lastActive < 0.5) {            // only judge frames while something is moving
-      if (raw > 1 / 45) slow++; else fast++;
-      if (slow + fast >= 50) {
-        if (slow > 20 && quality > 0.4) { quality *= 0.78; resize(); }
-        slow = fast = 0;
+    if (raw < 0.2 && clock - lastActive < 0.5 && clock > 1.5) {   // judge only while something moves, past the first compiles
+      if (raw < vsync * 1.4) vsync = clamp(vsync + (raw - vsync) * 0.06, 1 / 240, 1 / 30);   // the display's own interval, learned from on-time frames
+      if (raw > vsync * 1.6) late++;
+      if (++judged >= 60) {
+        const gpu = gpuFrames > 20 ? gpuMs / gpuFrames / (vsync * 1000) : null;   // share of the frame budget the GPU used
+        judgedLast = { gpu, late, hz: Math.round(1 / vsync) };
+        if (clock - lastChange > 1.5) {
+          // Late frames with an idle GPU are the main thread's doing; fewer pixels only help down to the base level.
+          if ((late > 22 && (gpu === null || gpu > 0.6 || quality > 1)) || (gpu !== null && gpu > 0.85)) { stepDown(); lastChange = clock; }
+          else if (late <= 2 && (gpu === null || gpu < 0.6)) { stepUp(gpu); lastChange = clock; }
+        }
+        late = judged = 0; gpuMs = gpuFrames = 0;
+        sharpen();
       }
     }
     if (clock - lastActive > 1.2 && ++frameNo % 3) return;  // settled: ambient motion only, a third of the frames
@@ -479,6 +562,7 @@ async function world() {
       const bob = reduce ? 0 : Math.sin(clock * 0.7 + t.home.x * 40) * 0.0012 * L;
       t.mesh.position.set(t.pos.x, t.pos.y + bob, t.pos.z); t.mesh.rotation.set(t.rot.x, t.rot.y, 0); t.mesh.scale.setScalar(t.scale);
       t.mat.uniforms.opacity.value = t.opacity; t.mesh.renderOrder = focused ? 5 : 3;
+      t.mat.uniforms.gain.value = damp(t.mat.uniforms.gain.value, focused ? 1.0 : 1.35, 4, dt);   // up close, the bloom would wash the icons out
     }
 
     // Floor and reflection
@@ -493,7 +577,7 @@ async function world() {
     if (!reduce) dust.rotation.y += dt * 0.012;
 
     // Screen content
-    const page = chapter === "hero" ? HERO[heroIdx] : chapter === "strip" ? STRIP[Math.min(STRIP.length - 1, Math.floor(s * STRIP.length))]
+    const page = chapter === "strip" && hold < 0.5 ? STRIP[Math.min(STRIP.length - 1, Math.floor(s * STRIP.length))]
       : chapter === "night" ? (wantNight > 0.25 ? "minimal" : "dashboard") : "dashboard";
     showPage(page, dt);
 
@@ -511,11 +595,14 @@ async function world() {
     }
     railButtons.forEach((bn, i) => { if ((bn.getAttribute("aria-current") === "true") !== (i === idx)) bn.setAttribute("aria-current", String(i === idx)); });
 
-    composer.render(dt);
+    timed(() => composer.render(dt));
   }
 
   // Lets a hidden tab (tests, screenshots) advance the scene by hand: __xt.step(seconds).
-  window.__xt = { step(seconds = 1) { for (let t = 0; t < seconds; t += 1 / 60) update(last + 1000 / 60); } };
+  window.__xt = {
+    step(seconds = 1) { for (let t = 0; t < seconds; t += 1 / 60) update(last + 1000 / 60); },
+    get quality() { return { quality, samples, sharp, pixelRatio: renderer.getPixelRatio(), gpuTimer: !!timerExt, ...judgedLast }; },
+  };
 
   // First frames behind the boot screen, then power on.
   requestAnimationFrame((t0) => { last = t0; frame(t0); });
