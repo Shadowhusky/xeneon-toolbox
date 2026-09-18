@@ -46,6 +46,7 @@ struct SettingsView: View {
                     }
                     section("Now Playing", "Show the player bar on the ambient screen. The dashboard has its own Now Playing tile.", "music.note", Theme.memory) {
                         Toggle("Show Now Playing on the ambient screen", isOn: $model.showNowPlaying)
+                        Toggle("Slide along the bottom edge for volume, the top edge for brightness", isOn: $model.edgeSlidersEnabled)
                     }
                     section("Screen", "Dim the screen, or turn it off to save power.", "sun.max.fill", Theme.netUp) {
                         if model.canControlBacklight {

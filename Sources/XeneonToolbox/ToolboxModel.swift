@@ -47,7 +47,8 @@ enum AppRoute: String, CaseIterable, Identifiable {
     /// Routes shown as nav tabs and reachable by side-swipe. The browser (`.web`) is
     /// no longer its own tab — it's opened by tapping a website tile on the Deck — so
     /// it's excluded here, which also gives the remaining tabs more room.
-    static var tabs: [AppRoute] { allCases.filter { $0 != .web } }
+    /// Surfaces stays off the rail until its surfaces are built (XENEON_SURFACE still opens it).
+    static var tabs: [AppRoute] { allCases.filter { $0 != .web && $0 != .surfaces } }
 }
 
 /// Owns the embedded touch driver, the metrics engine, and app navigation.
