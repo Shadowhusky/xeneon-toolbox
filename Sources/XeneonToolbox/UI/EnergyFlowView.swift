@@ -177,46 +177,40 @@ struct EnergyFlowView: View {
 }
 
 /// The curved Sankey bands from the source spine to each consumer row.
+/// Plain shapes rather than a Canvas: a Canvas makes SwiftUI hold a pool of
+/// window-sized Metal surfaces (~390 MB) for as long as it keeps redrawing.
 private struct SankeyBands: View {
     let consumers: [(color: Color, watts: Double)]
 
     var body: some View {
-        Canvas { ctx, size in
+        GeometryReader { geo in
+            let size = geo.size
             let total = max(consumers.reduce(0) { $0 + $1.watts }, 0.001)
-            let x0: CGFloat = 6, x1 = size.width - 6
+            let x0: CGFloat = 6, x1 = size.width - 6, cx = (x0 + x1) / 2
             // Source spine: centred block whose height maps the summed watts.
             let spineH = min(size.height * 0.86, max(60, size.height * 0.7))
             let sTop = (size.height - spineH) / 2
             // Consumer slots: match the right-hand rows (evenly stacked).
-            let n = CGFloat(consumers.count)
-            let rowH = size.height / max(n, 1)
-
-            var sy = sTop
-            for (i, c) in consumers.enumerated() {
-                let frac = c.watts / total
-                let bandS = max(3, spineH * frac)                 // source thickness
-                let bandT = max(3, min(rowH * 0.62, 34))           // target thickness
-                let ty = rowH * CGFloat(i) + (rowH - bandT) / 2
-                var p = Path()
-                let cx = (x0 + x1) / 2
-                p.move(to: CGPoint(x: x0, y: sy))
-                p.addCurve(to: CGPoint(x: x1, y: ty),
-                           control1: CGPoint(x: cx, y: sy),
-                           control2: CGPoint(x: cx, y: ty))
-                p.addLine(to: CGPoint(x: x1, y: ty + bandT))
-                p.addCurve(to: CGPoint(x: x0, y: sy + bandS),
-                           control1: CGPoint(x: cx, y: ty + bandT),
-                           control2: CGPoint(x: cx, y: sy + bandS))
-                p.closeSubpath()
-                ctx.fill(p, with: .linearGradient(
-                    Gradient(colors: [Theme.battery.opacity(0.25), c.color.opacity(0.65)]),
-                    startPoint: CGPoint(x: x0, y: size.height / 2),
-                    endPoint: CGPoint(x: x1, y: size.height / 2)))
-                sy += bandS
+            let rowH = size.height / CGFloat(max(consumers.count, 1))
+            let sources = consumers.map { max(3, spineH * $0.watts / total) }
+            let bandT = max(3, min(rowH * 0.62, 34))
+            ZStack(alignment: .topLeading) {
+                ForEach(consumers.indices, id: \.self) { i in
+                    let sy = sTop + sources[..<i].reduce(0, +), ty = rowH * CGFloat(i) + (rowH - bandT) / 2
+                    Path { p in
+                        p.move(to: CGPoint(x: x0, y: sy))
+                        p.addCurve(to: CGPoint(x: x1, y: ty), control1: CGPoint(x: cx, y: sy), control2: CGPoint(x: cx, y: ty))
+                        p.addLine(to: CGPoint(x: x1, y: ty + bandT))
+                        p.addCurve(to: CGPoint(x: x0, y: sy + sources[i]),
+                                   control1: CGPoint(x: cx, y: ty + bandT), control2: CGPoint(x: cx, y: sy + sources[i]))
+                        p.closeSubpath()
+                    }
+                    .fill(LinearGradient(colors: [Theme.battery.opacity(0.25), consumers[i].color.opacity(0.65)],
+                                         startPoint: .leading, endPoint: .trailing))
+                }
+                RoundedRectangle(cornerRadius: 4).fill(Theme.battery.opacity(0.7))
+                    .frame(width: 8, height: sources.reduce(0, +) + 4).offset(x: x0 - 4, y: sTop - 2)
             }
-            // The spine itself.
-            let spine = Path(roundedRect: CGRect(x: x0 - 4, y: sTop - 2, width: 8, height: (sy - sTop) + 4), cornerRadius: 4)
-            ctx.fill(spine, with: .color(Theme.battery.opacity(0.7)))
         }
         .padding(.horizontal, 10)
     }

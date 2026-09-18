@@ -126,6 +126,7 @@ final class MetricsSampler: @unchecked Sendable {
     private var prevCPU: (busy: Double, total: Double)?
     private var prevNet: (rx: UInt64, tx: UInt64)?
     private var prevNetTime: Date?
+    private var diskReadAt: Date?
     private var lastGPU = 0.0
     private var gpuEverRead = false
     private var lastWatts: Double?
@@ -308,7 +309,11 @@ final class MetricsSampler: @unchecked Sendable {
         return (drx / dt, dtx / dt, address)
     }
 
+    /// Free space moves slowly and asking for it is a round trip to the
+    /// CacheDelete service, so it's read once a minute.
     private func sampleDisk() -> (free: Int64, total: Int64) {
+        if let at = diskReadAt, Date().timeIntervalSince(at) < 60 { return (last.diskFree, last.diskTotal) }
+        diskReadAt = Date()
         let url = URL(fileURLWithPath: "/")
         let keys: Set<URLResourceKey> = [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey]
         guard let v = try? url.resourceValues(forKeys: keys) else { return (last.diskFree, last.diskTotal) }

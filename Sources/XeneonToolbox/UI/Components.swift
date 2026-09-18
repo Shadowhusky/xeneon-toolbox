@@ -154,7 +154,6 @@ struct Sparkline: View {
                     }
                 }
             }
-            .drawingGroup()
         }
     }
 
