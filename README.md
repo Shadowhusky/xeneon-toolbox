@@ -129,6 +129,11 @@ apps built for the strip. While the app runs, the panel just works:
   apps worth quitting, and quits them the polite way (unsaved work asks first),
   then tells you what it freed. No fake "RAM cleaning": closing apps you're not
   using is the one thing that reliably makes a Mac feel faster.
+- **Light on the Mac** — built to sit there all day: the full dashboard runs
+  at about 60 MB of memory and under 1 % of one core, the ambient clock at
+  about 30 MB. Gauges are drawn by the GPU, sampling slows down when the
+  dashboard isn't showing and stops while the Mac sleeps, and the detail
+  consoles only sample while they're open.
 - **Stays current, quietly** — new releases download and verify in the
   background (notarized, signature, developer and checksum checked), then
   install themselves the next time the panel has been idle for a while or when

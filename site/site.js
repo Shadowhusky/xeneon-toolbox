@@ -42,9 +42,9 @@ const TILE_RECTS = {
   running: [1647, 369, 2236, 700], nowPlaying: [2253, 369, 2540, 700],
 };
 const FOCUS = ["cpu", "upNext", "running", "nowPlaying", "clock"];
-const STRIP = ["dashboard", "deck", "clock", "assistant", "control-center", "boost"];
+const STRIP = ["dashboard", "console", "deck", "clock", "assistant", "control-center", "boost"];
 const HERO = ["dashboard", "deck", "clock", "assistant", "control-center"];
-const SCREENS = ["dashboard", "deck", "clock", "assistant", "control-center", "boost", "minimal"];
+const SCREENS = ["dashboard", "console", "deck", "clock", "assistant", "control-center", "boost", "minimal"];
 
 const screenShader = {
   vertex: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
@@ -493,12 +493,12 @@ async function world() {
     if (!reduce) dust.rotation.y += dt * 0.012;
 
     // Screen content
-    const page = chapter === "hero" ? HERO[heroIdx] : chapter === "strip" ? STRIP[Math.min(5, Math.floor(s * 6))]
+    const page = chapter === "hero" ? HERO[heroIdx] : chapter === "strip" ? STRIP[Math.min(STRIP.length - 1, Math.floor(s * STRIP.length))]
       : chapter === "night" ? (wantNight > 0.25 ? "minimal" : "dashboard") : "dashboard";
     showPage(page, dt);
 
     // Captions and the rail
-    const stripK = Math.min(5, Math.floor(s * 6));
+    const stripK = Math.min(STRIP.length - 1, Math.floor(s * STRIP.length));
     for (const el of caps) {
       const c = el.dataset.cap, k = el.dataset.k === undefined ? -1 : +el.dataset.k;
       let on = state.booted && c === chapter;
