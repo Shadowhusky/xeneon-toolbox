@@ -16,6 +16,7 @@ struct RailMenu: View {
                 if model.route == .dashboard {
                     row("Edit dashboard", "square.grid.3x2", Theme.battery) { model.dashboardCommands.editing = true }
                 }
+                row("Boost", "bolt.circle.fill", Theme.accent) { model.showBoost = true }
                 row("Settings", "gearshape.fill", Theme.textSecondary) { model.showSettings = true }
                 if let s = model.updater.staged {
                     row("Restart to update to v\(s.version)", "arrow.down.circle.fill", Theme.accent) { model.updater.installNow() }

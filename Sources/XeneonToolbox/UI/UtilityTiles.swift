@@ -314,8 +314,8 @@ struct QuickActionsTile: View {
     @ObservedObject var keepAwake: KeepAwake
     var size: TileSize = .w
 
-    private static let wide: [DeckSystemAction] = [.keepAwake, .darkMode, .screenshot, .lockScreen, .sleepDisplay, .missionControl]
-    private static let small: [DeckSystemAction] = [.keepAwake, .darkMode, .screenshot, .lockScreen]
+    private static let wide: [DeckSystemAction] = [.boost, .keepAwake, .darkMode, .screenshot, .lockScreen, .sleepDisplay]
+    private static let small: [DeckSystemAction] = [.boost, .keepAwake, .darkMode, .screenshot]
 
     var body: some View {
         TileSurface(accent: Theme.netUp) {
@@ -364,6 +364,7 @@ struct QuickActionsTile: View {
     private static func label(_ a: DeckSystemAction) -> String {
         switch a {
         case .keepAwake: return "Keep awake"
+        case .boost: return "Boost"
         case .darkMode: return "Dark mode"
         case .screenshot: return "Screenshot"
         case .lockScreen: return "Lock screen"

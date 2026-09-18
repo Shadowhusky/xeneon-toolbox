@@ -16,7 +16,7 @@ enum DeckSort: String, CaseIterable, Identifiable {
 /// In-app actions the deck can run without launching anything.
 enum DeckSystemAction: String, Codable, CaseIterable {
     case minimal, missionControl, launchpad, screenshot, lockScreen, sleepDisplay
-    case emptyTrash, screensaver, darkMode, keepAwake
+    case emptyTrash, screensaver, darkMode, keepAwake, boost
     var label: String {
         switch self {
         case .minimal: return "Minimal"
@@ -29,6 +29,7 @@ enum DeckSystemAction: String, Codable, CaseIterable {
         case .screensaver: return "Screen Saver"
         case .darkMode: return "Toggle Dark Mode"
         case .keepAwake: return "Keep Awake"
+        case .boost: return "Boost"
         }
     }
     var symbol: String {
@@ -43,6 +44,7 @@ enum DeckSystemAction: String, Codable, CaseIterable {
         case .screensaver: return "photo.on.rectangle.angled"
         case .darkMode: return "circle.lefthalf.filled"
         case .keepAwake: return "cup.and.saucer.fill"
+        case .boost: return "bolt.circle.fill"
         }
     }
 }

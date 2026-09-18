@@ -102,6 +102,16 @@ struct RootView: View {
                 }
             }
         }
+        .overlay {
+            if model.showBoost {
+                let snap = metrics.snap
+                BoostView(scanner: model.boost, memoryUsedGB: Double(snap.memUsed) / 1_073_741_824,
+                          memoryTotalGB: Double(snap.memTotal) / 1_073_741_824, memoryPressure: snap.memFraction) {
+                    model.showBoost = false
+                }
+            }
+        }
+        .animation(Motion.pop, value: model.showBoost)
         .overlay { if model.showRailMenu { RailMenu(model: model) { model.showRailMenu = false } } }
         .overlay(alignment: .bottom) { UpdateToasts(updater: model.updater, fullscreen: model.fullscreen) }
         .overlay { UpdateGate(updater: model.updater, fullscreen: model.fullscreen) }

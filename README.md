@@ -56,8 +56,8 @@ apps built for the strip. While the app runs, the panel just works:
   (the last few things you copied — tap to copy again), **Now Playing**,
   **Weather** (conditions plus the next hours), **World clocks**, a **Focus**
   timer, **Devices** (connected Bluetooth gear and its charge) and **Quick
-  actions** (keep awake, dark mode, screenshot, lock, sleep display, Mission
-  Control). Tiles come in small, wide and tall sizes; hold the board (or More → Edit dashboard)
+  actions** (Boost, keep awake, dark mode, screenshot, lock, sleep display).
+  Tiles come in small, wide and tall sizes; hold the board (or More → Edit dashboard)
   to drag, resize, remove, or add from the tile gallery — your board persists.
   Tap a tile for its detail view (top processes; the **hourly and 6-day weather
   forecast**; the Power tile's **energy flow** from the wall to CPU / GPU /
@@ -117,6 +117,10 @@ apps built for the strip. While the app runs, the panel just works:
   (with a voice button). On by default; toggle it in Settings.
 - **iCloud backup** — back up your layout, deck, and preferences to iCloud Drive
   and restore them on another Mac, from Settings.
+- **Boost** — one tap shows what's heavy and in the background, pre-selects the
+  apps worth quitting, and quits them the polite way (unsaved work asks first),
+  then tells you what it freed. No fake "RAM cleaning": closing apps you're not
+  using is the one thing that reliably makes a Mac feel faster.
 - **Stays current, quietly** — new releases download and verify in the
   background (notarized, signature, developer and checksum checked), then
   install themselves the next time the panel has been idle for a while or when

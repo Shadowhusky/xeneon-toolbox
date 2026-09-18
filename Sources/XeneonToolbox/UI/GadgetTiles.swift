@@ -359,51 +359,123 @@ struct NowPlayingTile: View {
 
     var body: some View {
         TileSurface(accent: Theme.memory) {
-            VStack(alignment: .leading, spacing: 0) {
-                TileHeader(title: "Now playing", systemImage: "music.note", accent: Theme.memory)
-                Spacer(minLength: 12)
-                if media.available, let np = media.nowPlaying {
-                    if size.columns > 1 { wide(np) } else { small(np) }
-                } else {
+            if media.available, let np = media.nowPlaying {
+                if size.columns > 1 { wide(np) } else { small(np) }
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    TileHeader(title: "Now playing", systemImage: "music.note", accent: Theme.memory)
+                    Spacer(minLength: 12)
                     emptyState
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
             }
         }
     }
 
+    // The artwork is the tile: it bleeds to the top edge under the header, the
+    // song sits on its lower gradient, and the transport rests beneath.
     private func small(_ np: NowPlaying) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 14) {
-                Button(action: onExpand) { albumArt(np, side: 84, corner: 14) }.buttonStyle(.pressable)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(np.title).font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(2)
-                    Text(np.artist.isEmpty ? np.album : np.artist).font(.deck(13)).foregroundStyle(Theme.textFaint).lineLimit(1)
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                artBleed(np, corner: Theme.tileCorner)
+                TileHeader(title: "Now playing", systemImage: "music.note", accent: Theme.memory) {
+                    sourceLamp(np)
                 }
-                Spacer(minLength: 0)
+                .padding(20)
+                .shadow(color: .black.opacity(0.6), radius: 6, y: 1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(np.title).font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
+                    Text(np.artist.isEmpty ? np.album : np.artist).font(.deck(13, .medium))
+                        .foregroundStyle(Theme.textSecondary).lineLimit(1)
+                }
+                .padding(.horizontal, 20).padding(.bottom, 10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .shadow(color: .black.opacity(0.6), radius: 6, y: 1)
             }
+            .frame(height: 196)
+            .frame(maxWidth: .infinity)
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: Theme.tileCorner, bottomLeadingRadius: 0,
+                                              bottomTrailingRadius: 0, topTrailingRadius: Theme.tileCorner, style: .continuous))
+            .padding(.horizontal, -20).padding(.top, -20)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onExpand)
+            Spacer(minLength: 10)
+            ScrubBar(np: np, compact: true) { media.seek(to: $0) }
+            Spacer(minLength: 10)
             transport(np, compact: true).frame(maxWidth: .infinity)
         }
     }
 
     private func wide(_ np: NowPlaying) -> some View {
-        HStack(alignment: .center, spacing: 20) {
-            Button(action: onExpand) { albumArt(np, side: 150, corner: 18) }.buttonStyle(.pressable)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(np.title).font(.deck(21, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
-                Text(np.artist.isEmpty ? np.album : np.artist).font(.deck(15)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+        HStack(spacing: 0) {
+            artBleed(np, corner: Theme.tileCorner)
+            .frame(width: 300)
+            .frame(maxHeight: .infinity)
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: Theme.tileCorner, bottomLeadingRadius: Theme.tileCorner,
+                                              bottomTrailingRadius: 0, topTrailingRadius: 0, style: .continuous))
+            .padding(.leading, -20).padding(.vertical, -20)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onExpand)
+            VStack(alignment: .leading, spacing: 0) {
+                TileHeader(title: "Now playing", systemImage: "music.note", accent: Theme.memory) { sourceLamp(np) }
+                Spacer(minLength: 8)
+                Text(np.title).font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(2)
+                Text(np.artist.isEmpty ? np.album : np.artist).font(.deck(15, .medium)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    .padding(.top, 4)
+                Spacer(minLength: 12)
                 ScrubBar(np: np, compact: false) { media.seek(to: $0) }
+                Spacer(minLength: 14)
                 transport(np, compact: false)
             }
+            .padding(.leading, 22)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
+    /// Full-bleed artwork with a gradient into the tile at the bottom (and the
+    /// left edge on wide), so text and header read over it. No artwork: a soft
+    /// rose wash with the note.
+    private func artBleed(_ np: NowPlaying, corner: CGFloat) -> some View {
+        // Color.clear takes the proposed size; the image fills it and is clipped,
+        // so the artwork never pushes the tile's layout around.
+        Color.clear
+            .overlay {
+                if let art = np.artwork {
+                    Image(nsImage: art).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
+                } else {
+                    ZStack {
+                        LinearGradient(colors: [Theme.memory.opacity(0.35), Theme.tileBottom], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        Image(systemName: "music.note").font(.system(size: 54, weight: .medium)).foregroundStyle(Theme.memory.opacity(0.7))
+                    }
+                }
+            }
+            .overlay {
+                LinearGradient(stops: [.init(color: Theme.tileBottom.opacity(0.92), location: 0),
+                                       .init(color: .clear, location: 0.4),
+                                       .init(color: .clear, location: 0.5),
+                                       .init(color: Theme.tileBottom.opacity(0.94), location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+            .overlay {
+                if size.columns > 1 {
+                    LinearGradient(colors: [.clear, Theme.tileBottom], startPoint: .init(x: 0.6, y: 0.5), endPoint: .trailing)
+                }
+            }
+            .clipped()
+    }
+
+    private func sourceLamp(_ np: NowPlaying) -> some View {
+        HStack(spacing: 6) {
+            Lamp(color: np.isPlaying ? Theme.battery : Theme.textFaint, on: np.isPlaying, size: 6)
+            Text(np.source == .spotify ? "Spotify" : "Music").font(.deck(12, .medium)).foregroundStyle(Theme.textSecondary)
+        }
+    }
+
     private func transport(_ np: NowPlaying, compact: Bool) -> some View {
-        HStack(spacing: compact ? 12 : 16) {
-            circle("backward.fill", size: compact ? 14 : 16, diameter: compact ? 40 : 46) { media.previous() }
-            circle(np.isPlaying ? "pause.fill" : "play.fill", size: compact ? 17 : 20, diameter: compact ? 50 : 58, filled: true) { media.togglePlayPause() }
-            circle("forward.fill", size: compact ? 14 : 16, diameter: compact ? 40 : 46) { media.next() }
+        HStack(spacing: compact ? 14 : 16) {
+            circle("backward.fill", size: compact ? 14 : 16, diameter: compact ? 42 : 46) { media.previous() }
+            circle(np.isPlaying ? "pause.fill" : "play.fill", size: compact ? 18 : 20, diameter: compact ? 54 : 58, filled: true) { media.togglePlayPause() }
+            circle("forward.fill", size: compact ? 14 : 16, diameter: compact ? 42 : 46) { media.next() }
         }
     }
 
@@ -411,10 +483,11 @@ struct NowPlayingTile: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: size, weight: .bold))
-                .foregroundStyle(filled ? Color.black : Theme.textPrimary)
+                .foregroundStyle(filled ? Theme.backgroundEdge : Theme.textPrimary)
                 .frame(width: diameter, height: diameter)
-                .background(Circle().fill(filled ? AnyShapeStyle(Theme.textPrimary) : AnyShapeStyle(Color.white.opacity(0.10))))
-                .overlay(Circle().strokeBorder(.white.opacity(filled ? 0 : 0.12), lineWidth: 1))
+                .background(Circle().fill(filled ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.white.opacity(0.08))))
+                .overlay(Circle().strokeBorder(LinearGradient(colors: [Color.white.opacity(filled ? 0.3 : 0.12), Theme.bezelDark],
+                                                              startPoint: .top, endPoint: .bottom), lineWidth: 1))
                 .contentShape(Circle())
         }
         .buttonStyle(.pressable)
@@ -434,12 +507,9 @@ struct NowPlayingTile: View {
 
     @ViewBuilder private func openButton(_ name: String, bundle: String) -> some View {
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
-            Button { NSWorkspace.shared.openApplication(at: url, configuration: .init()) } label: {
-                Text(name).font(.deck(13, .semibold)).foregroundStyle(Theme.textPrimary)
-                    .padding(.horizontal, 14).frame(height: 36)
-                    .background(Capsule().fill(Color.white.opacity(0.07)))
-                    .contentShape(Capsule())
-            }.buttonStyle(.pressable)
+            GhostButton(title: name, tint: Theme.textPrimary, height: 38) {
+                NSWorkspace.shared.openApplication(at: url, configuration: .init())
+            }
         }
     }
 }

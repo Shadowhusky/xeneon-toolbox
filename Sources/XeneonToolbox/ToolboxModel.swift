@@ -125,6 +125,8 @@ final class ToolboxModel: ObservableObject {
     @Published var showRailMenu = false         // the rail's "⋯" menu
     @Published var showAgenda = false           // today's calendar schedule overlay
     @Published var showNowPlayingFull = false   // full-screen media view
+    @Published var showBoost = false            // quit heavy apps you're not using
+    let boost = BoostScanner()
     @Published var crashPrompt: CrashReport?   // last session's crash — offer to report it
     var exportMode = false   // static input bar etc. for off-screen mockup renders
 
@@ -301,6 +303,8 @@ final class ToolboxModel: ObservableObject {
             systemToggles.setDarkMode(!isDark)
         case .keepAwake:
             keepAwake.toggle()
+        case .boost:
+            showBoost = true
         case nil: break
         }
     }
@@ -641,6 +645,7 @@ final class ToolboxModel: ObservableObject {
             return UpdateStrategy.isQuietMoment(idleSeconds: idle, interacting: interacting, fullUI: displayMode == .full)
         }
         if let demo = ProcessInfo.processInfo.environment["XENEON_UPDATE_DEMO"] { updater.demo(demo) } else { updater.start() }
+        if ProcessInfo.processInfo.environment["XENEON_BOOST"] != nil { showBoost = true }
         if canControlBacklight {
             DispatchQueue.global(qos: .utility).async {
                 if let b = Backlight.getBrightness() {

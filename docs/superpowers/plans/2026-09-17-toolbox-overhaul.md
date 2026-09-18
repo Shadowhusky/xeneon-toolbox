@@ -636,6 +636,20 @@ screenshots; Settings also gained "New link" to rotate the key).
   helper keeping `.previous`, quiet toasts, "what's new" after relaunch,
   policies Automatic / Ask first / Off, ETag-conditional checks with jitter.
 
+- **Stale permission grants.** Root cause of "Calendar shows allowed but the
+  app keeps asking": TCC keys a grant to the code signature, and the bundle
+  went from ad-hoc to Developer ID signing, so requests were refused instantly
+  without a prompt while the status stayed "not determined".
+  `AppPermission.requestRepairingStaleGrant` detects the instant refusal, runs
+  `tccutil reset <service> <bundle>` and asks again; the calendar service uses
+  the same path at launch.
+- **Boost.** `BoostScanner` (regular apps + one `ps` pass) and `BoostView`:
+  heavy background apps pre-selected, graceful `terminate()`, freed-memory
+  report. Reachable from More, the Quick actions tile and as a Deck action.
+- **Now Playing tile** redrawn as an album card: artwork bleeds to the tile
+  edges under a gradient, transport with an amber play key.
+- Version 1.18.0.
+
 ## Outcome (2026-09-17)
 
 All tasks executed in this session. Deviations from the plan, with reasons:
