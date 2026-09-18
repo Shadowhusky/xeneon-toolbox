@@ -13,6 +13,7 @@ public let kXeneonTouchEventTag: Int64 = 0x58_454E_4F4E   // "XENON"
 /// Phase of a continuous edge pull (driven from raw touch positions, since
 /// vertical drags reach the app only as scroll events).
 public enum EdgePhase: Sendable { case began, changed, ended }
+public enum EdgeSide: Sendable { case top, bottom }
 
 /// Reads the Xeneon Edge digitizer and injects pointer events. Prefers the
 /// 10-finger digitizer interface (report id 0x0D) for genuine multi-touch —
@@ -91,6 +92,7 @@ final class TouchDriver: @unchecked Sendable {
     var onSwipeApp: ((Bool) -> Void)?                  // side-edge swipe inward — true = next app
     var onLongPress: ((ScreenPoint) -> Void)?          // finger held still — screen point (top-left global)
     var onReport: ((CFAbsoluteTime) -> Void)?          // any HID report seen (liveness for diagnostics)
+    var onEdgeSlide: ((EdgeSide, Double, EdgePhase) -> Void)?   // a slide along the top/bottom edge — travel as a fraction of the width
     var onRawTouches: (([RawTouch]) -> Void)?          // fingers inside a raw region (empty = all lifted)
     var rawRouter = RawTouchRouter()
     var sideSwipeEnabled = false                       // app-switch swipes (set true in fullscreen)
@@ -142,6 +144,9 @@ final class TouchDriver: @unchecked Sendable {
     private var topControl = false      // this top pull started in the right third
     private var bottomActive = false
     private var sideActive = false
+    private var slideActive = false
+    private var slideEligible = false   // the touch began in the thin band right at the edge
+    private var lastSlide = 0.0
     private var edgeSuppress = false    // an edge gesture has engaged — drop pointer events
     private var edgeCancelled = false   // already flushed the in-flight pointer gesture
     // Touch-down anchor + release velocity, so classification tolerates a stale
@@ -152,6 +157,7 @@ final class TouchDriver: @unchecked Sendable {
     private var edgeVelTime = 0.0, edgeVelX0 = 0.0, edgeVelY0 = 0.0
     private let edgeMargin = 84.0       // how close to an edge a touch must start
     private let edgeActivate = 10.0     // travel before a pull engages
+    private let slideBand = 26.0        // edge sliders only start right at the glass edge
     private let appSwipeDistance = 80.0  // inward travel to switch apps
     private let edgeGraceTime = 0.14    // window to still catch an edge after a stale first sample
     private let edgeGraceDist = 64.0
@@ -460,11 +466,13 @@ final class TouchDriver: @unchecked Sendable {
             let projected = min(1, max(0, lastFraction + (edgeVelY / h) * projectTime))
             if topActive { (topControl ? onControlPull : onShadePull)?(projected, .ended) }
             if bottomActive { onBottomPull?(projected, .ended) }
+            if slideActive { onEdgeSlide?(edgeKind == .top ? .top : .bottom, lastSlide, .ended) }
             if sideActive {
                 if edgeKind == .left, lastDX > appSwipeDistance || edgeVelX > flickVelocity { onSwipeApp?(false) }
                 else if edgeKind == .right, -lastDX > appSwipeDistance || -edgeVelX > flickVelocity { onSwipeApp?(true) }
             }
             edgeKind = .none; topActive = false; topControl = false; bottomActive = false; sideActive = false
+            slideActive = false; slideEligible = false
             edgeSuppress = false; edgeAnchored = false
             return
         }
@@ -491,9 +499,11 @@ final class TouchDriver: @unchecked Sendable {
             // staying undecided (not locking to `.middle`) until the touch has
             // clearly moved inward or the grace window has elapsed.
             if localY <= edgeMargin {
-                edgeKind = .top; edgeStartY = p.y; edgeStartXFrac = localX / w
+                edgeKind = .top; edgeStartY = p.y; edgeStartX = p.x; edgeStartXFrac = localX / w
+                slideEligible = localY <= slideBand
             } else if localY >= h - edgeMargin {
-                edgeKind = .bottom; edgeStartY = p.y
+                edgeKind = .bottom; edgeStartY = p.y; edgeStartX = p.x
+                slideEligible = localY >= h - slideBand
             // No side swipes while a grid is in edit mode (dragAnywhereEnabled) —
             // dragging a tile from near a screen edge must not switch apps.
             } else if sideSwipeEnabled, !dragAnywhereEnabled, localX <= edgeMargin {
@@ -504,6 +514,20 @@ final class TouchDriver: @unchecked Sendable {
                 edgeKind = .middle
             }
             return
+        }
+        if slideActive {
+            lastSlide = (p.x - edgeStartX) / w
+            onEdgeSlide?(edgeKind == .top ? .top : .bottom, lastSlide, .changed)
+            return
+        }
+        if (edgeKind == .top || edgeKind == .bottom), !topActive, !bottomActive, !dragAnywhereEnabled {
+            let inward = edgeKind == .top ? p.y - edgeStartY : edgeStartY - p.y
+            if EdgeSlide.decide(along: p.x - edgeStartX, inward: inward, startedInBand: slideEligible, pullActivate: edgeActivate) == .slide {
+                slideActive = true; edgeSuppress = true
+                edgeStartX = p.x; lastSlide = 0   // measure from where the slide engaged, so the level doesn't jump
+                onEdgeSlide?(edgeKind == .top ? .top : .bottom, 0, .began)
+                return
+            }
         }
         switch edgeKind {
         case .top:
@@ -773,6 +797,9 @@ public final class TouchService: @unchecked Sendable {
     public var onSwipeApp: ((Bool) -> Void)?
     /// Called when a finger is held still on the deck — the screen point (off the main thread).
     public var onLongPress: ((ScreenPoint) -> Void)?
+    /// A slide along the top or bottom edge: travel so far as a fraction of the
+    /// panel's width, signed (off the main thread).
+    public var onEdgeSlide: ((EdgeSide, Double, EdgePhase) -> Void)?
     /// Fingers inside a raw region, every report while any are down, then one
     /// empty list when the last lifts (off the main thread).
     public var onRawTouches: (([RawTouch]) -> Void)?
@@ -868,6 +895,7 @@ public final class TouchService: @unchecked Sendable {
         driver.onSwipeApp = { [weak self] next in self?.onSwipeApp?(next) }
         driver.onLongPress = { [weak self] p in self?.onLongPress?(p) }
         driver.onRawTouches = { [weak self] t in self?.onRawTouches?(t) }
+        driver.onEdgeSlide = { [weak self] e, f, p in self?.onEdgeSlide?(e, f, p) }
         driver.rawRouter.regions = lock.withLock { rawRegions }
         driver.onReport = { [weak self] t in
             guard let self else { return }

@@ -130,6 +130,9 @@ final class ToolboxModel: ObservableObject {
     @Published var showAgenda = false           // today's calendar schedule overlay
     @Published var showNowPlayingFull = false   // full-screen media view
     @Published var showBoost = false            // quit heavy apps you're not using
+    @Published var edgeSlidersEnabled = (AppDefaults.shared.object(forKey: "ui.edgeSliders") as? Bool) ?? true {
+        didSet { AppDefaults.shared.set(edgeSlidersEnabled, forKey: "ui.edgeSliders") }
+    }
     @Published var surface: Surface?            // the open surface on the Surfaces page (nil = the grid)
     let rawTouch = RawTouchHub()
     let boost = BoostScanner()
@@ -498,8 +501,56 @@ final class ToolboxModel: ObservableObject {
         t.onSwipeApp = { [weak self] next in Task { @MainActor in self?.handleSwipeApp(next) } }
         t.onLongPress = { [weak self] p in Task { @MainActor in self?.handleLongPress((x: p.x, y: p.y)) } }
         t.onRawTouches = { [weak self] touches in Task { @MainActor in self?.rawTouch.ingest(touches) } }
+        t.onEdgeSlide = { [weak self] side, travel, phase in Task { @MainActor in self?.handleEdgeSlide(side, travel, phase) } }
         t.sideSwipeEnabled = true   // side swipes work in the full UI too (auto-enter fullscreen)
         return t
+    }
+
+    // MARK: Edge sliders — volume along the bottom edge, the Edge's brightness along the top
+
+    private var edgeSlideStart: Double?
+    private var edgeSlideApplied = Date.distantPast
+    private var edgeLevelHide: DispatchWorkItem?
+
+    private func handleEdgeSlide(_ side: EdgeSide, _ travel: Double, _ phase: EdgePhase) {
+        guard edgeSlidersEnabled, !hiddenToBadge else { return }
+        let kind: PanelGestures.EdgeLevel.Kind = side == .bottom ? .volume : .brightness
+        if kind == .brightness && !canControlBacklight { return }
+        switch phase {
+        case .began:
+            edgeLevelHide?.cancel()
+            edgeSlideStart = nil
+            if kind == .brightness {
+                edgeSlideStart = Double(brightness) / 100
+                gestures.edgeLevel = .init(kind: kind, value: Double(brightness) / 100)
+            } else {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let level = SystemVolume.level()
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, let level else { return }
+                        edgeSlideStart = Double(level) / 100
+                        gestures.edgeLevel = .init(kind: kind, value: Double(level) / 100)
+                    }
+                }
+            }
+        case .changed, .ended:
+            guard let start = edgeSlideStart else { return }
+            let value = EdgeSlide.value(start: start, travel: travel)
+            gestures.edgeLevel = .init(kind: kind, value: value)
+            // Both setters are slow (AppleScript, DDC): a few times a second while sliding, always on release.
+            if phase == .ended || Date().timeIntervalSince(edgeSlideApplied) > (kind == .volume ? 0.08 : 0.25) {
+                edgeSlideApplied = Date()
+                let percent = Int((value * 100).rounded())
+                if kind == .volume { DispatchQueue.global(qos: .userInitiated).async { SystemVolume.set(percent) } }
+                else { applyBrightness(percent) }
+            }
+            if phase == .ended {
+                edgeSlideStart = nil
+                let hide = DispatchWorkItem { [weak self] in self?.gestures.edgeLevel = nil }
+                edgeLevelHide = hide
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: hide)
+            }
+        }
     }
 
     /// Swipe in from a side edge to flip to the previous/next app. From the
@@ -621,6 +672,9 @@ final class ToolboxModel: ObservableObject {
         if let u = ProcessInfo.processInfo.environment["XENEON_OPEN_URL"] { route = .web; pendingWebURL = u }
         if let s = ProcessInfo.processInfo.environment["XENEON_SHADE"], let v = Double(s) { gestures.pullFrac = v }
         if ProcessInfo.processInfo.environment["XENEON_CONTROL"] != nil { gestures.controlExt = 1 }
+        if let demo = ProcessInfo.processInfo.environment["XENEON_EDGE_LEVEL"] {
+            gestures.edgeLevel = .init(kind: demo == "brightness" ? .brightness : .volume, value: 0.62)
+        }
         if ProcessInfo.processInfo.environment["XENEON_TUTORIAL"] != nil {
             displayMode = .full; fullscreen = true; showFsTutorial = true
         }

@@ -43,6 +43,7 @@ struct RootView: View {
                 NowPlayingFullView(media: model.media) { model.showNowPlayingFull = false }
             }
         }
+        .overlay { EdgeLevelHUD(gestures: model.gestures) }
         // Focus session finished — a clear alert over whatever's on screen.
         .overlay { FocusDoneGate(timer: model.focusTimer) }
         // A scaled Edge mode: guide the user to the native resolution.

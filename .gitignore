@@ -23,3 +23,5 @@ blender/meshy-multi.glb
 blender/multi-view.png
 docs/shots/
 .wrangler/
+
+.claude/worktrees/

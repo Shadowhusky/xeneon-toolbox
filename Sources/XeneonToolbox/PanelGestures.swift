@@ -11,4 +11,12 @@ final class PanelGestures: ObservableObject {
     @Published var controlExt: Double = 0
     /// A driver long-press, in Edge-local (window) coordinates.
     @Published var longPressAt: CGPoint?
+    /// The level an edge slide is setting, while the finger is down and a moment after.
+    @Published var edgeLevel: EdgeLevel?
+
+    struct EdgeLevel: Equatable {
+        enum Kind { case volume, brightness }
+        let kind: Kind
+        var value: Double
+    }
 }
