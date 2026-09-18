@@ -190,8 +190,12 @@ struct ScrubBar: View {
 
     private var knob: CGFloat { compact ? 11 : 14 }
 
+    /// The bar only needs redrawing while the track moves: a paused track
+    /// stands still, and the tile's short bar moves less than a point a second.
+    private var tick: TimeInterval { !np.isPlaying ? 3600 : compact ? 2 : 1 }
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+        TimelineView(.periodic(from: .now, by: tick)) { ctx in
             let liveFrac = np.duration > 0 ? min(1, max(0, np.elapsedNow(ctx.date) / np.duration)) : 0
             let frac = dragFrac ?? liveFrac
             let shown = dragFrac.map { $0 * np.duration } ?? np.elapsedNow(ctx.date)

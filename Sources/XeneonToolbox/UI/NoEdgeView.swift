@@ -22,7 +22,8 @@ struct NoEdgeView: View {
                         .font(.deck(15)).foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 12) {
-                        DeckSpinner(size: 22)
+                        Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Theme.accent).frame(width: 22)
                         Text("Looking for the panel…").font(.deck(13, .medium)).foregroundStyle(Theme.textFaint)
                         Spacer(minLength: 0)
                         GhostButton(title: "Quit", tint: Theme.textSecondary, height: 44, action: onQuit)

@@ -207,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if let edge = edgeScreen() {
+            stopEdgeSearch()
             // Non-activating kiosk: a tap drives the panel without making us the
             // active app, so it never yanks focus off whatever you're doing on the
             // main display. becomesKeyOnlyIfNeeded means only a text field pulls
@@ -226,6 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             startYieldWatch()
         } else {
             stopYieldWatch()
+            startEdgeSearch()
             // No Edge connected: restore a normal titled window centered on the main
             // display, with a visible title and a close button, so it can always be
             // moved and quit. It re-pins to the Edge automatically once it appears.
@@ -273,6 +275,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // panel — so a light watchdog re-asserts the kiosk to the front on every pass
     // and on every app/Space change. Apps launched from the deck open on the main
     // display, so nothing is expected to land on the Edge in the first place.
+
+    // A panel that was asleep at launch comes back without a screen-parameters
+    // change we can rely on, so while it's missing, look for it.
+    private var edgeSearchTimer: Timer?
+
+    private func startEdgeSearch() {
+        guard edgeSearchTimer == nil else { return }
+        let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.edgeScreen() != nil else { return }
+                AppLog.info("display", "Edge found — moving onto it")
+                self.placeWindow()
+                self.model.refreshTouchDisplay()
+                self.model.reacquireSoon()
+            }
+        }
+        t.tolerance = 1
+        RunLoop.main.add(t, forMode: .common)
+        edgeSearchTimer = t
+    }
+
+    private func stopEdgeSearch() {
+        edgeSearchTimer?.invalidate(); edgeSearchTimer = nil
+    }
 
     static let kioskLevel = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 1)
     private var yieldTimer: Timer?
