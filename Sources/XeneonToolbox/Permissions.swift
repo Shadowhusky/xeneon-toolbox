@@ -125,33 +125,79 @@ enum AppPermission: String, CaseIterable, Identifiable {
     private static var bluetoothProbe: CBCentralManager?
     private static let eventStore = EKEventStore()
 
+    /// The name `tccutil` knows this service by (Location isn't a TCC service).
+    var tccService: String? {
+        switch self {
+        case .inputMonitoring: return "ListenEvent"
+        case .accessibility: return "Accessibility"
+        case .calendar: return "Calendar"
+        case .microphone: return "Microphone"
+        case .speech: return "SpeechRecognition"
+        case .bluetooth: return "Bluetooth"
+        case .location: return nil
+        }
+    }
+
     /// Asks macOS to show its own prompt. Only possible while the answer is still
     /// undecided (and never for Accessibility, which only has the Settings pane).
-    func requestFromSystem() {
+    /// The completion reports the answer; the prompts that have no callback
+    /// report nil.
+    func requestFromSystem(completion: @escaping (Bool?) -> Void = { _ in }) {
         switch self {
-        case .inputMonitoring: _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        case .inputMonitoring: completion(IOHIDRequestAccess(kIOHIDRequestTypeListenEvent))
         case .accessibility:
             let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(opts)
-        case .calendar: Self.eventStore.requestFullAccessToEvents { _, _ in }
-        case .location: Self.locationManager.requestWhenInUseAuthorization()
-        case .microphone: AVCaptureDevice.requestAccess(for: .audio) { _ in }
-        case .speech: SFSpeechRecognizer.requestAuthorization { _ in }
-        case .bluetooth: Self.bluetoothProbe = CBCentralManager(delegate: nil, queue: nil)   // creating one asks
+            completion(AXIsProcessTrustedWithOptions(opts))
+        case .calendar: Self.eventStore.requestFullAccessToEvents { granted, _ in completion(granted) }
+        case .location: Self.locationManager.requestWhenInUseAuthorization(); completion(nil)
+        case .microphone: AVCaptureDevice.requestAccess(for: .audio) { completion($0) }
+        case .speech: SFSpeechRecognizer.requestAuthorization { completion($0 == .authorized) }
+        case .bluetooth: Self.bluetoothProbe = CBCentralManager(delegate: nil, queue: nil); completion(nil)   // creating one asks
+        }
+    }
+
+    /// macOS remembers a grant per code signature. A copy of the app signed
+    /// differently (an earlier ad-hoc build) leaves a record that no longer
+    /// matches this one: System Settings shows the switch on, yet every request
+    /// is refused instantly without a prompt and the status never leaves
+    /// "not determined". Clearing that record lets the prompt appear again.
+    /// Calls back with the final answer.
+    func requestRepairingStaleGrant(completion: @escaping (Bool) -> Void) {
+        let asked = CFAbsoluteTimeGetCurrent()
+        requestFromSystem { granted in
+            let instant = CFAbsoluteTimeGetCurrent() - asked < 0.4
+            guard granted == false, instant, self.status == .notDetermined, let service = self.tccService,
+                  let bundle = Bundle.main.bundleIdentifier else {
+                completion(granted ?? (self.status == .granted)); return
+            }
+            AppLog.info("permissions", "\(self.title): refused without a prompt — clearing the stale grant and asking again")
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            p.arguments = ["reset", service, bundle]
+            p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+            try? p.run(); p.waitUntilExit()
+            self.requestFromSystem { again in completion(again ?? (self.status == .granted)) }
         }
     }
 
     /// The one-tap flow: bring the app forward so the system prompt can appear,
-    /// ask, and if nothing was granted shortly after, open the exact pane.
+    /// ask (repairing a stale record if that's what blocks the prompt), and if
+    /// macOS still won't ask, open the exact pane.
     @MainActor
     func guide() {
-        if status == .notDetermined {
+        switch status {
+        case .granted:
+            return
+        case .notDetermined:
             NSApp.activate(ignoringOtherApps: true)
-            requestFromSystem()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                if self.status != .granted { self.openSettings() }
+            let asked = CFAbsoluteTimeGetCurrent()
+            requestRepairingStaleGrant { granted in
+                DispatchQueue.main.async {
+                    // An instant refusal means no prompt was shown; a slow answer was the user's.
+                    if !granted, CFAbsoluteTimeGetCurrent() - asked < 1.0, self.status != .granted { self.openSettings() }
+                }
             }
-        } else if status == .denied {
+        case .denied:
             openSettings()
         }
     }

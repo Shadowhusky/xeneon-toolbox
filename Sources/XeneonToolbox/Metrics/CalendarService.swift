@@ -80,7 +80,7 @@ final class CalendarService: ObservableObject {
         case .fullAccess:
             refresh()
         case .notDetermined:
-            store.requestFullAccessToEvents { [weak self] granted, _ in
+            AppPermission.calendar.requestRepairingStaleGrant { [weak self] granted in
                 Task { @MainActor in
                     AppLog.info("calendar", "access \(granted ? "granted" : "declined")")
                     if granted { self?.refresh() }
