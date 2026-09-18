@@ -13,7 +13,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0b0d'/%3E%3Crect x='7' y='7' width='8' height='8' rx='2' fill='%23f5b544'/%3E%3Crect x='17' y='7' width='8' height='8' rx='2' fill='%23f5b544'/%3E%3Crect x='7' y='17' width='8' height='8' rx='2' fill='%23f5b544'/%3E%3Crect x='17' y='17' width='8' height='8' rx='2' fill='%23f5b544'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Tektur:wght@500;600;700&family=Chakra+Petch:wght@400;500;600&family=Bitcount+Prop+Single:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="site.css">
 <script type="importmap">
 { "imports": {
@@ -24,56 +24,68 @@
 </head>
 <body class="booting">
 
-<canvas id="world" aria-label="A 3D Xeneon Edge running Xeneon Toolbox. Scrolling moves the camera; tapping the screen sends a touch."></canvas>
+<canvas id="world" data-i18n-label="canvas.label" aria-label="A 3D Xeneon Edge running Xeneon Toolbox. Scrolling moves the camera; tapping the screen sends a touch."></canvas>
 <img class="nogl-hero" src="assets/3d/hero.png" alt="The Xeneon Edge running the Xeneon Toolbox dashboard">
 
 <div id="boot" role="status" aria-live="polite">
   <svg viewBox="0 0 200 200" aria-hidden="true"><g id="boot-ticks"></g></svg>
-  <p class="mono">Powering on</p>
+  <p class="mono" data-i18n="boot">Powering on</p>
 </div>
 
 <header class="top">
   <a class="brand" href="#hero"><span class="mark" aria-hidden="true"></span><span>Xeneon Toolbox</span></a>
   <div class="top-right">
-    <button class="pill" id="sound" aria-pressed="false"><span class="lamp"></span>Sound</button>
+    <div class="lang" id="lang">
+      <button class="pill" id="lang-btn" aria-haspopup="true" aria-expanded="false" data-i18n-label="top.language" aria-label="Language">
+        <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.6 8h12.8M8 1.6c2 2.1 2 10.7 0 12.8M8 1.6c-2 2.1-2 10.7 0 12.8" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+        <span id="lang-name">English</span>
+      </button>
+      <div class="lang-menu" id="lang-menu" role="menu" hidden>
+        <button role="menuitemradio" data-lang="en" lang="en">English</button>
+        <button role="menuitemradio" data-lang="zh-Hans" lang="zh-Hans">简体中文</button>
+        <button role="menuitemradio" data-lang="zh-Hant" lang="zh-Hant">繁體中文</button>
+        <button role="menuitemradio" data-lang="ja" lang="ja">日本語</button>
+      </div>
+    </div>
+    <button class="pill" id="sound" aria-pressed="false"><svg class="snd" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6v4h2.7L9 13V3L5.2 6H2.5z" fill="currentColor"/><path class="wave" d="M11 5.5a3.5 3.5 0 0 1 0 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span data-i18n="top.sound">Sound</span></button>
     <a class="pill" href="https://github.com/Shadowhusky/xeneon-toolbox" rel="noopener">GitHub</a>
-    <a class="pill solid" href="https://github.com/Shadowhusky/xeneon-toolbox/releases/latest/download/XeneonToolbox.zip">Download</a>
+    <a class="pill solid" href="https://github.com/Shadowhusky/xeneon-toolbox/releases/latest/download/XeneonToolbox.zip" data-i18n="top.download">Download</a>
   </div>
 </header>
 
 <nav class="rail" aria-label="Chapters">
-  <button data-go="hero"><span class="lamp"></span><span class="mono">Power on</span></button>
-  <button data-go="strip"><span class="lamp"></span><span class="mono">The strip</span></button>
-  <button data-go="apart"><span class="lamp"></span><span class="mono">Touch</span></button>
-  <button data-go="tiles"><span class="lamp"></span><span class="mono">Tiles</span></button>
-  <button data-go="night"><span class="lamp"></span><span class="mono">Night</span></button>
-  <button data-go="land"><span class="lamp"></span><span class="mono">Install</span></button>
+  <button data-go="hero"><span class="lamp"></span><span class="mono" data-i18n="rail.hero">Power on</span></button>
+  <button data-go="strip"><span class="lamp"></span><span class="mono" data-i18n="rail.strip">The strip</span></button>
+  <button data-go="apart"><span class="lamp"></span><span class="mono" data-i18n="rail.apart">Touch</span></button>
+  <button data-go="tiles"><span class="lamp"></span><span class="mono" data-i18n="rail.tiles">Tiles</span></button>
+  <button data-go="night"><span class="lamp"></span><span class="mono" data-i18n="rail.night">Night</span></button>
+  <button data-go="land"><span class="lamp"></span><span class="mono" data-i18n="rail.land">Install</span></button>
 </nav>
 
 <div id="labels" aria-hidden="true">
-  <div class="label" data-part="glass"><b>Cover glass</b><span class="mono">capacitive multi-touch</span></div>
-  <div class="label" data-part="screen"><b>Panel</b><span class="mono">2560 × 720</span></div>
-  <div class="label" data-part="housing"><b>Housing</b><span class="mono">one USB-C cable</span></div>
+  <div class="label" data-part="glass"><b data-i18n="label.glass">Cover glass</b><span class="mono" data-i18n="label.glass.sub">capacitive multi-touch</span></div>
+  <div class="label" data-part="screen"><b data-i18n="label.screen">Panel</b><span class="mono" data-i18n="label.screen.sub">2560 × 720</span></div>
+  <div class="label" data-part="housing"><b data-i18n="label.housing">Housing</b><span class="mono" data-i18n="label.housing.sub">one USB-C cable</span></div>
 </div>
 
 <main>
   <section class="chapter" id="hero" data-chapter="hero" style="--len:1.15">
     <div class="stick">
       <div class="cap cap-left" data-cap="hero">
-        <p class="kicker mono" data-r style="--i:0"><span class="lamp on"></span>Free · open source · macOS 14+ · <span id="ver">v1.18.0</span></p>
         <h1>
-          <span class="line"><span data-r style="--i:1">Your Mac,</span></span>
-          <span class="line"><span data-r style="--i:2">on the Edge.</span></span>
+          <span class="line"><span data-r style="--i:0" data-i18n="hero.h1a">Your Mac,</span></span>
+          <span class="line"><span data-r style="--i:1" data-i18n="hero.h1b">on the Edge.</span></span>
         </h1>
-        <p class="lede" data-r style="--i:3">Turn the Corsair Xeneon Edge into a touch dashboard, launcher and control deck. Built for a 2560 × 720 strip and a finger.</p>
-        <div class="cta" data-r style="--i:4">
+        <p class="lede" data-r style="--i:2" data-i18n="hero.lede">Xeneon Toolbox turns Corsair's Xeneon Edge into a touch panel for your Mac: a dashboard, an app launcher and a set of controls, drawn for a 2560 × 720 strip.</p>
+        <div class="cta" data-r style="--i:3">
           <a class="btn primary" href="https://github.com/Shadowhusky/xeneon-toolbox/releases/latest/download/XeneonToolbox.zip">
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1v9m0 0L4.5 6.5M8 10l3.5-3.5M2.5 12.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Download for macOS
+            <span data-i18n="hero.cta">Download for macOS</span>
           </a>
-          <a class="btn ghost" href="https://github.com/Shadowhusky/xeneon-toolbox" rel="noopener">View the source</a>
+          <a class="btn ghost" href="https://github.com/Shadowhusky/xeneon-toolbox" rel="noopener" data-i18n="hero.source">View the source</a>
         </div>
-        <p class="hint mono" data-r style="--i:5"><span class="lamp"></span>Touch the screen. Scroll to move the camera.</p>
+        <p class="note" data-r style="--i:4" data-i18n="hero.note">Version 1.18.0. Free and open source. Needs macOS 14 or later.</p>
+        <p class="hint" data-r style="--i:5" data-i18n="hero.hint">Tap the screen. Scroll to move the camera.</p>
       </div>
     </div>
   </section>
@@ -81,12 +93,12 @@
   <section class="chapter" id="strip" data-chapter="strip" style="--len:3.4">
     <div class="stick">
       <div class="cap-stack cap-bottom">
-        <div class="cap" data-cap="strip" data-k="0"><span class="mono idx" data-r>1 / 6</span><h2 data-r style="--i:1">Dashboard</h2><p data-r style="--i:2">Sixteen cells, eighteen tiles. Processor, graphics, memory, network, thermals, weather, calendar, tasks and what's playing, as instruments you can read from across the desk.</p><img class="nogl-shot" src="assets/screens/dashboard.webp" alt="" loading="lazy"></div>
-        <div class="cap" data-cap="strip" data-k="1"><span class="mono idx" data-r>2 / 6</span><h2 data-r style="--i:1">Deck</h2><p data-r style="--i:2">A launcher you build with your thumb. Apps, sites, hotkeys, shell commands, webhooks and multi-step tiles on named pages.</p><img class="nogl-shot" src="assets/screens/deck.webp" alt="" loading="lazy"></div>
-        <div class="cap" data-cap="strip" data-k="2"><span class="mono idx" data-r>3 / 6</span><h2 data-r style="--i:1">Clock</h2><p data-r style="--i:2">World clocks, a focus timer, and a day bar that shows where you are between dawn and dusk.</p><img class="nogl-shot" src="assets/screens/clock.webp" alt="" loading="lazy"></div>
-        <div class="cap" data-cap="strip" data-k="3"><span class="mono idx" data-r>4 / 6</span><h2 data-r style="--i:1">Assistant</h2><p data-r style="--i:2">Talk or type. It launches apps, checks the system, searches the web, and asks before anything risky. Any OpenAI-compatible endpoint, local models included.</p><img class="nogl-shot" src="assets/screens/assistant.webp" alt="" loading="lazy"></div>
-        <div class="cap" data-cap="strip" data-k="4"><span class="mono idx" data-r>5 / 6</span><h2 data-r style="--i:1">Control centre</h2><p data-r style="--i:2">Wi-Fi, Bluetooth, appearance, brightness, audio output and media. One swipe from the top-right corner.</p><img class="nogl-shot" src="assets/screens/control-center.webp" alt="" loading="lazy"></div>
-        <div class="cap" data-cap="strip" data-k="5"><span class="mono idx" data-r>6 / 6</span><h2 data-r style="--i:1">Boost</h2><p data-r style="--i:2">See what's heavy in the background, quit what you're not using, and get the memory back. No fake cleaning.</p><img class="nogl-shot" src="assets/screens/boost.webp" alt="" loading="lazy"></div>
+        <div class="cap" data-cap="strip" data-k="0"><span class="mono idx" data-r>1 / 6</span><h2 data-r style="--i:1" data-i18n="strip.0.title">Dashboard</h2><p data-r style="--i:2" data-i18n="strip.0.body">Processor, memory, network, temperatures, weather, your calendar, your tasks and the song that's playing. Eighteen tiles to arrange on a two-row board, readable from across the desk.</p><img class="nogl-shot" src="assets/screens/dashboard.webp" alt="" loading="lazy"></div>
+        <div class="cap" data-cap="strip" data-k="1"><span class="mono idx" data-r>2 / 6</span><h2 data-r style="--i:1" data-i18n="strip.1.title">Deck</h2><p data-r style="--i:2" data-i18n="strip.1.body">A launcher you set up with your thumb. Buttons open apps and sites, fire hotkeys, run shell commands or call a webhook, and you can chain several into one tap.</p><img class="nogl-shot" src="assets/screens/deck.webp" alt="" loading="lazy"></div>
+        <div class="cap" data-cap="strip" data-k="2"><span class="mono idx" data-r>3 / 6</span><h2 data-r style="--i:1" data-i18n="strip.2.title">Clock</h2><p data-r style="--i:2" data-i18n="strip.2.body">World clocks, a focus timer, and a bar that shows how far through the day you are.</p><img class="nogl-shot" src="assets/screens/clock.webp" alt="" loading="lazy"></div>
+        <div class="cap" data-cap="strip" data-k="3"><span class="mono idx" data-r>4 / 6</span><h2 data-r style="--i:1" data-i18n="strip.3.title">Assistant</h2><p data-r style="--i:2" data-i18n="strip.3.body">Ask by voice or keyboard. It opens apps, checks on the system, looks things up and sets reminders, and it asks before doing anything risky. Works with any OpenAI-compatible endpoint, including models running on your own Mac.</p><img class="nogl-shot" src="assets/screens/assistant.webp" alt="" loading="lazy"></div>
+        <div class="cap" data-cap="strip" data-k="4"><span class="mono idx" data-r>5 / 6</span><h2 data-r style="--i:1" data-i18n="strip.4.title">Control centre</h2><p data-r style="--i:2" data-i18n="strip.4.body">Wi-Fi, Bluetooth, dark mode, brightness, sound output and playback, one swipe down from the top-right corner.</p><img class="nogl-shot" src="assets/screens/control-center.webp" alt="" loading="lazy"></div>
+        <div class="cap" data-cap="strip" data-k="5"><span class="mono idx" data-r>6 / 6</span><h2 data-r style="--i:1" data-i18n="strip.5.title">Boost</h2><p data-r style="--i:2" data-i18n="strip.5.body">Shows which background apps are eating memory and quits the ones you pick. It doesn't pretend to clean your RAM.</p><img class="nogl-shot" src="assets/screens/boost.webp" alt="" loading="lazy"></div>
       </div>
     </div>
   </section>
@@ -94,10 +106,10 @@
   <section class="chapter" id="apart" data-chapter="apart" style="--len:2.4">
     <div class="stick">
       <div class="cap cap-left" data-cap="apart">
-        <span class="mono idx" data-r>Touch</span>
-        <h2 data-r style="--i:1">A real touch driver.<br>No kernel extension.</h2>
-        <p data-r style="--i:2">Plugged into a Mac, the Edge is a vague "touch board": taps land in the wrong place. The Toolbox reads the digitizer directly, so a tap lands where you touch, two fingers scroll and pinch, and edge swipes change screens.</p>
-        <p data-r style="--i:3">When your finger lifts, the pointer goes back to wherever you were working.</p>
+        <span class="mono idx" data-r data-i18n="apart.idx">Touch</span>
+        <h2 data-r style="--i:1" data-i18n-html="apart.title.html">A real touch driver.<br>No kernel extension.</h2>
+        <p data-r style="--i:2" data-i18n="apart.p1">macOS treats the Edge as a generic pointing device, so taps land in the wrong place. The Toolbox reads the touch controller directly. Taps land where your finger is, two fingers scroll and pinch, and swipes from the edges switch screens.</p>
+        <p data-r style="--i:3" data-i18n="apart.p2">Lift your finger and the pointer returns to where you were working on the other display.</p>
       </div>
     </div>
   </section>
@@ -105,11 +117,11 @@
   <section class="chapter" id="tiles" data-chapter="tiles" style="--len:3.8">
     <div class="stick">
       <div class="cap-stack cap-bottom">
-        <div class="cap" data-cap="tiles" data-k="0"><span class="mono idx" data-r>Instruments</span><h2 data-r style="--i:1">Gauges that tick, not spin</h2><p data-r style="--i:2">Forty-eight ticks over 270 degrees, animated on the render server. The whole board idles under one percent of a core.</p></div>
-        <div class="cap" data-cap="tiles" data-k="1"><span class="mono idx" data-r>Up next</span><h2 data-r style="--i:1">Your day, at a glance</h2><p data-r style="--i:2">The next events from your calendar, with the one happening now lit. Tap for the full agenda.</p></div>
-        <div class="cap" data-cap="tiles" data-k="2"><span class="mono idx" data-r>Running</span><h2 data-r style="--i:1">Every app, one tap away</h2><p data-r style="--i:2">Tap to bring an app forward. Hold to send its window to another display.</p></div>
-        <div class="cap" data-cap="tiles" data-k="3"><span class="mono idx" data-r>Now playing</span><h2 data-r style="--i:1">The record on the desk</h2><p data-r style="--i:2">Spotify or Music as an album card with transport and scrubbing, driven by events instead of polling.</p></div>
-        <div class="cap" data-cap="tiles" data-k="4"><span class="mono idx" data-r>Yours</span><h2 data-r style="--i:1">Drag, resize, add</h2><p data-r style="--i:2">Small, wide and tall tiles on a two-row grid. Hold the board to rearrange it. It stays the way you left it.</p></div>
+        <div class="cap" data-cap="tiles" data-k="0"><span class="mono idx" data-r data-i18n="tiles.0.idx">Instruments</span><h2 data-r style="--i:1" data-i18n="tiles.0.title">Gauges built from ticks</h2><p data-r style="--i:2" data-i18n="tiles.0.body">Forty-eight ticks across 270 degrees, drawn by the GPU. With every gauge live, the app uses under one percent of a core.</p></div>
+        <div class="cap" data-cap="tiles" data-k="1"><span class="mono idx" data-r data-i18n="tiles.1.idx">Up next</span><h2 data-r style="--i:1" data-i18n="tiles.1.title">The rest of your day</h2><p data-r style="--i:2" data-i18n="tiles.1.body">Today's remaining events from Calendar, with the current one lit. Tap for the full agenda.</p></div>
+        <div class="cap" data-cap="tiles" data-k="2"><span class="mono idx" data-r data-i18n="tiles.2.idx">Running</span><h2 data-r style="--i:1" data-i18n="tiles.2.title">Every open app, one tap away</h2><p data-r style="--i:2" data-i18n="tiles.2.body">Tap an icon to bring that app forward. Press and hold to send its window to another display.</p></div>
+        <div class="cap" data-cap="tiles" data-k="3"><span class="mono idx" data-r data-i18n="tiles.3.idx">Now playing</span><h2 data-r style="--i:1" data-i18n="tiles.3.title">What's on</h2><p data-r style="--i:2" data-i18n="tiles.3.body">Artwork, scrubbing and transport for Spotify and Music. It listens for changes instead of polling.</p></div>
+        <div class="cap" data-cap="tiles" data-k="4"><span class="mono idx" data-r data-i18n="tiles.4.idx">Yours</span><h2 data-r style="--i:1" data-i18n="tiles.4.title">Arrange it your way</h2><p data-r style="--i:2" data-i18n="tiles.4.body">Tiles come small, wide or tall. Press and hold the board to move, resize, remove or add them. The layout is saved.</p></div>
       </div>
     </div>
   </section>
@@ -117,9 +129,9 @@
   <section class="chapter" id="night" data-chapter="night" style="--len:2">
     <div class="stick">
       <div class="cap cap-left" data-cap="night">
-        <span class="mono idx" data-r>Ambient</span>
-        <h2 data-r style="--i:1">A night clock when<br>you're not looking.</h2>
-        <p data-r style="--i:2">Pull down from the top edge and the strip drops to a quiet clock with the next event, the weather and the music. Tap to bring the panel back. Updates install themselves while it rests.</p>
+        <span class="mono idx" data-r data-i18n="night.idx">Ambient</span>
+        <h2 data-r style="--i:1" data-i18n-html="night.title.html">A quiet clock for the hours<br>you're not looking.</h2>
+        <p data-r style="--i:2" data-i18n="night.body">Swipe down from the top and the strip dims to a clock with your next event, the weather and the music. Tap to wake it. Updates install while it's idle.</p>
       </div>
     </div>
   </section>
@@ -127,15 +139,15 @@
   <section class="chapter" id="land" data-chapter="land" style="--len:1.7">
     <div class="stick">
       <div class="cap cap-install" data-cap="land">
-        <h2 data-r>Install in a minute</h2>
+        <h2 data-r data-i18n="land.title">Set up in about a minute</h2>
         <ol class="steps">
-          <li data-r style="--i:1"><span class="mono num">1</span><div><h3>Download, move to Applications</h3><p>One app in a zip. Notarized by Apple. Nothing runs as root.</p></div></li>
-          <li data-r style="--i:2"><span class="mono num">2</span><div><h3>Allow Input Monitoring and Accessibility</h3><p>The app asks, opens the exact Privacy pane if macOS won't, and confirms the moment you flip the switch.</p></div></li>
-          <li data-r style="--i:3"><span class="mono num">3</span><div><h3>Let it fix the resolution</h3><p>macOS often scales the Edge. One tap sets the native 2560 × 720, and undoes it if it looked wrong.</p></div></li>
+          <li data-r style="--i:1"><span class="mono num">1</span><div><h3 data-i18n="land.s1.title">Download it and drag it to Applications</h3><p data-i18n="land.s1.body">It's a single app, notarized by Apple. Nothing runs as root.</p></div></li>
+          <li data-r style="--i:2"><span class="mono num">2</span><div><h3 data-i18n="land.s2.title">Allow Input Monitoring and Accessibility</h3><p data-i18n="land.s2.body">The app asks for both. If macOS doesn't show a prompt, it opens the right pane in System Settings and notices when you flip the switch.</p></div></li>
+          <li data-r style="--i:3"><span class="mono num">3</span><div><h3 data-i18n="land.s3.title">Let it set the resolution</h3><p data-i18n="land.s3.body">macOS usually picks a scaled mode for the Edge. One tap switches to the native 2560 × 720, and you can undo it.</p></div></li>
         </ol>
         <div class="cta center" data-r style="--i:4">
-          <a class="btn primary big" href="https://github.com/Shadowhusky/xeneon-toolbox/releases/latest/download/XeneonToolbox.zip">Download for macOS</a>
-          <p class="mono fine">Requires a Corsair Xeneon Edge and macOS 14 or later. Apple silicon and Intel.</p>
+          <a class="btn primary big" href="https://github.com/Shadowhusky/xeneon-toolbox/releases/latest/download/XeneonToolbox.zip" data-i18n="hero.cta">Download for macOS</a>
+          <p class="fine" data-i18n="land.note">Requires a Corsair Xeneon Edge and macOS 14 or later. Runs on Apple silicon and Intel.</p>
         </div>
       </div>
     </div>
@@ -143,12 +155,12 @@
 </main>
 
 <footer class="foot">
-  <div><span class="mark small" aria-hidden="true"></span><span>Xeneon Toolbox</span><span class="mono fine">Made in London by Shadow Husky</span></div>
+  <div><span class="mark small" aria-hidden="true"></span><span>Xeneon Toolbox</span><span class="fine" data-i18n="foot.made">Made in London by Shadow Husky</span></div>
   <nav>
-    <a href="https://github.com/Shadowhusky/xeneon-toolbox" rel="noopener">Source</a>
-    <a href="https://github.com/Shadowhusky/xeneon-toolbox/releases" rel="noopener">Releases</a>
-    <a href="https://github.com/Shadowhusky/xeneon-toolbox/issues" rel="noopener">Issues</a>
-    <a href="https://www.buymeacoffee.com/Richardliao" rel="noopener">Buy me a coffee</a>
+    <a href="https://github.com/Shadowhusky/xeneon-toolbox" rel="noopener" data-i18n="foot.source">Source</a>
+    <a href="https://github.com/Shadowhusky/xeneon-toolbox/releases" rel="noopener" data-i18n="foot.releases">Releases</a>
+    <a href="https://github.com/Shadowhusky/xeneon-toolbox/issues" rel="noopener" data-i18n="foot.issues">Issues</a>
+    <a href="https://www.buymeacoffee.com/Richardliao" rel="noopener" data-i18n="foot.coffee">Buy me a coffee</a>
   </nav>
 </footer>
 

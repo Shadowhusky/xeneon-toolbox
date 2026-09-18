@@ -6,6 +6,9 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { initLanguage, setVersion } from "./i18n.js";
+
+initLanguage();
 
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
@@ -126,7 +129,11 @@ const tileShader = {
 async function world() {
   const canvas = document.getElementById("world");
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  // Retina canvases are where the time goes: render to a pixel budget, and shrink it if frames run long.
+  const small = () => innerWidth < 900 || innerHeight < 620;
+  let quality = 1;
+  const pixelRatio = () => clamp(Math.sqrt((small() ? 1.5e6 : 2.5e6) * quality / (innerWidth * innerHeight)), 0.7, Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(pixelRatio());
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -137,7 +144,7 @@ async function world() {
   scene.environmentIntensity = 0.45;
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
 
-  const target = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, samples: 4 });
+  const target = new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, samples: small() ? 2 : 4 });
   const composer = new EffectComposer(renderer, target);
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.45, 0.75, 0.9);
@@ -185,12 +192,14 @@ async function world() {
   screenMesh.material = screenMat;
   gltf.scene.traverse((o) => {
     if (!o.isMesh) return;
-    if (o.material.name === "Glass") { o.material.envMapIntensity = 0.22; o.material.roughness = 0.12; }
+    if (o.material.name === "Glass") { o.material.envMapIntensity = 0.16; o.material.roughness = 0.3; o.material.specularIntensity = 0.25; }
+    if (o.material.name === "BezelInk") { o.material.roughness = 0.75; o.material.envMapIntensity = 0.1; }
     if (o.material.name === "Aluminium") { o.material.color.setHex(0x80848a); o.material.envMapIntensity = 0.6; }
   });
 
   // A mirrored twin under a translucent floor gives the reflection (made before the tiles exist).
-  const mirror = rig.clone(true); mirror.scale.y *= -1; scene.add(mirror);
+  const mirror = small() ? null : rig.clone(true);
+  if (mirror) { mirror.scale.y *= -1; scene.add(mirror); }
   const fade = document.createElement("canvas"); fade.width = fade.height = 256;
   { const c = fade.getContext("2d"), g = c.createRadialGradient(128, 128, 10, 128, 128, 128);
     g.addColorStop(0, "#fff"); g.addColorStop(0.35, "#d0d0d0"); g.addColorStop(0.7, "#3a3a3a"); g.addColorStop(1, "#000"); c.fillStyle = g; c.fillRect(0, 0, 256, 256); }
@@ -242,7 +251,7 @@ async function world() {
 
   // ----- The dial: a fine ring of 96 ticks behind the panel; scroll fills it, the leading ticks glow amber
   const TICKS = 96;
-  const dial = new THREE.InstancedMesh(new THREE.BoxGeometry(0.011, 1, 0.011), new THREE.MeshBasicMaterial({ toneMapped: false }), TICKS);
+  const dial = new THREE.InstancedMesh(new THREE.BoxGeometry(0.011, 1, 0.011), new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), TICKS);
   { const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3();
     for (let i = 0; i < TICKS; i++) {
       const th = (-45 + (270 * i) / (TICKS - 1)) * Math.PI / 180, len = i % 4 === 0 ? 0.2 : 0.1;
@@ -250,7 +259,7 @@ async function world() {
       dial.setMatrixAt(i, m.compose(p, q, sc.set(1, len, 1))); dial.setColorAt(i, new THREE.Color(0x0f1013));
     } }
   dial.position.copy(C).add(new THREE.Vector3(0, 0.2, -2.0)); scene.add(dial);
-  const boneColor = new THREE.Color(0.62, 0.6, 0.56), leadColor = AMBER.clone().multiplyScalar(2.6), dimColor = new THREE.Color(0x0d0e11), tmpColor = new THREE.Color();
+  const boneColor = new THREE.Color(0.62, 0.6, 0.56), leadColor = AMBER.clone().multiplyScalar(2.6), dimColor = new THREE.Color(0x060606), tmpColor = new THREE.Color();
   // A fractional fill: ticks fade up rather than pop, and the newest few carry the amber.
   const setDial = (fill, brightness) => {
     for (let i = 0; i < TICKS; i++) {
@@ -271,18 +280,17 @@ async function world() {
   const key = new THREE.DirectionalLight(0xfff1df, 0); key.position.set(-4, 6, 5); scene.add(key);
   const rim = new THREE.PointLight(0xf5b544, 16, 14, 2); rim.position.copy(C).add(new THREE.Vector3(3.2, 1.6, -2.4)); scene.add(rim);
   const hemi = new THREE.HemisphereLight(0x8fd3f4, 0x0a0b0d, 0); scene.add(hemi);
-  const cursorLight = new THREE.PointLight(0xd4ecff, 0, 5.5, 2); scene.add(cursorLight);
 
   // ----- Camera poses, one per chapter
   const dir = (x, y, z) => new THREE.Vector3(x, y, z).normalize();
-  let poses = [];
+  let poses = [], wide = true;
   const buildPoses = () => {
-    const wide = camera.aspect > 1.05;
+    wide = camera.aspect > 1.05;
     const hFov = 2 * Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect);
     const fit = (frac) => 1.6 / (frac * Math.tan(hFov / 2));
     poses = [
       { v: dir(-0.46, 0.2, 1), d: fit(wide ? 0.5 : 0.92), t: new THREE.Vector3(), shift: wide ? [0.2, 0.02] : [0, -0.3] },
-      { v: N.clone(), d: fit(0.95), t: new THREE.Vector3(), shift: wide ? [0, -0.06] : [0, -0.24] },
+      { v: N.clone(), d: fit(wide ? 0.95 : 1.4), t: new THREE.Vector3(), shift: wide ? [0, -0.06] : [0, -0.15] },
       { v: dir(0.74, 0.36, 1), d: fit(wide ? 0.44 : 0.84), t: new THREE.Vector3(), shift: wide ? [0.06, 0] : [0, -0.22] },
       { v: dir(-0.08, 0.36, 1), d: fit(wide ? 0.62 : 1.0), t: N.clone().multiplyScalar(0.7), shift: wide ? [0.05, -0.09] : [0, -0.2] },
       { v: dir(0.58, -0.05, 1), d: fit(wide ? 0.54 : 0.9), t: new THREE.Vector3(), shift: wide ? [0.18, 0] : [0, -0.22] },
@@ -311,7 +319,7 @@ async function world() {
     const i = names.indexOf(b.dataset.go), m = metrics[i];
     scrollTo({ top: m.top + (i === 0 ? 0 : m.h * 0.12), behavior: reduce ? "auto" : "smooth" });
   }));
-  const labels = [...document.querySelectorAll(".label")];
+  const labels = [...document.querySelectorAll(".label")]; let labelW = labels.map(() => 200);
 
   // ----- Pointer: parallax, a light that follows the cursor, and touches on the glass
   let clock = 0;
@@ -320,13 +328,13 @@ async function world() {
     pointer.x = (e.clientX / innerWidth) * 2 - 1; pointer.y = -((e.clientY / innerHeight) * 2 - 1); pointer.lastMove = clock;
   }, { passive: true });
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-  let rippleAt = 0, heroIdx = 0;
+  let rippleAt = 0, heroIdx = 0, lastTouch = -10;
   canvas.addEventListener("click", (e) => {
     ndc.set((e.clientX / innerWidth) * 2 - 1, -((e.clientY / innerHeight) * 2 - 1));
     ray.setFromCamera(ndc, camera);
     const hit = ray.intersectObject(screenMesh, false)[0];
     if (!hit || !hit.uv) return;
-    screenMat.uniforms.ripples.value[rippleAt++ % 4].set(hit.uv.x, hit.uv.y, clock);
+    screenMat.uniforms.ripples.value[rippleAt++ % 4].set(hit.uv.x, hit.uv.y, clock); lastTouch = clock;
     if (where().idx === 0) heroIdx = (heroIdx + 1) % HERO.length;
   });
 
@@ -344,12 +352,16 @@ async function world() {
   // ----- Frame
   const resize = () => {
     const w = innerWidth, h = innerHeight;
-    renderer.setSize(w, h, false); composer.setSize(w, h); bloom.resolution.set(w / 2, h / 2);
+    const pr = pixelRatio();
+    renderer.setPixelRatio(pr); composer.setPixelRatio(pr);
+    renderer.setSize(w, h, false); composer.setSize(w, h);
     camera.aspect = w / h; camera.updateProjectionMatrix(); buildPoses(); measure();
+    labelW = labels.map((el) => el.offsetWidth);
   };
   addEventListener("resize", resize); resize();
 
   const cam = { v: poses[0].v.clone(), d: poses[0].d * 1.35, t: new THREE.Vector3(), sx: poses[0].shift[0], sy: poses[0].shift[1] };
+  let labelsShown = false;
   const state = { explode: 0, explodeV: 0, lift: 0, liftV: 0, night: 0, floor: 1, dial: 1, fill: 0, fov: 30, roll: 0, power: 0, booted: false, bootAt: 0 };
   // A lightly under-damped spring: arrives with a breath of overshoot instead of a dead stop.
   const spring = (key, to, dt, k = 64, c = 12.5) => {
@@ -360,14 +372,25 @@ async function world() {
   const tmpV = new THREE.Vector3(), tmpT = new THREE.Vector3(), tmpP = new THREE.Vector3(), lookAt = new THREE.Vector3();
 
   let last = performance.now();
+  let lastRaf = performance.now(), slow = 0, fast = 0, frameNo = 0, lastActive = 0;
   function frame(now) {
     requestAnimationFrame(frame);
-    if (document.hidden) { last = now; return; }
+    if (document.hidden) { last = now; lastRaf = now; return; }
+    const raw = (now - lastRaf) / 1000; lastRaf = now;
+    if (raw < 0.2 && clock - lastActive < 0.5) {            // only judge frames while something is moving
+      if (raw > 1 / 45) slow++; else fast++;
+      if (slow + fast >= 50) {
+        if (slow > 20 && quality > 0.4) { quality *= 0.78; resize(); }
+        slow = fast = 0;
+      }
+    }
+    if (clock - lastActive > 1.2 && ++frameNo % 3) return;  // settled: ambient motion only, a third of the frames
     update(now);
   }
   function update(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
     softY = damp(softY, scrollY, 7.5, dt);
+    if (Math.abs(scrollY - softY) > 0.5 || clock - pointer.lastMove < 1 || pageNext || state.power < 1 || clock - lastTouch < 2) lastActive = clock;
     const { idx, local } = where();
     const isLast = idx === poses.length - 1;
     const hold = isLast ? 0 : ease5((local - 0.56) / 0.44);
@@ -378,6 +401,7 @@ async function world() {
     const a = poses[idx], b = poses[Math.min(idx + 1, poses.length - 1)];
     tmpV.copy(a.v).lerp(b.v, hold).normalize();
     tmpT.copy(a.t).lerp(b.t, hold);
+    if (!wide && chapter === "strip") tmpT.addScaledVector(RIGHT, (s * 2 - 1) * 0.45 * (1 - hold));   // pan along the strip
     const d = a.d + (b.d - a.d) * hold, sx = a.shift[0] + (b.shift[0] - a.shift[0]) * hold, sy = a.shift[1] + (b.shift[1] - a.shift[1]) * hold;
     const CL = 3.6, intro = 1 + 0.26 * (1 - ease5(state.power));      // a slow push-in while the panel wakes
     cam.v.x = damp(cam.v.x, tmpV.x, CL, dt); cam.v.y = damp(cam.v.y, tmpV.y, CL, dt); cam.v.z = damp(cam.v.z, tmpV.z, CL, dt);
@@ -428,15 +452,16 @@ async function world() {
       f.mat.uniforms.progress.value = smooth(0.05, 0.9, v); f.mat.uniforms.strength.value = smooth(0, 0.6, v) * 0.9; f.mat.uniforms.time.value = reduce ? 0 : clock;
     });
     const showLabels = e > 0.78;
-    labels.forEach((el) => {
+    if (e > 0.01 || showLabels !== labelsShown) labels.forEach((el) => {
       const part = el.dataset.part, of = part === "glass" ? glass : part === "screen" ? screenMesh : housing;
       tmpP.set(part === "screen" ? 0.1865 : part === "glass" ? 0.1912 : 0.1925, part === "glass" ? -0.036 : part === "screen" ? 0 : 0.036,
                part === "glass" ? 0 : part === "screen" ? -0.0008 : -0.006);
       of.localToWorld(tmpP); tmpP.project(camera);
-      const lx = Math.min((tmpP.x + 1) / 2 * innerWidth, innerWidth - el.offsetWidth - 20);
+      const lx = Math.min((tmpP.x + 1) / 2 * innerWidth, innerWidth - labelW[labels.indexOf(el)] - 20);
       el.style.transform = `translate3d(${lx.toFixed(1)}px, ${((1 - tmpP.y) / 2 * innerHeight - 11).toFixed(1)}px, 0)`;
       el.classList.toggle("on", showLabels);
     });
+    labelsShown = showLabels;
 
     // Tiles
     const L = clamp(state.lift, 0, 1.06), focus = chapter === "tiles" && s >= 0.2 && hold < 0.5 ? Math.min(4, Math.floor((s - 0.2) / 0.8 * 5)) : -1;
@@ -457,7 +482,7 @@ async function world() {
     }
 
     // Floor and reflection
-    mirror.visible = state.floor > 0.5;
+    if (mirror) mirror.visible = state.floor > 0.5;
     floor.visible = state.floor > 0.01;
     floor.material.opacity = state.floor > 0.5 ? 1 - (state.floor - 0.5) * 2 * 0.12 : state.floor * 2;
 
@@ -466,9 +491,6 @@ async function world() {
     state.fill = damp(state.fill, lit * (8 + overall * (TICKS - 8)), 4, dt); setDial(state.fill, state.dial);
     dial.rotation.z = pointer.sx * -0.03 - overall * 0.5; dial.position.x = C.x + pointer.sx * -0.25;
     if (!reduce) dust.rotation.y += dt * 0.012;
-    const active = !reduce && clock - pointer.lastMove < 3 ? 1 : 0;
-    cursorLight.intensity = damp(cursorLight.intensity, active * (1.4 + state.night * 2) * lit, 4, dt);
-    cursorLight.position.copy(C).addScaledVector(N, 1.5).addScaledVector(RIGHT, pointer.sx * 2.0).addScaledVector(UP, pointer.sy * 0.75);
 
     // Screen content
     const page = chapter === "hero" ? HERO[heroIdx] : chapter === "strip" ? STRIP[Math.min(5, Math.floor(s * 6))]
@@ -519,5 +541,5 @@ world().catch((err) => {
 // ---------- Version from GitHub, when reachable
 fetch("https://api.github.com/repos/Shadowhusky/xeneon-toolbox/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
   .then((r) => r.ok ? r.json() : null)
-  .then((j) => { if (j?.tag_name) document.getElementById("ver").textContent = j.tag_name; })
+  .then((j) => { if (j?.tag_name) setVersion(j.tag_name); })
   .catch(() => {});
