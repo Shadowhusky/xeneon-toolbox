@@ -21,12 +21,9 @@ struct AddDeckOverlay: View {
             Color.black.opacity(0.55).ignoresSafeArea().contentShape(Rectangle()).onTapGesture(perform: onClose)
             VStack(spacing: 14) {
                 HStack {
-                    Text("Add to Deck").font(.deck(22, .bold)).foregroundStyle(Theme.textPrimary)
+                    Text("Add to Deck").font(.deck(20, .semibold)).foregroundStyle(Theme.textPrimary)
                     Spacer()
-                    Button(action: onClose) {
-                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.textSecondary)
-                            .frame(width: 40, height: 40).background(Circle().fill(Color.white.opacity(0.08))).contentShape(Circle())
-                    }.buttonStyle(.pressable)
+                    CircleIconButton(icon: "xmark", size: 42, action: onClose)
                 }
                 searchField
                 if query.isEmpty {
@@ -39,8 +36,9 @@ struct AddDeckOverlay: View {
             .padding(24)
             .frame(width: 1120, height: 664)
             .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 30, y: 12)
+            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 26)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         }
         .onAppear {
             let env = ProcessInfo.processInfo.environment
@@ -112,10 +110,10 @@ struct AddDeckOverlay: View {
             ForEach(Tab.allCases, id: \.self) { t in
                 Button { tab = t } label: {
                     Text(t.rawValue).font(.deck(16, .semibold))
-                        .foregroundStyle(tab == t ? .white : Theme.textSecondary)
+                        .foregroundStyle(tab == t ? Theme.backgroundEdge : Theme.textSecondary)
                         .frame(maxWidth: .infinity).frame(height: 52)
                         .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .fill(tab == t ? Theme.battery.opacity(0.9) : Color.white.opacity(0.05)))
+                            .fill(tab == t ? Theme.accent : Color.white.opacity(0.05)))
                         .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                 }.buttonStyle(.pressable)
             }
@@ -127,7 +125,7 @@ struct AddDeckOverlay: View {
         case .apps:
             if appsLoading {
                 VStack(spacing: 12) {
-                    DeckSpinner(color: Theme.battery, size: 42)
+                    DeckSpinner(size: 42)
                     Text("Finding installed apps…").font(.deck(14)).foregroundStyle(Theme.textSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -173,7 +171,7 @@ struct AddDeckOverlay: View {
 
     private func allAddedState(_ note: String) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill").font(.system(size: 32)).foregroundStyle(Theme.battery)
+            Image(systemName: "checkmark.circle.fill").font(.system(size: 32)).foregroundStyle(Theme.accent)
             Text(note).font(.deck(15)).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -241,7 +239,7 @@ struct DeckField: View {
     var placeholder: String
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(label.uppercased()).font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+            Text(label).font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain).font(.deck(16)).foregroundStyle(Theme.textPrimary)
                 .padding(.horizontal, 14).frame(height: 48)
@@ -285,8 +283,8 @@ private struct MultiActionForm: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 12) {
                     DeckField(label: "Label", text: $label, placeholder: "Start work")
-                    Text("TAP TILES IN THE ORDER THEY SHOULD RUN")
-                        .font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+                    Text("Tap tiles in the order they should run")
+                        .font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
                     LazyVGrid(columns: cols, spacing: 10) {
                         ForEach(candidates, id: \.key) { action in
                             stepCell(action)
@@ -321,16 +319,16 @@ private struct MultiActionForm: View {
                     .lineLimit(1).minimumScaleFactor(0.75)
                 Spacer(minLength: 0)
                 if let i = order {
-                    Text("\(i + 1)").font(.readout(13, .bold)).foregroundStyle(.white)
+                    Text("\(i + 1)").font(.readout(13, .bold)).foregroundStyle(Theme.backgroundEdge)
                         .frame(width: 24, height: 24)
-                        .background(Circle().fill(Theme.battery))
+                        .background(Circle().fill(Theme.accent))
                 }
             }
             .padding(.horizontal, 10).frame(height: 52)
             .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(order != nil ? Theme.battery.opacity(0.14) : Color.white.opacity(0.05)))
+                .fill(order != nil ? Theme.accent.opacity(0.14) : Color.white.opacity(0.05)))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(order != nil ? Theme.battery.opacity(0.5) : Theme.stroke, lineWidth: 1))
+                .strokeBorder(order != nil ? Theme.accent.opacity(0.5) : Theme.stroke, lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }.buttonStyle(.pressable)
     }
@@ -342,10 +340,11 @@ struct AddButton: View {
     var action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text("Add to Deck").font(.deck(16, .bold)).foregroundStyle(.white)
+            Text("Add to Deck").font(.deck(16, .semibold)).foregroundStyle(enabled ? Theme.backgroundEdge : Theme.textFaint)
                 .frame(maxWidth: .infinity).frame(height: 52)
-                .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(enabled ? Theme.battery : Color.white.opacity(0.08)))
-                .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .background(Capsule().fill(enabled ? Theme.accent : Color.white.opacity(0.06)))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(enabled ? 0.25 : 0.06), lineWidth: 1))
+                .contentShape(Capsule())
         }.buttonStyle(.pressable).disabled(!enabled)
     }
 }

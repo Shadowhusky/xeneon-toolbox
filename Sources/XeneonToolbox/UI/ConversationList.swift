@@ -7,18 +7,20 @@ struct ConversationList: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.accent)
-                Text("CONVERSATIONS").font(.deck(12, .bold)).tracking(1.6).foregroundStyle(Theme.textSecondary)
+                    .font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.gpu)
+                    .frame(width: 26, height: 26)
+                    .background(RoundedRectangle(cornerRadius: Theme.badgeCorner, style: .continuous).fill(Theme.gpu.opacity(0.14)))
+                Text("Conversations").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             }
             .padding(.top, 2)
 
             Button { withAnimation { agent.newConversation() } } label: {
-                Label("New chat", systemImage: "plus.circle.fill")
-                    .font(.deck(15, .semibold)).foregroundStyle(Theme.accent)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14).padding(.vertical, 13)
-                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.accent.opacity(0.14)))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.accent.opacity(0.25), lineWidth: 1))
+                Label("New chat", systemImage: "plus")
+                    .font(.deck(15, .semibold)).foregroundStyle(Theme.backgroundEdge)
+                    .frame(maxWidth: .infinity).frame(height: 48)
+                    .background(Capsule().fill(Theme.accent))
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
+                    .contentShape(Capsule())
             }
             .buttonStyle(.pressable)
 
@@ -43,7 +45,7 @@ struct ConversationList: View {
         let active = c.id == agent.activeID
         return HStack(spacing: 9) {
             Image(systemName: "bubble.left.fill").font(.system(size: 11))
-                .foregroundStyle(active ? Theme.accent : Theme.textFaint)
+                .foregroundStyle(active ? Theme.gpu : Theme.textFaint)
             Text(c.title.isEmpty ? "New chat" : c.title)
                 .font(.deck(14, active ? .semibold : .regular))
                 .foregroundStyle(active ? Theme.textPrimary : Theme.textSecondary)

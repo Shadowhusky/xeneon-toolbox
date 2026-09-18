@@ -35,6 +35,8 @@ struct DashboardView: View {
     @State private var dockFrames: [String: CGRect] = [:]
     @State private var dockPicker: DeckAction?
     @State private var netInfo = NetworkInfo()
+    @State private var revealed = false
+    @Environment(\.renderStatic) private var renderStatic
 
     private let gap: CGFloat = 16
     private var editing: Bool { commands.editing }
@@ -87,12 +89,15 @@ struct DashboardView: View {
             switch env["XENEON_DETAIL"] {
             case "cpu": open(.cpu); case "gpu": open(.gpu)
             case "memory": open(.memory); case "network": open(.network)
+            case "weather": showWeather = true
             default: break
             }
             if env["XENEON_ENERGY"] != nil { openEnergy() }
             if env["XENEON_EDIT"] != nil { commands.editing = true }
             if env["XENEON_GALLERY"] != nil { commands.editing = true; showGallery = true }
             syncDriver()
+            // The off-screen renderer can't run the reveal, so it starts revealed there.
+            if renderStatic { revealed = true } else { DispatchQueue.main.async { revealed = true } }
         }
         // In edit mode the driver treats any finger move as a mouse drag, so tiles
         // can be grabbed without the gesture misclassifying as a scroll; and the
@@ -117,11 +122,15 @@ struct DashboardView: View {
             let cw = (geo.size.width - CGFloat(DashboardLayout.columns - 1) * gap) / CGFloat(DashboardLayout.columns)
             let ch = (geo.size.height - CGFloat(DashboardLayout.rows - 1) * gap) / CGFloat(DashboardLayout.rows)
             let frames = tileFrames(cellW: cw, cellH: ch)
+            let order = revealOrder(frames)
             ZStack(alignment: .topLeading) {
                 ForEach(layout.board) { placed in
                     if let f = frames[placed.tile] {
                         tileSlot(placed, snap: snap)
                             .frame(width: f.width, height: f.height)
+                            .opacity(revealed ? 1 : 0)
+                            .scaleEffect(revealed ? 1 : 0.94)
+                            .animation(Motion.standard.delay(Double(order[placed.tile] ?? 0) * 0.04), value: revealed)
                             .position(x: f.midX, y: f.midY)
                     }
                 }
@@ -133,6 +142,12 @@ struct DashboardView: View {
             .onAppear { boardOrigin = geo.frame(in: .global).origin; cell = CGSize(width: cw, height: ch) }
             .onChange(of: geo.size) { boardOrigin = geo.frame(in: .global).origin; cell = CGSize(width: cw, height: ch) }
         }
+    }
+
+    /// Left-to-right sweep across the strip, top row before bottom in a column.
+    private func revealOrder(_ frames: [DashTile: CGRect]) -> [DashTile: Int] {
+        let sorted = frames.sorted { ($0.value.minX, $0.value.minY) < ($1.value.minX, $1.value.minY) }
+        return Dictionary(uniqueKeysWithValues: sorted.enumerated().map { ($0.element.key, $0.offset) })
     }
 
     private func tileFrames(cellW: CGFloat, cellH: CGFloat) -> [DashTile: CGRect] {
@@ -204,6 +219,11 @@ struct DashboardView: View {
         case .dock: DockTile(monitor: model.runningApps, size: size)
         case .clipboard: ClipboardTile(store: model.clipboard, size: size)
         case .nowPlaying: NowPlayingTile(media: model.media, size: size, onExpand: { model.showNowPlayingFull = true })
+        case .focus: FocusTile(timer: model.focusTimer, onOpen: { model.route = .clock })
+        case .worldClocks: WorldClocksTile(store: model.worldClocks, size: size)
+        case .weather: WeatherTile(weather: weather.weather, loading: !weather.firstAttemptDone, size: size)
+        case .devices: DevicesTile(devices: model.bluetooth, size: size)
+        case .quickActions: QuickActionsTile(model: model, keepAwake: model.keepAwake, size: size)
         }
     }
 
@@ -218,6 +238,8 @@ struct DashboardView: View {
         case .network: return { open(.network) }
         case .power: return { close(); openEnergy() }
         case .upNext: return { model.showAgenda = true }
+        case .worldClocks: return { model.route = .clock }
+        case .weather: return { close(); showWeather = true }
         default: return nil
         }
     }
@@ -249,10 +271,11 @@ struct DashboardView: View {
                 Text(placed.size.label).font(.readout(13, .bold))
                 Image(systemName: "arrow.left.and.right").font(.system(size: 10, weight: .bold))
             }
-            .foregroundStyle(Theme.textPrimary)
+            .foregroundStyle(Theme.backgroundEdge)
             .padding(.horizontal, 12).frame(height: 34)
-            .background(Capsule().fill(Theme.accent.opacity(0.9)).overlay(Capsule().fill(Color.black.opacity(0.35))))
-            .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.7), lineWidth: 1))
+            .background(Capsule().fill(Theme.accent))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.3), lineWidth: 1))
+            .shadow(color: .black.opacity(0.4), radius: 6, y: 3)
             .contentShape(Capsule())
         }
         .buttonStyle(.pressable).padding(8)
@@ -264,49 +287,32 @@ struct DashboardView: View {
                 Image(systemName: "square.grid.3x2").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.accent)
                 Text("\(layout.cellsUsed) of \(DashboardLayout.capacity) cells").font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
                 if !layout.overflow.isEmpty {
-                    Text("· \(layout.overflow.count) tile\(layout.overflow.count == 1 ? " doesn't" : "s don't") fit — remove or shrink one")
+                    Text("\(layout.overflow.count) tile\(layout.overflow.count == 1 ? " doesn't" : "s don't") fit. Remove or shrink one.")
                         .font(.deck(13)).foregroundStyle(Theme.warning)
                 } else {
-                    Text("· drag to move · ⊖ removes · tap the size to resize").font(.deck(13)).foregroundStyle(Theme.textFaint)
+                    Text("Drag to move. Tap the size to resize.").font(.deck(13)).foregroundStyle(Theme.textFaint)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            pill("Add tile", "plus") { showGallery = true }
-            pill("Reset", "arrow.counterclockwise") { withAnimation(Motion.standard) { layout.reset() } }
-            Button {
-                withAnimation(Motion.standard) { layout.save(); commands.editing = false }
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "checkmark").font(.system(size: 14, weight: .bold))
-                    Text("Done").font(.deck(14, .semibold))
-                }
-                .foregroundStyle(Color.black)
-                .padding(.horizontal, 18).frame(height: 54)
-                .background(Capsule().fill(Theme.accent))
-                .contentShape(Capsule())
+            GhostButton(title: "Add tile", icon: "plus", tint: Theme.textPrimary, height: 54) { showGallery = true }
+            GhostButton(title: "Reset", icon: "arrow.counterclockwise", tint: Theme.textSecondary, height: 54) {
+                withAnimation(Motion.standard) { layout.reset() }
             }
-            .buttonStyle(.pressable)
+            PrimaryButton(title: "Done", icon: "checkmark", height: 54) {
+                withAnimation(Motion.standard) { layout.save(); commands.editing = false }
+            }
         }
         .frame(minHeight: 54)
         .transition(.move(edge: .bottom).combined(with: .opacity))
-    }
-
-    private func pill(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon).font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
-                .padding(.horizontal, 16).frame(height: 54)
-                .background(Capsule().fill(Color.white.opacity(0.05)))
-                .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
-                .contentShape(Capsule())
-        }.buttonStyle(.pressable)
     }
 
     private func toastView(_ text: String) -> some View {
         Text(text).font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
             .padding(.horizontal, 18).frame(height: 44)
             .background(Capsule().fill(.ultraThinMaterial))
-            .overlay(Capsule().strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.5), radius: 16, y: 6)
+            .background(Capsule().fill(Theme.tileBottom.opacity(0.85)))
+            .overlay(Capsule().strokeBorder(LinearGradient(colors: [Theme.bezelLight, Theme.bezelDark], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+            .shadow(color: .black.opacity(0.55), radius: 16, y: 6)
             .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 

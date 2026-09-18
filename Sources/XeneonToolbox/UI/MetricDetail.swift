@@ -47,11 +47,9 @@ struct MetricDetailView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
                 Image(systemName: detail.icon).font(.system(size: 20, weight: .bold)).foregroundStyle(detail.color)
-                Text(detail.title).font(.deck(24, .bold)).foregroundStyle(Theme.textPrimary)
+                Text(detail.title).font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 26)).foregroundStyle(Theme.textFaint)
-                }.buttonStyle(.pressable)
+                CircleIconButton(icon: "xmark", size: 42, action: onClose)
             }
 
             if detail.processMetric != nil {
@@ -73,8 +71,8 @@ struct MetricDetailView: View {
         .frame(width: 980, height: 520)
         .background(RoundedRectangle(cornerRadius: 24, style: .continuous)
             .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(detail.color.opacity(0.3), lineWidth: 1))
-        .shadow(color: .black.opacity(0.5), radius: 30)
+        .bezel(corner: 24, tint: detail.color)
+        .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
     }
 
     private var graph: some View {
@@ -95,7 +93,7 @@ struct MetricDetailView: View {
         let isMem = metric.byMemory
         let maxRSS = max(1, processes.map(\.rssMB).max() ?? 1)
         VStack(alignment: .leading, spacing: 10) {
-            Text(metric.title.uppercased()).font(.deck(12, .bold)).tracking(1.2).foregroundStyle(Theme.textFaint)
+            Text(metric.title).font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             if processes.isEmpty {
                 Text("Reading processes…").font(.deck(14)).foregroundStyle(Theme.textFaint)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -128,7 +126,7 @@ struct MetricDetailView: View {
 
     private func connection(_ n: NetworkInfo) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("CONNECTION").font(.deck(12, .bold)).tracking(1.2).foregroundStyle(Theme.textFaint)
+            Text("Connection").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             infoRow("wifi", "Wi-Fi", n.ssid ?? "Not on Wi-Fi")
             infoRow("network", "Local IP", n.localIP ?? "—")
             infoRow("globe", "Public IP", n.publicIP ?? (n.loading ? "Looking up…" : "Unavailable"))
@@ -161,7 +159,7 @@ struct MetricDetailView: View {
     private func stat(_ label: String, _ value: Double) -> some View {
         VStack(spacing: 4) {
             Text(format(value)).font(.readout(34, .bold)).foregroundStyle(detail.color)
-            Text(label.uppercased()).font(.deck(11, .bold)).tracking(1.4).foregroundStyle(Theme.textFaint)
+            Text(label).font(.deck(12, .semibold)).foregroundStyle(Theme.textFaint)
         }
         .frame(maxWidth: .infinity)
     }

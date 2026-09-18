@@ -86,7 +86,7 @@ struct CustomActionForm: View {
 
     private var hotkeyRecorder: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("SHORTCUT").font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+            Text("Shortcut").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             Button {
                 recording ? stopRecording() : startRecording()
             } label: {
@@ -162,7 +162,7 @@ struct CustomActionForm: View {
 
     private var iconPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("ICON").font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+            Text("Icon").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             HStack(spacing: 14) {
                 preview
                 Button(action: uploadIcon) {

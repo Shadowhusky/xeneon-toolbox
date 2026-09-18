@@ -601,6 +601,41 @@ final class ClipboardHistoryTests: XCTestCase {
 
 ---
 
+## Restyle (2026-09-18)
+
+"Obsidian Instrument": carbon glass tiles with a lit top edge and dark bottom
+edge (`bezel`), bone text, one amber signature (index bar on the rail, primary
+buttons, the focus ring), ice as the secondary hue and hue-coded instruments.
+Tick-ring gauges replace the stroked arcs (48 ticks over 270°, lit ticks masked
+by an animated `strokeEnd` on the render server). Sentence-case labels replace
+the tracked uppercase eyebrows; SF Mono carries every numeral and the hero
+clocks. Shared `PrimaryButton` / `GhostButton` / `CircleIconButton` and one
+modal shell across the deck, chat, tasks, settings and every detail card.
+New tiles: Focus, World clocks, Weather (hourly), Devices (Bluetooth charge via
+`BluetoothReport`, tested) and Quick actions. Render hooks: `XENEON_BOARD`,
+`XENEON_WEATHER_DEMO`, `XENEON_REMOTE_DEMO` (placeholder access key in
+screenshots; Settings also gained "New link" to rotate the key).
+
+## Follow-ups (2026-09-18)
+
+- **Pointer return.** Root cause: the driver parked the pointer at the Edge's
+  bottom-right pixel after every tap, scroll and momentum coast, so a touch
+  stranded the cursor away from the display the user was working on.
+  `CursorReturn` (XeneonTouchCore, tested) remembers the pointer at first
+  contact and the driver posts a tagged move back once the gesture and any
+  coasting end; a real mouse move mid-gesture (relayed by `CursorController`)
+  cancels the return.
+- **Weather modal** relaid as two columns (1240×470): close button in the header
+  row, hourly strip in a well, week below.
+- **Permissions.** `AppPermission` (status, system request, exact Settings pane)
+  plus `PermissionGuide` cards and a Settings hub that poll status every second
+  and confirm on their own.
+- **Updater.** Background staging (download to Application Support, sha256,
+  version, codesign --deep, spctl, team), install when idle
+  (`UpdateStrategy.isQuietMoment`, tested) or at quit, rollback-safe swap
+  helper keeping `.previous`, quiet toasts, "what's new" after relaunch,
+  policies Automatic / Ask first / Off, ETag-conditional checks with jitter.
+
 ## Outcome (2026-09-17)
 
 All tasks executed in this session. Deviations from the plan, with reasons:

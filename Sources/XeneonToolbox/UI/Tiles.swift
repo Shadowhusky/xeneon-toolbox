@@ -146,7 +146,7 @@ struct GaugeTile<Footer: View>: View {
             VStack(spacing: 2) {
                 Text(available ? Fmt.percent(value) : "—")
                     .font(.readout(46, .bold)).foregroundStyle(available ? Theme.textPrimary : Theme.textFaint)
-                Text(available ? caption : "N/A").font(.deck(11, .bold)).tracking(1.6).foregroundStyle(Theme.textFaint)
+                Text(available ? caption : "n/a").font(.deck(12, .medium)).foregroundStyle(Theme.textFaint)
             }
         }
         .aspectRatio(1, contentMode: .fit)
@@ -186,7 +186,7 @@ struct CPUTile: View {
     var size: TileSize = .s
     var body: some View {
         GaugeTile(title: "Processor", icon: "cpu.fill", accent: Theme.pressure(value, base: Theme.cpu),
-                  value: value, caption: "LOAD", size: size, history: history) {
+                  value: value, caption: "load", size: size, history: history) {
             if size.columns > 1 { HistoryStats(history: history, accent: Theme.cpu) }
             else { Well(inset: 8) { Sparkline(values: history, color: Theme.cpu).frame(height: 36) } }
         }
@@ -199,7 +199,7 @@ struct GPUTile: View {
     var available = true
     var size: TileSize = .s
     var body: some View {
-        GaugeTile(title: "Graphics", icon: "cube.transparent.fill", accent: Theme.gpu, value: value, caption: "GPU",
+        GaugeTile(title: "Graphics", icon: "cube.transparent.fill", accent: Theme.gpu, value: value, caption: "gpu",
                   available: available, size: size, history: history) {
             if size.columns > 1 { HistoryStats(history: history, accent: Theme.gpu) }
             else { Well(inset: 8) { Sparkline(values: history, color: Theme.gpu).frame(height: 36) } }
@@ -214,7 +214,7 @@ struct MemoryTile: View {
     private var tint: Color { Theme.pressure(snap.memFraction, base: Theme.memory) }
     var body: some View {
         GaugeTile(title: "Memory", icon: "memorychip.fill", accent: tint,
-                  value: snap.memFraction, caption: snap.memFraction > 0.9 ? "PRESSURE" : "USED",
+                  value: snap.memFraction, caption: snap.memFraction > 0.9 ? "pressure" : "used",
                   size: size, history: history) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(Fmt.gb(snap.memUsed)).font(.readout(26, .bold)).foregroundStyle(Theme.textPrimary)
@@ -233,13 +233,13 @@ struct HistoryStats: View {
         let avg = history.isEmpty ? 0 : history.reduce(0, +) / Double(history.count)
         let peak = history.max() ?? 0
         HStack(spacing: 0) {
-            stat("AVG", avg); Rectangle().fill(Theme.stroke).frame(width: 1, height: 30); stat("PEAK", peak)
+            stat("avg", avg); Rectangle().fill(Theme.stroke).frame(width: 1, height: 30); stat("peak", peak)
         }
     }
     private func stat(_ label: String, _ v: Double) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(Fmt.percent(v)).font(.readout(22, .bold)).foregroundStyle(accent)
-            Text(label).font(.deck(11, .bold)).tracking(1.4).foregroundStyle(Theme.textFaint)
+            Text(label).font(.deck(12, .medium)).foregroundStyle(Theme.textFaint)
         }
         .frame(maxWidth: .infinity)
     }
@@ -356,7 +356,7 @@ struct PowerTile: View {
                             .font(.readout(54, .bold)).foregroundStyle(Theme.textPrimary)
                             + Text(" W").font(.readout(24, .bold)).foregroundStyle(tint))
                             .lineLimit(1).minimumScaleFactor(0.5)
-                        Text("SYSTEM DRAW").font(.deck(12, .bold)).tracking(2).foregroundStyle(Theme.textFaint)
+                        Text("System draw").font(.deck(13, .medium)).foregroundStyle(Theme.textFaint)
                             .lineLimit(1).minimumScaleFactor(0.7)
                     }
                     .frame(maxWidth: .infinity)
@@ -372,7 +372,7 @@ struct PowerTile: View {
                         Image(systemName: "powerplug.fill")
                             .font(.system(size: 50, weight: .semibold)).foregroundStyle(tint)
                             .deckGlow(tint, strength: 0.8)
-                        Text("AC POWER").font(.deck(18, .bold)).tracking(2).foregroundStyle(Theme.textPrimary)
+                        Text("On wall power").font(.deck(17, .semibold)).foregroundStyle(Theme.textPrimary)
                     }
                     .frame(maxWidth: .infinity)
                     Spacer()

@@ -10,15 +10,12 @@ struct TileGalleryOverlay: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Add a tile").font(.deck(22, .bold)).foregroundStyle(Theme.textPrimary)
-                        Text("\(layout.cellsUsed) of \(DashboardLayout.capacity) cells used · S = 1 cell, W and T = 2")
+                        Text("Add a tile").font(.deck(20, .semibold)).foregroundStyle(Theme.textPrimary)
+                        Text("\(layout.cellsUsed) of \(DashboardLayout.capacity) cells used. Small tiles take one, wide and tall take two.")
                             .font(.deck(13)).foregroundStyle(Theme.textSecondary)
                     }
                     Spacer()
-                    Button(action: onClose) {
-                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.textSecondary)
-                            .frame(width: 42, height: 42).background(Circle().fill(Color.white.opacity(0.07))).contentShape(Circle())
-                    }.buttonStyle(.pressable)
+                    CircleIconButton(icon: "xmark", size: 42, action: onClose)
                 }
                 if layout.available.isEmpty {
                     VStack(spacing: 10) {
@@ -40,8 +37,9 @@ struct TileGalleryOverlay: View {
             }
             .padding(24).frame(width: 780)
             .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 28, y: 10)
+            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 24)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         }
     }
 

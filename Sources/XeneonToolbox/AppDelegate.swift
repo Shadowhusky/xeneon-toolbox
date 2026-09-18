@@ -342,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         AppLog.info("lifecycle", "clean exit")
+        model.updater.installAtQuit()   // a staged update goes in now; nothing to relaunch
         CrashReporter.markCleanExit()
         model.restoreBacklightOnQuit()   // don't leave the Edge dark if we quit while asleep
     }

@@ -12,13 +12,12 @@ struct NoEdgeView: View {
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom))
                         .frame(width: 210, height: 78)
-                        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .strokeBorder(Theme.accent.opacity(0.5), lineWidth: 1.5))
-                        .deckGlow(Theme.accent, strength: 1.2)
+                        .bezel(corner: 22, tint: Theme.accent)
+                        .deckGlow(Theme.accent, strength: 0.8)
                     Image(systemName: "square.grid.2x2.fill").font(.system(size: 26, weight: .bold)).foregroundStyle(Theme.accent)
                 }
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Connect your Xeneon Edge").font(.deck(28, .bold)).foregroundStyle(Theme.textPrimary)
+                    Text("Connect your Xeneon Edge").font(.deck(26, .semibold)).foregroundStyle(Theme.textPrimary)
                     Text("Plug the panel in over USB-C. The Toolbox moves onto it automatically and takes over touch.")
                         .font(.deck(15)).foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -26,12 +25,7 @@ struct NoEdgeView: View {
                         DeckSpinner(size: 22)
                         Text("Looking for the panel…").font(.deck(13, .medium)).foregroundStyle(Theme.textFaint)
                         Spacer(minLength: 0)
-                        Button(action: onQuit) {
-                            Text("Quit").font(.deck(14, .semibold)).foregroundStyle(Theme.textSecondary)
-                                .padding(.horizontal, 18).frame(height: 44)
-                                .background(Capsule().fill(Color.white.opacity(0.07)))
-                                .contentShape(Capsule())
-                        }.buttonStyle(.pressable)
+                        GhostButton(title: "Quit", tint: Theme.textSecondary, height: 44, action: onQuit)
                     }
                     .padding(.top, 6)
                 }

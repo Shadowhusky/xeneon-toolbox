@@ -43,25 +43,16 @@ struct FullscreenTutorial: View {
                 }.padding(.top, 2)
 
                 HStack(spacing: 12) {
-                    Button(action: onDone) {
-                        Text("Skip").font(.deck(16, .semibold)).foregroundStyle(Theme.textFaint)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                            .contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                    Button(action: advance) {
-                        Text(step == steps.count - 1 ? "Got it" : "Next")
-                            .font(.deck(16, .bold)).foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Theme.accent))
-                            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    }.buttonStyle(.pressable)
+                    GhostButton(title: "Skip", tint: Theme.textSecondary, height: 50, action: onDone).frame(maxWidth: .infinity)
+                    PrimaryButton(title: step == steps.count - 1 ? "Got it" : "Next", height: 50, action: advance).frame(maxWidth: .infinity)
                 }.padding(.top, 4)
             }
             .padding(30)
             .frame(width: 540)
             .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.6), radius: 30, y: 12)
+            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 24)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         }
         .animation(.easeInOut(duration: 0.28), value: step)
         .transition(.opacity)

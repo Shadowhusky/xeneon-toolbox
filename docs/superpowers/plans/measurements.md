@@ -11,6 +11,12 @@ Dev build, devMode window 1900×720 on the main display, `top -l 6 -s 3`, median
 | + gauge animations off (diagnostic only) | 3.2% | — |
 | + rings and bars animated on CA layers (Task 11 final) | 2.4% | 0.3% |
 | **After the grid redesign + gadgets (final, Task 23)** | **1.7%** | **0.2%** |
+| Obsidian Instrument restyle + 5 new tiles (2026-09-18) | 0.6% | 0.5% |
+
+Restyle run (same method, 14 s warm-up): default board 0.6%, a board of the new
+tiles with the focus timer running 0.5%, ambient 0.5%, deck 0.4%. Tick rings,
+bezels and the launch reveal add nothing measurable; the Bluetooth sampler runs
+`system_profiler` once a minute off-main and only while a Devices tile is shown.
 
 ## Live resolution switch (Task 7, 2026-09-17 17:40)
 

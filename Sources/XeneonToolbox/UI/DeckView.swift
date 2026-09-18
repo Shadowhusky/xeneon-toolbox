@@ -156,11 +156,13 @@ struct DeckView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: "square.grid.3x3.fill").font(.system(size: 18, weight: .bold)).foregroundStyle(Theme.battery)
-            Text("Deck").font(.deck(24, .bold)).foregroundStyle(Theme.textPrimary)
+            Image(systemName: "square.grid.3x3.fill").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.battery)
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: Theme.badgeCorner, style: .continuous).fill(Theme.battery.opacity(0.14)))
+            Text("Deck").font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
             pageNavigator
             if editing {
-                Text("Drag tiles to reorder · tap ⊖ to remove")
+                Text("Drag tiles to reorder. Tap ⊖ to remove.")
                     .font(.deck(13, .medium)).foregroundStyle(Theme.textFaint)
                     .padding(.leading, 6)
                     .transition(.opacity)
@@ -192,8 +194,8 @@ struct DeckView: View {
                 }
                 .foregroundStyle(Theme.textSecondary)
                 .padding(.horizontal, 10).frame(minWidth: 112, maxWidth: 180, minHeight: 38)
-                .background(Capsule().fill(Color.white.opacity(0.06)))
-                .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
+                .background(Capsule().fill(Theme.wellFill))
+                .overlay(Capsule().strokeBorder(Color.black.opacity(0.4), lineWidth: 1))
                 .contentShape(Capsule())
             }.buttonStyle(.pressable)
 
@@ -215,20 +217,14 @@ struct DeckView: View {
                 .foregroundStyle(Theme.battery)
                 .deckGlow(Theme.battery, strength: 0.7)
             Text("This page is ready for your shortcuts")
-                .font(.deck(22, .bold)).foregroundStyle(Theme.textPrimary)
+                .font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
             Text("Add apps, websites, hotkeys, commands, media controls, or multi-step actions.")
                 .font(.deck(14)).foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
-            Button {
+            PrimaryButton(title: "Add your first tile", icon: "plus", height: 50) {
                 editing = true
                 showAdd = true
-            } label: {
-                Label("Add your first tile", systemImage: "plus")
-                    .font(.deck(16, .bold)).foregroundStyle(.black)
-                    .padding(.horizontal, 24).frame(height: 50)
-                    .background(Capsule().fill(Theme.battery))
-                    .contentShape(Capsule())
-            }.buttonStyle(.pressable)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 118)
@@ -243,7 +239,7 @@ struct DeckView: View {
             .foregroundStyle(tint)
             .padding(.horizontal, 16).frame(height: 44)
             .background(Capsule().fill(Color.white.opacity(0.07)))
-            .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
+            .overlay(Capsule().strokeBorder(LinearGradient(colors: [Theme.bezelLight, Theme.bezelDark], startPoint: .top, endPoint: .bottom), lineWidth: 1))
             .contentShape(Capsule())
         }.buttonStyle(.pressable)
     }
@@ -270,8 +266,9 @@ struct DeckView: View {
             }
             .padding(10)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.5), radius: 20, y: 8)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 16)
+            .shadow(color: .black.opacity(0.6), radius: 24, y: 10)
             .padding(.top, 56).padding(.trailing, 4)
             .transition(.scale(scale: 0.9, anchor: .topTrailing).combined(with: .opacity))
         }
@@ -291,31 +288,24 @@ struct DeckView: View {
             VStack(spacing: 16) {
                 Image(systemName: isReset ? "exclamationmark.triangle.fill" : "arrow.up.arrow.down.circle.fill")
                     .font(.system(size: 34)).foregroundStyle(tint)
-                Text(title).font(.deck(20, .bold)).foregroundStyle(Theme.textPrimary)
+                Text(title).font(.deck(20, .semibold)).foregroundStyle(Theme.textPrimary)
                 Text(body).font(.deck(15)).foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 12) {
-                    Button { pending = nil } label: {
-                        Text("Cancel").font(.deck(16, .semibold)).foregroundStyle(Theme.textSecondary)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(0.06)))
-                    }.buttonStyle(.pressable)
-                    Button {
+                    GhostButton(title: "Cancel", tint: Theme.textSecondary, height: 50) { pending = nil }.frame(maxWidth: .infinity)
+                    PrimaryButton(title: confirmLabel, tint: tint, height: 50) {
                         withAnimation {
                             switch action { case .reset: deck.reset(); case .sort(let s): deck.sort(s) }
                         }
                         pending = nil
-                    } label: {
-                        Text(confirmLabel).font(.deck(16, .bold)).foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(tint))
-                    }.buttonStyle(.pressable)
+                    }.frame(maxWidth: .infinity)
                 }
             }
             .padding(28).frame(width: 520)
             .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 22)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         }
     }
 
@@ -415,13 +405,13 @@ private struct DeckTile: View {
     private var tint: Color {
         switch action.kind {
         case .app: return Theme.accent
-        case .url: return Theme.disk
-        case .system: return Theme.time
+        case .url: return Theme.ice
+        case .system: return Theme.disk
         case .media: return Theme.memory
         case .command: return Theme.gpu
         case .webhook: return Theme.netUp
         case .keystroke: return Theme.battery
-        case .multi: return Theme.memory
+        case .multi: return Theme.heat
         }
     }
 
@@ -434,15 +424,18 @@ private struct DeckTile: View {
             }
             .frame(maxWidth: .infinity).frame(height: 150)
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(LinearGradient(colors: [tint.opacity(0.16), Color.white.opacity(0.03)], startPoint: .top, endPoint: .bottom))
+                ZStack {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom))
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(RadialGradient(colors: [tint.opacity(0.14), .clear], center: .top, startRadius: 0, endRadius: 150))
+                }
+                .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
             )
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(tint.opacity(0.35), lineWidth: 1))
+            .bezel(corner: 20, tint: tint)
             .overlay(alignment: .bottom) {
                 if running {
-                    Circle().fill(Theme.battery).frame(width: 5, height: 5)
-                        .deckGlow(Theme.battery, strength: 0.8)
-                        .padding(.bottom, 8)
+                    Lamp(color: Theme.battery, on: true, size: 6).padding(.bottom, 9)
                 }
             }
             // Pinned-to-a-display hint (long-press the tile to change it).
@@ -460,7 +453,7 @@ private struct DeckTile: View {
         .overlay {
             if editing && !lifted {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(tint.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+                    .strokeBorder(Theme.accent.opacity(0.45), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
             }
         }
     }
@@ -486,11 +479,13 @@ private struct DeckTile: View {
             }
             .frame(width: 60, height: 60)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(tint.opacity(0.14)))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(tint.opacity(0.25), lineWidth: 1))
         } else {
             Image(systemName: action.symbol ?? "app.dashed").font(.system(size: 30, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 60, height: 60)
                 .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(tint.opacity(0.14)))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(tint.opacity(0.25), lineWidth: 1))
         }
     }
 }
@@ -506,17 +501,12 @@ private struct DeckPageManager: View {
             VStack(spacing: 16) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Deck pages").font(.deck(22, .bold)).foregroundStyle(Theme.textPrimary)
+                        Text("Deck pages").font(.deck(20, .semibold)).foregroundStyle(Theme.textPrimary)
                         Text("Separate work, media, streaming, or app-specific controls.")
                             .font(.deck(13)).foregroundStyle(Theme.textSecondary)
                     }
                     Spacer()
-                    Button(action: onClose) {
-                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(Theme.textSecondary)
-                            .frame(width: 42, height: 42)
-                            .background(Circle().fill(Color.white.opacity(0.07)))
-                    }.buttonStyle(.pressable)
+                    CircleIconButton(icon: "xmark", size: 42, action: onClose)
                 }
 
                 ScrollView(showsIndicators: false) {
@@ -558,10 +548,11 @@ private struct DeckPageManager: View {
                         deck.renamePage(deck.selectedPageID, to: draft)
                         draft = deck.selectedPage.name
                     } label: {
-                        Text("Rename").font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary)
+                        Text("Rename").font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary)
                             .padding(.horizontal, 18).frame(height: 48)
-                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.07)))
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+                            .background(Capsule().fill(Color.white.opacity(0.07)))
+                            .overlay(Capsule().strokeBorder(LinearGradient(colors: [Theme.bezelLight, Theme.bezelDark], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                            .contentShape(Capsule())
                     }
                     .buttonStyle(.pressable)
                     .padding(.top, 19)
@@ -584,33 +575,24 @@ private struct DeckPageManager: View {
                     .frame(minHeight: 44)
                 } else {
                     HStack(spacing: 10) {
-                        Button {
+                        PrimaryButton(title: "New page", icon: "plus", height: 48) {
                             deck.addPage()
                             draft = deck.selectedPage.name
-                        } label: {
-                            Label("New page", systemImage: "plus")
-                                .font(.deck(15, .bold)).foregroundStyle(.black)
-                                .frame(maxWidth: .infinity, minHeight: 48)
-                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.battery))
-                        }.buttonStyle(.pressable)
-                        Button {
+                        }.frame(maxWidth: .infinity)
+                        GhostButton(title: "Delete page", icon: "trash",
+                                    tint: deck.canRemovePage ? Theme.batteryLow : Theme.textFaint, height: 48) {
                             confirmDelete = true
-                        } label: {
-                            Label("Delete page", systemImage: "trash")
-                                .font(.deck(15, .semibold))
-                                .foregroundStyle(deck.canRemovePage ? Theme.batteryLow : Theme.textFaint)
-                                .frame(maxWidth: .infinity, minHeight: 48)
-                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
                         }
-                        .buttonStyle(.pressable)
+                        .frame(maxWidth: .infinity)
                         .disabled(!deck.canRemovePage)
                     }
                 }
             }
             .padding(24).frame(width: 680, height: 610)
             .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 28, y: 10)
+            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 24)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
             .onAppear { draft = deck.selectedPage.name }
         }
     }
@@ -627,7 +609,7 @@ private struct AddTile: View {
             .frame(maxWidth: .infinity).frame(height: 150)
             .background(RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [7, 5]))
-                .foregroundStyle(Theme.stroke))
+                .foregroundStyle(Theme.strokeStrong))
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }.buttonStyle(.pressable)
     }

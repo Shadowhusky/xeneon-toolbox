@@ -35,7 +35,9 @@ driver** (no kernel extension, no `sudo`, no LaunchAgent) and a set of full-scre
 apps built for the strip. While the app runs, the panel just works:
 
 - **Tap** to click, **one-finger drag** to scroll, **two-finger** to scroll or
-  pinch-to-zoom; the cursor hides while you touch and returns for the mouse
+  pinch-to-zoom; the cursor hides while you touch, and when your finger lifts
+  it goes back to wherever it was on your other display, so a tap on the Edge
+  never interrupts what you were doing with the mouse
 - **Edge swipes** — up from the bottom to exit fullscreen, down from the top to
   drop to the ambient screen
 - Runs as a clean **kiosk** that fills the Edge and hides the menu bar
@@ -51,8 +53,11 @@ apps built for the strip. While the app runs, the panel just works:
   gauges and history graphs, plus **Up Next** (your calendar), **Tasks** (tick them
   off in place), **Thermals** (chip temperature and fan speed), **Running apps**
   (tap one to bring it forward, long-press to send it to a screen), **Clipboard**
-  (the last few things you copied — tap to copy again) and **Now Playing**. Tiles
-  come in small, wide and tall sizes; hold the board (or More → Edit dashboard)
+  (the last few things you copied — tap to copy again), **Now Playing**,
+  **Weather** (conditions plus the next hours), **World clocks**, a **Focus**
+  timer, **Devices** (connected Bluetooth gear and its charge) and **Quick
+  actions** (keep awake, dark mode, screenshot, lock, sleep display, Mission
+  Control). Tiles come in small, wide and tall sizes; hold the board (or More → Edit dashboard)
   to drag, resize, remove, or add from the tile gallery — your board persists.
   Tap a tile for its detail view (top processes; the **hourly and 6-day weather
   forecast**; the Power tile's **energy flow** from the wall to CPU / GPU /
@@ -112,8 +117,17 @@ apps built for the strip. While the app runs, the panel just works:
   (with a voice button). On by default; toggle it in Settings.
 - **iCloud backup** — back up your layout, deck, and preferences to iCloud Drive
   and restore them on another Mac, from Settings.
-- **Stays current** — checks GitHub for new versions and updates itself in place
-  (notarized; signature- and developer-verified before it swaps).
+- **Stays current, quietly** — new releases download and verify in the
+  background (notarized, signature, developer and checksum checked), then
+  install themselves the next time the panel has been idle for a while or when
+  you quit. One small notice, no modal, and the previous version is kept until
+  the new one is confirmed running. Choose *Automatic*, *Ask first* or *Off* in
+  Settings.
+- **Permissions, guided** — anything that needs macOS's permission (Calendar,
+  Location, Input Monitoring, Accessibility, microphone, Bluetooth) shows an
+  *Allow* button that asks the system, opens the exact Privacy & Security pane
+  if macOS won't prompt, and confirms by itself the moment you flip the switch.
+  Settings lists them all with live status.
 
 ---
 
@@ -281,7 +295,9 @@ and drags land exactly where you touch.
   the driver is rebuilt on every wake, unlock and display change, the panel is
   tracked by identity (not by resolution) so its position is always current,
   and a seize macOS refuses is retried forever. The pointer **hides while you
-  touch** and reappears the moment you use a real mouse.
+  touch** and, once the gesture (and any scroll momentum) ends, **returns to
+  where it was** before the finger landed; if you moved the real mouse in the
+  meantime, it stays where you put it.
 - A finger gesture is classified as a **tap**, a **scroll** (continuous
   scroll-wheel events, since macOS scroll views ignore drags), or a **control
   drag** for sliders. Whole-screen **edge swipes** exit fullscreen or drop to the

@@ -29,8 +29,9 @@ struct ResolutionGuideView: View {
             .padding(28)
             .frame(width: 940)
             .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.6), radius: 30, y: 12)
+            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 26)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         }
         .onAppear {
             if let appliedAt, Date().timeIntervalSince(appliedAt) > undoWindow { onKeep() }
@@ -58,34 +59,18 @@ struct ResolutionGuideView: View {
     private var actions: some View {
         HStack(spacing: 12) {
             if issue.recommended != nil, !failed {
-                Button(action: onApply) {
-                    Label("Use 2560 × 720", systemImage: "wand.and.stars")
-                        .font(.deck(17, .bold)).foregroundStyle(.black)
-                        .padding(.horizontal, 24).frame(height: 56)
-                        .background(Capsule().fill(Theme.accent))
-                        .contentShape(Capsule())
-                }.buttonStyle(.pressable)
+                PrimaryButton(title: "Use 2560 × 720", icon: "wand.and.stars", height: 56, action: onApply)
             }
-            Button(action: onOpenSettings) {
-                Label("Open Display Settings", systemImage: "arrow.up.forward.app")
-                    .font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
-                    .padding(.horizontal, 22).frame(height: 56)
-                    .background(Capsule().fill(Color.white.opacity(0.08)))
-                    .overlay(Capsule().strokeBorder(Theme.strokeStrong, lineWidth: 1))
-                    .contentShape(Capsule())
-            }.buttonStyle(.pressable)
+            GhostButton(title: "Open Display Settings", icon: "arrow.up.forward.app", height: 56, action: onOpenSettings)
             Spacer(minLength: 0)
-            Button(action: onLater) {
-                Text("Later").font(.deck(16, .semibold)).foregroundStyle(Theme.textFaint)
-                    .padding(.horizontal, 22).frame(height: 56).contentShape(Rectangle())
-            }.buttonStyle(.pressable)
+            GhostButton(title: "Later", tint: Theme.textSecondary, height: 56, action: onLater)
         }
     }
 
     private var manualSteps: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(issue.recommended == nil || failed ? "SET IT BY HAND" : "OR SET IT BY HAND")
-                .font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+            Text(issue.recommended == nil || failed ? "Set it by hand" : "Or set it by hand")
+                .font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             HStack(spacing: 10) {
                 step(1, "Choose XENEON EDGE in Displays")
                 step(2, "Hold ⌥ and click Scaled to show all resolutions")
@@ -114,26 +99,15 @@ struct ResolutionGuideView: View {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 40)).foregroundStyle(Theme.battery)
                     .deckGlow(Theme.battery, strength: 0.7).frame(width: 56)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Switched to 2560 × 720").font(.deck(24, .bold)).foregroundStyle(Theme.textPrimary)
+                    Text("Switched to 2560 × 720").font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
                     Text(left > 0 ? "If the panel looks wrong, undo within \(left) s." : "Keeping this resolution.")
                         .font(.deck(15)).foregroundStyle(Theme.textSecondary)
                 }
                 Spacer(minLength: 0)
                 if left > 0 {
-                    Button(action: onUndo) {
-                        Text("Undo").font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
-                            .padding(.horizontal, 22).frame(height: 56)
-                            .background(Capsule().fill(Color.white.opacity(0.08)))
-                            .overlay(Capsule().strokeBorder(Theme.strokeStrong, lineWidth: 1))
-                            .contentShape(Capsule())
-                    }.buttonStyle(.pressable)
+                    GhostButton(title: "Undo", height: 56, action: onUndo)
                 }
-                Button(action: onKeep) {
-                    Text("Keep").font(.deck(17, .bold)).foregroundStyle(.black)
-                        .padding(.horizontal, 26).frame(height: 56)
-                        .background(Capsule().fill(Theme.battery))
-                        .contentShape(Capsule())
-                }.buttonStyle(.pressable)
+                PrimaryButton(title: "Keep", tint: Theme.battery, height: 56, action: onKeep)
             }
             .onChange(of: left) { if left == 0 { onKeep() } }
         }

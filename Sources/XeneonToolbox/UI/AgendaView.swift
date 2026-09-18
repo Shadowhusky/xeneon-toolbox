@@ -16,14 +16,11 @@ struct AgendaView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Today").font(.deck(24, .bold)).foregroundStyle(Theme.textPrimary)
+                        Text("Today").font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
                         Text(dateLine).font(.deck(14)).foregroundStyle(Theme.textSecondary)
                     }
                     Spacer()
-                    Button(action: onClose) {
-                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.textSecondary)
-                            .frame(width: 40, height: 40).background(Circle().fill(Color.white.opacity(0.08))).contentShape(Circle())
-                    }.buttonStyle(.pressable)
+                    CircleIconButton(icon: "xmark", size: 42, action: onClose)
                 }
                 .padding(.bottom, 14)
 
@@ -42,8 +39,9 @@ struct AgendaView: View {
             }
             .padding(24).frame(width: 720, height: 560)
             .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 30, y: 12)
+            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 26)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         }
     }
 

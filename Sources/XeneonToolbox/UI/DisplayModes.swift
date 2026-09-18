@@ -61,11 +61,11 @@ struct MinimalView: View {
         TimelineView(.everyMinute) { ctx in
             VStack(alignment: .leading, spacing: 6) {
                 Text(ctx.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-                    .font(.readout(176, .medium)).tracking(-3)
-                    .foregroundStyle(.white.opacity(0.88))
+                    .font(.hero(176))
+                    .foregroundStyle(Theme.textPrimary.opacity(0.92))
                 HStack(spacing: 14) {
                     Text(ctx.date, format: .dateTime.weekday(.wide).month(.abbreviated).day())
-                        .font(.deck(27, .medium)).foregroundStyle(.white.opacity(0.42))
+                        .font(.deck(26, .medium)).foregroundStyle(Theme.textSecondary)
                     FocusTimerPill(timer: focusTimer)
                 }
                 .padding(.leading, 4)
@@ -77,8 +77,8 @@ struct MinimalView: View {
         VStack(alignment: .leading, spacing: 24) {
             if let w = weather { weatherLine(w) }
             if let e = nextEvent { eventLine(e) }
-            vital("cpu.fill", Fmt.percent(metrics.snap.cpu), "CPU", Theme.cpu)
-            vital("memorychip.fill", Fmt.percent(metrics.snap.memFraction), "MEM", Theme.memory)
+            vital("cpu.fill", Fmt.percent(metrics.snap.cpu), "Processor", Theme.cpu)
+            vital("memorychip.fill", Fmt.percent(metrics.snap.memFraction), "Memory", Theme.memory)
             if let b = metrics.snap.battery {
                 let low = b.level < 0.2 && !b.charging
                 vital(b.charging ? "bolt.fill" : (low ? "battery.25" : "battery.100"),
@@ -127,9 +127,9 @@ struct MinimalView: View {
         HStack(spacing: 16) {
             Image(systemName: icon).font(.system(size: 26, weight: .bold))
                 .foregroundStyle(color.opacity(0.6)).frame(width: 34)
-            Text(value).font(.readout(42, .semibold)).foregroundStyle(color.opacity(0.92))
+            Text(value).font(.readout(40, .medium)).foregroundStyle(color.opacity(0.92))
                 .frame(width: 132, alignment: .leading)
-            Text(label).font(.deck(13, .bold)).tracking(1.8).foregroundStyle(.white.opacity(0.30))
+            Text(label).font(.deck(13, .medium)).foregroundStyle(Theme.textFaint)
             Spacer(minLength: 0)
         }
     }

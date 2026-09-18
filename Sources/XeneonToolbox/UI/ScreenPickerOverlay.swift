@@ -60,7 +60,7 @@ struct ScreenPickerOverlay: View {
                     if hasLeft {
                         VStack(spacing: 10) {
                             if !windows.isEmpty {
-                                pickerLabel("WINDOWS")
+                                pickerLabel("Windows")
                                 ScrollView(showsIndicators: false) {
                                     VStack(spacing: 8) {
                                         ForEach(windows) { w in windowRow(w) }
@@ -70,7 +70,7 @@ struct ScreenPickerOverlay: View {
                                 .fixedSize(horizontal: false, vertical: windows.count <= 3)
                             }
                             if !profiles.isEmpty {
-                                pickerLabel(windows.isEmpty ? "PROFILES" : "NEW WINDOW AS")
+                                pickerLabel(windows.isEmpty ? "Profiles" : "New window as")
                                 ForEach(profiles) { p in profileRow(p) }
                             }
                             if running && profiles.isEmpty { newWindowRow }
@@ -78,7 +78,7 @@ struct ScreenPickerOverlay: View {
                         .frame(maxWidth: .infinity, alignment: .top)
                     }
                     VStack(spacing: 10) {
-                        pickerLabel(armed != nil ? "PLACE ON" : (running ? "MOVE TO" : "OPEN ON"))
+                        pickerLabel(armed != nil ? "Place on" : (running ? "Move to" : "Open on"))
                         ForEach(displays) { d in
                             displayRow(d, pinned: pinned == d.name, current: currentName == d.name, pinnable: onDeck, windows: windows)
                         }
@@ -90,8 +90,9 @@ struct ScreenPickerOverlay: View {
             }
             .padding(24).frame(width: hasLeft ? 980 : 520)
             .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 22)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         }
         .onAppear {
             // Headless check of select-then-place: "<tile label>|<screen name>"
@@ -114,7 +115,7 @@ struct ScreenPickerOverlay: View {
     }
 
     private func pickerLabel(_ s: String) -> some View {
-        Text(s).font(.deck(11, .bold)).tracking(1.4).foregroundStyle(Theme.textFaint)
+        Text(s).font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 

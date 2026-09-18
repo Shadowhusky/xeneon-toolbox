@@ -144,7 +144,7 @@ private final class BadgeDragView: NSView {
     }
 }
 
-/// The badge's look: the app's grid mark in a glassy cyan-rimmed puck.
+/// The badge's look: the app's grid mark in a glassy amber-rimmed puck.
 private struct BadgeFace: View {
     var body: some View {
         ZStack {

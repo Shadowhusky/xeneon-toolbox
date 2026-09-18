@@ -103,6 +103,7 @@ struct RootView: View {
             }
         }
         .overlay { if model.showRailMenu { RailMenu(model: model) { model.showRailMenu = false } } }
+        .overlay(alignment: .bottom) { UpdateToasts(updater: model.updater, fullscreen: model.fullscreen) }
         .overlay { UpdateGate(updater: model.updater, fullscreen: model.fullscreen) }
         .overlay { if model.crashPrompt != nil { crashReportPrompt } }
         // First-run coach marks for the fullscreen gestures. Sits BELOW the shade /
@@ -248,8 +249,7 @@ struct NavRail: View {
                 }
             }
             VStack(spacing: 8) {
-                Rectangle().fill(LinearGradient(colors: [.clear, Theme.stroke], startPoint: .leading, endPoint: .trailing))
-                    .frame(height: 1).padding(.horizontal, 14).padding(.bottom, 2)
+                Rectangle().fill(Theme.stroke).frame(height: 1).padding(.horizontal, 20).padding(.bottom, 2)
                 touchButton
                 menuButton
             }
@@ -268,8 +268,7 @@ struct NavRail: View {
             Image(systemName: "square.grid.2x2.fill")
                 .font(.system(size: 22, weight: .bold)).foregroundStyle(Theme.accent)
                 .deckGlow(Theme.accent, strength: 0.6)
-            Rectangle().fill(LinearGradient(colors: [.clear, Theme.accent.opacity(0.35), .clear], startPoint: .leading, endPoint: .trailing))
-                .frame(height: 1).padding(.horizontal, 22)
+            Rectangle().fill(Theme.stroke).frame(height: 1).padding(.horizontal, 20)
         }
         .padding(.top, 18).padding(.bottom, 10)
     }
@@ -289,8 +288,11 @@ struct NavRail: View {
                 Text(label).font(.deck(11, .semibold)).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(width: 88, height: 56)
-            .background(RoundedRectangle(cornerRadius: 15, style: .continuous).fill(Color.white.opacity(0.05)))
-            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 15, style: .continuous).fill(Theme.wellFill))
+            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Color.black.opacity(0.4), lineWidth: 1))
+            .overlay(alignment: .topTrailing) {
+                Lamp(color: tint, on: touchStatus != .off, size: 6).padding(8)
+            }
             .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
         }
         .buttonStyle(.pressable)
@@ -303,8 +305,9 @@ struct NavRail: View {
                 Text("More").font(.deck(11, .semibold)).foregroundStyle(Theme.textSecondary)
             }
             .frame(width: 88, height: 64)
-            .background(RoundedRectangle(cornerRadius: 15, style: .continuous).fill(Color.white.opacity(0.07)))
-            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)))
+            .bezel(corner: 15)
             .contentShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
         }
         .buttonStyle(.pressable)
@@ -325,6 +328,7 @@ private struct NavButton: View {
             VStack(spacing: 6) {
                 Image(systemName: route.icon)
                     .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(selected ? accent : Theme.textSecondary)
                     .frame(height: 28)
                     .overlay(alignment: .topTrailing) {
                         if route == .tasks { TasksBadge(todos: todos, accent: accent) }
@@ -333,16 +337,24 @@ private struct NavButton: View {
                 Text(route.title).font(.deck(12, .semibold))
                     .lineLimit(1).minimumScaleFactor(0.8)
             }
-            .foregroundStyle(selected ? accent : Theme.textSecondary)
+            .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
             .frame(width: 88, height: 76)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(selected
-                          ? LinearGradient(colors: [accent.opacity(0.24), accent.opacity(0.10)], startPoint: .top, endPoint: .bottom)
-                          : LinearGradient(colors: [Color.white.opacity(0.03), .clear], startPoint: .top, endPoint: .bottom))
+                          ? LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)
+                          : LinearGradient(colors: [.clear, .clear], startPoint: .top, endPoint: .bottom))
             )
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(selected ? accent.opacity(0.35) : .clear, lineWidth: 1))
+                .strokeBorder(LinearGradient(colors: [Theme.bezelLight, Theme.bezelDark], startPoint: .top, endPoint: .bottom),
+                              lineWidth: 1)
+                .opacity(selected ? 1 : 0))
+            // The lit index bar: the one place the rail uses the signature amber.
+            .overlay(alignment: .leading) {
+                Capsule().fill(Theme.accent).frame(width: 3, height: 30)
+                    .deckGlow(Theme.accent, strength: 1)
+                    .opacity(selected ? 1 : 0)
+            }
             .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.pressable)
@@ -357,7 +369,7 @@ private struct TasksBadge: View {
         let open = todos.items.filter { !$0.done }.count
         if open > 0 {
             Text("\(open)")
-                .font(.readout(10, .bold)).foregroundStyle(.white)
+                .font(.readout(10, .bold)).foregroundStyle(Theme.backgroundEdge)
                 .padding(.horizontal, 5).padding(.vertical, 1)
                 .background(Capsule().fill(todos.items.contains { $0.isOverdue } ? Theme.batteryLow : accent))
                 .offset(x: 14, y: -8)
@@ -369,8 +381,7 @@ private struct FocusDot: View {
     @ObservedObject var timer: FocusTimer
     var body: some View {
         if timer.running {
-            Circle().fill(Theme.netUp).frame(width: 8, height: 8)
-                .deckGlow(Theme.netUp, strength: 0.8)
+            Lamp(color: Theme.accent, on: true, size: 8)
                 .offset(x: 10, y: -6)
         }
     }
@@ -433,13 +444,18 @@ private struct ShadePullHost: View {
     }
 }
 
+/// The panel's surface: near-black carbon with one soft light falling from the
+/// top-left, so bezels read as lit edges instead of drawn lines.
 struct DeckBackground: View {
     var body: some View {
         ZStack {
+            Theme.backgroundEdge
             LinearGradient(colors: [Theme.background, Theme.backgroundEdge],
                            startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [Theme.accent.opacity(0.08), .clear],
-                           center: .init(x: 0.5, y: -0.1), startRadius: 10, endRadius: 900)
+            RadialGradient(colors: [Color.white.opacity(0.045), .clear],
+                           center: .init(x: 0.12, y: -0.2), startRadius: 0, endRadius: 1300)
+            RadialGradient(colors: [Theme.accent.opacity(0.035), .clear],
+                           center: .init(x: 0.5, y: 1.3), startRadius: 0, endRadius: 1100)
         }
         .ignoresSafeArea()
     }

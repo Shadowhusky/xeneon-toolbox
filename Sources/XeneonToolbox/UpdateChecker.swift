@@ -1,5 +1,7 @@
 import Foundation
 import AppKit
+import CryptoKit
+import ToolboxKit
 
 struct UpdateInfo: Equatable {
     let version: String        // normalized, e.g. "1.3.0"
@@ -7,6 +9,7 @@ struct UpdateInfo: Equatable {
     let notes: String          // markdown body (the changelog)
     let pageURL: URL           // release page
     let downloadURL: URL?      // best .zip asset, if present
+    var sha256: String? = nil  // GitHub's asset digest, when it publishes one
 }
 
 /// Progress of an in-app self-update.
@@ -14,46 +17,87 @@ enum InstallPhase: Equatable { case idle, working(String), failed(String) }
 
 struct UpdateError: Error { let message: String }
 
-/// Checks GitHub Releases for a newer version on launch and at an interval, shows
-/// a changelog, and — when running from an installed `.app` — downloads the
-/// notarized zip, verifies it, and replaces itself in place before relaunching.
-/// Falls back to opening the download page for non-bundle (dev) builds.
+/// Keeps the app current without getting in the way. A newer GitHub release is
+/// downloaded and verified in the background (signature, notarization, same
+/// developer, matching version, optional digest), then installed at a quiet
+/// moment: when nobody has touched the panel for a while, or on the next quit.
+/// The user sees one small notice, and a "what's new" toast after the relaunch.
+/// The swap keeps the previous bundle and rolls back if the new one doesn't
+/// come up. "Ask first" shows the release instead; "Off" only checks on request.
 @MainActor
 final class UpdateChecker: ObservableObject {
-    /// Set when a newer release is found that the user hasn't skipped or snoozed.
+    /// A release to show the user (Ask-first policy, or a manual check).
     @Published var available: UpdateInfo?
+    /// Downloaded and verified on disk, waiting for a quiet moment.
+    @Published private(set) var staged: UpdateInfo?
+    /// The one quiet notice per staged version.
+    @Published var showReadyNotice = false
+    /// Set on the first launch of a version the updater installed.
+    @Published private(set) var justUpdated: UpdateInfo?
+    @Published var showWhatsNew = false
     @Published var checking = false
     @Published var statusLine = ""
     @Published var install: InstallPhase = .idle
+    @Published var policy: UpdatePolicy {
+        didSet {
+            AppDefaults.shared.set(policy.rawValue, forKey: Self.policyKey)
+            if policy == .automatic, let info = available, staged?.version != info.version { available = nil; stage(info) }
+        }
+    }
+
+    /// Whether the panel is idle enough to relaunch unnoticed. Set by the model.
+    var isQuiet: () -> Bool = { false }
 
     private let repo = "Shadowhusky/xeneon-toolbox"
     let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     private let interval: TimeInterval = 6 * 3600
-    private var timer: Timer?
-
-    /// "Ignore this time" — kept only in memory, so it clears on relaunch and the
-    /// interval checks stay quiet for this session until the app is reopened.
+    private var checkTimer: Timer?
+    private var idleTimer: Timer?
+    private var stagedApp: URL?
+    private var noticedVersions: Set<String> = []
     private var snoozedThisSession: Set<String> = []
+    private var etag: String?
+
+    private static let policyKey = "update.policy"
+    private static let installedVersionKey = "update.installedVersion"
+    private static let installedNotesKey = "update.installedNotes"
+    private static let installedNameKey = "update.installedName"
 
     private var skippedVersion: String? {
         get { AppDefaults.shared.string(forKey: "update.skippedVersion") }
         set { AppDefaults.shared.setValue(newValue, forKey: "update.skippedVersion") }
     }
 
+    init() {
+        policy = AppDefaults.shared.string(forKey: Self.policyKey).flatMap(UpdatePolicy.init(rawValue:)) ?? .automatic
+    }
+
     /// Begin automatic checks. No-op when running as a bare executable (no bundle
     /// version), so dev builds don't nag.
     func start() {
-        guard currentVersion != nil else { return }
-        check()
-        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.check() }
+        guard let current = currentVersion else { return }
+        noteFreshInstall(current)
+        restoreStagedFromDisk(current)
+        // Don't compete with launch; then every ~6 h with jitter.
+        scheduleCheck(after: 45)
+    }
+
+    private func scheduleCheck(after delay: TimeInterval) {
+        checkTimer?.invalidate()
+        let t = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.policy != .off { self.check() }
+                self.scheduleCheck(after: UpdateStrategy.nextCheckDelay(base: self.interval, random: .random(in: 0..<1)))
+            }
         }
+        t.tolerance = 300
         RunLoop.main.add(t, forMode: .common)
-        timer = t
+        checkTimer = t
     }
 
     /// `manual` checks (from Settings) bypass skip/snooze and always show a found
-    /// update; automatic checks respect the user's earlier choices.
+    /// update; automatic checks follow the policy and the user's earlier choices.
     func check(manual: Bool = false) {
         guard !checking else { return }
         checking = true
@@ -67,55 +111,208 @@ final class UpdateChecker: ObservableObject {
             return
         }
         let current = currentVersion ?? "0"
-        guard Self.compare(info.version, current) > 0 else {
+        guard UpdateStrategy.compare(info.version, current) > 0 else {
             statusLine = "You're on the latest version (v\(current))."
             if manual { available = nil }
             return
         }
-        statusLine = "Version \(info.version) is available."
-        if !manual {
-            if skippedVersion == info.version { return }
-            if snoozedThisSession.contains(info.version) { return }
+        if staged?.version == info.version {
+            statusLine = "Version \(info.version) is ready to install."
+            if manual { available = info }
+            return
         }
-        available = info
+        statusLine = "Version \(info.version) is available."
+        if manual { available = info; return }
+        guard skippedVersion != info.version, !snoozedThisSession.contains(info.version) else { return }
+        switch policy {
+        case .automatic: stage(info)
+        case .notify: available = info
+        case .off: break
+        }
     }
 
     private func fetchLatest() async -> UpdateInfo? {
         guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return nil }
         var req = URLRequest(url: url, timeoutInterval: 12)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        req.setValue("XeneonToolbox", forHTTPHeaderField: "User-Agent")
+        req.setValue("XeneonToolbox/\(currentVersion ?? "dev")", forHTTPHeaderField: "User-Agent")
+        if let etag { req.setValue(etag, forHTTPHeaderField: "If-None-Match") }
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, http.statusCode == 200,
+              let http = resp as? HTTPURLResponse else { return nil }
+        if http.statusCode == 304 { return lastFetched }
+        guard http.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         if (json["draft"] as? Bool) == true || (json["prerelease"] as? Bool) == true { return nil }
         guard let tag = json["tag_name"] as? String else { return nil }
-        let version = Self.normalize(tag)
+        let version = UpdateStrategy.normalize(tag)
         let name = (json["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Version \(version)"
         let notes = (json["body"] as? String) ?? ""
         let pageURL = (json["html_url"] as? String).flatMap(URL.init)
             ?? URL(string: "https://github.com/\(repo)/releases/latest")!
         var download: URL?
+        var digest: String?
         if let assets = json["assets"] as? [[String: Any]],
-           let zip = assets.first(where: { ($0["name"] as? String)?.lowercased().hasSuffix(".zip") == true }),
-           let s = zip["browser_download_url"] as? String {
-            download = URL(string: s)
+           let zip = assets.first(where: { ($0["name"] as? String)?.lowercased().hasSuffix(".zip") == true }) {
+            download = (zip["browser_download_url"] as? String).flatMap(URL.init)
+            if let d = zip["digest"] as? String, d.hasPrefix("sha256:") { digest = String(d.dropFirst(7)).lowercased() }
         }
-        return UpdateInfo(version: version, name: name, notes: notes, pageURL: pageURL, downloadURL: download)
+        etag = http.value(forHTTPHeaderField: "ETag")
+        let info = UpdateInfo(version: version, name: name, notes: notes, pageURL: pageURL, downloadURL: download, sha256: digest)
+        lastFetched = info
+        return info
     }
+    private var lastFetched: UpdateInfo?
 
-    // MARK: - User actions
+    // MARK: - Staging (download + verify in the background)
 
     /// Whether we can replace ourselves in place (running from an installed .app).
     var canSelfInstall: Bool { Bundle.main.bundlePath.hasSuffix(".app") }
 
+    private var stagingDir: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("XeneonToolbox/updates", isDirectory: true)
+    }
+
+    private func stage(_ info: UpdateInfo) {
+        guard canSelfInstall, let zip = info.downloadURL, staged?.version != info.version, staging == nil else { return }
+        staging = Task { await download(info, from: zip) }
+    }
+    private var staging: Task<Void, Never>?
+
+    private func download(_ info: UpdateInfo, from url: URL) async {
+        defer { staging = nil }
+        let oldApp = Bundle.main.bundlePath
+        let work = stagingDir.appendingPathComponent(info.version, isDirectory: true)
+        do {
+            try? FileManager.default.removeItem(at: work)
+            try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+            // Not over hotspots or Low Data Mode; a missed check just tries again later.
+            let config = URLSessionConfiguration.ephemeral
+            config.allowsExpensiveNetworkAccess = false
+            config.allowsConstrainedNetworkAccess = false
+            config.timeoutIntervalForResource = 600
+            let (downloaded, resp) = try await URLSession(configuration: config).download(from: url)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError(message: "Download failed.") }
+            let zipPath = work.appendingPathComponent("update.zip")
+            try FileManager.default.moveItem(at: downloaded, to: zipPath)
+            let expected = info.sha256, version = info.version
+            let newApp = try await Task.detached(priority: .utility) {
+                try UpdateChecker.unpackAndVerify(zip: zipPath, work: work, oldApp: oldApp, version: version, sha256: expected)
+            }.value
+            stagedApp = newApp
+            staged = info
+            statusLine = "Version \(info.version) is ready. It installs when you're away."
+            AppLog.info("update", "v\(info.version) staged at \(newApp.path)")
+            if !noticedVersions.contains(info.version) { noticedVersions.insert(info.version); showReadyNotice = true }
+            startIdleWatch()
+        } catch {
+            let message = (error as? UpdateError)?.message ?? error.localizedDescription
+            AppLog.error("update", "staging v\(info.version) failed: \(message)")
+            statusLine = "Couldn't prepare v\(info.version): \(message)"
+            try? FileManager.default.removeItem(at: work)
+        }
+    }
+
+    /// A previous run may have staged an update it never got a quiet moment for.
+    private func restoreStagedFromDisk(_ current: String) {
+        guard canSelfInstall,
+              let dirs = try? FileManager.default.contentsOfDirectory(at: stagingDir, includingPropertiesForKeys: nil) else { return }
+        for dir in dirs {
+            let version = dir.lastPathComponent
+            guard UpdateStrategy.compare(version, current) > 0,
+                  let app = (try? FileManager.default.contentsOfDirectory(at: dir.appendingPathComponent("unpacked"), includingPropertiesForKeys: nil))?
+                    .first(where: { $0.pathExtension == "app" }),
+                  Self.run("/usr/bin/codesign", ["--verify", "--strict", app.path]).code == 0 else {
+                try? FileManager.default.removeItem(at: dir)
+                continue
+            }
+            stagedApp = app
+            staged = UpdateInfo(version: version, name: "Version \(version)", notes: "", pageURL: URL(string: "https://github.com/\(repo)/releases/latest")!, downloadURL: nil)
+            startIdleWatch()
+            AppLog.info("update", "v\(version) still staged from an earlier run")
+        }
+    }
+
+    private func startIdleWatch() {
+        guard idleTimer == nil else { return }
+        let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.staged != nil else { return }
+                if self.policy == .automatic && self.isQuiet() { self.installNow() }
+            }
+        }
+        t.tolerance = 10
+        RunLoop.main.add(t, forMode: .common)
+        idleTimer = t
+    }
+
+    // MARK: - Installing
+
+    /// Swap in the staged bundle and relaunch. Quiet by design: nothing to confirm.
+    func installNow() {
+        guard let info = staged, let newApp = stagedApp else { return }
+        do {
+            rememberInstall(info)
+            try Self.relaunchHelper(pid: ProcessInfo.processInfo.processIdentifier, oldApp: Bundle.main.bundlePath,
+                                    newApp: newApp.path, work: newApp.deletingLastPathComponent().deletingLastPathComponent(),
+                                    relaunch: true)
+            AppLog.info("update", "installing v\(info.version) now")
+            NSApp.terminate(nil)
+        } catch {
+            install = .failed("Couldn't start the installer.")
+        }
+    }
+
+    /// The app is quitting anyway: the cheapest possible moment to swap, no relaunch.
+    func installAtQuit() {
+        guard let info = staged, let newApp = stagedApp else { return }
+        rememberInstall(info)
+        try? Self.relaunchHelper(pid: ProcessInfo.processInfo.processIdentifier, oldApp: Bundle.main.bundlePath,
+                                 newApp: newApp.path, work: newApp.deletingLastPathComponent().deletingLastPathComponent(),
+                                 relaunch: false)
+        AppLog.info("update", "installing v\(info.version) at quit")
+    }
+
+    private func rememberInstall(_ info: UpdateInfo) {
+        AppDefaults.shared.set(info.version, forKey: Self.installedVersionKey)
+        AppDefaults.shared.set(info.notes, forKey: Self.installedNotesKey)
+        AppDefaults.shared.set(info.name, forKey: Self.installedNameKey)
+    }
+
+    private func noteFreshInstall(_ current: String) {
+        guard AppDefaults.shared.string(forKey: Self.installedVersionKey) == current else { return }
+        justUpdated = UpdateInfo(version: current, name: AppDefaults.shared.string(forKey: Self.installedNameKey) ?? "Version \(current)",
+                                 notes: AppDefaults.shared.string(forKey: Self.installedNotesKey) ?? "",
+                                 pageURL: URL(string: "https://github.com/\(repo)/releases/latest")!, downloadURL: nil)
+        AppDefaults.shared.removeObject(forKey: Self.installedVersionKey)
+        AppDefaults.shared.removeObject(forKey: Self.installedNotesKey)
+        AppDefaults.shared.removeObject(forKey: Self.installedNameKey)
+        try? FileManager.default.removeItem(at: stagingDir)
+        AppLog.info("update", "first launch of v\(current) after a self-update")
+    }
+
+    // MARK: - User actions
+
+    /// From the modal: install right away (staging first if needed).
     func update(_ info: UpdateInfo) {
         guard canSelfInstall, let zip = info.downloadURL else {
             NSWorkspace.shared.open(info.downloadURL ?? info.pageURL)
             available = nil
             return
         }
-        Task { await selfInstall(from: zip) }
+        if staged?.version == info.version { installNow(); return }
+        install = .working("Downloading update…")
+        Task {
+            if staging == nil { staging = Task { await download(info, from: zip) } }
+            await staging?.value
+            if staged?.version == info.version {
+                install = .working("Installing…")
+                installNow()
+            } else {
+                install = .failed("Update failed. You can download it manually.")
+            }
+        }
     }
 
     func openDownload(_ info: UpdateInfo) {
@@ -123,37 +320,21 @@ final class UpdateChecker: ObservableObject {
         available = nil
     }
 
-    /// Download → unzip → verify signature/notarization/team → swap the bundle and
-    /// relaunch via a small detached helper that waits for this process to exit.
-    private func selfInstall(from url: URL) async {
-        install = .working("Downloading update…")
-        let oldApp = Bundle.main.bundlePath
-        let pid = ProcessInfo.processInfo.processIdentifier
-        do {
-            let (downloaded, resp) = try await URLSession.shared.download(from: url)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError(message: "Download failed.") }
-            let work = FileManager.default.temporaryDirectory.appendingPathComponent("xeneon-update-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-            let zipPath = work.appendingPathComponent("update.zip")
-            try FileManager.default.moveItem(at: downloaded, to: zipPath)
+    func skip(_ info: UpdateInfo) { skippedVersion = info.version; available = nil }
+    func ignoreThisTime(_ info: UpdateInfo) { snoozedThisSession.insert(info.version); available = nil }
+    func dismiss() { available = nil }
+    func dismissWhatsNew() { showWhatsNew = false; justUpdated = nil }
 
-            install = .working("Verifying…")
-            let newApp = try await Task.detached(priority: .userInitiated) {
-                try UpdateChecker.unpackAndVerify(zip: zipPath, work: work, oldApp: oldApp)
-            }.value
+    // MARK: - Verification and the swap
 
-            install = .working("Installing…")
-            try UpdateChecker.relaunchHelper(pid: pid, oldApp: oldApp, newApp: newApp.path, work: work)
-            // The helper now waits for us to quit, swaps the bundle, and reopens it.
-            NSApp.terminate(nil)
-        } catch {
-            install = .failed((error as? UpdateError)?.message ?? "Update failed. You can download it manually.")
+    /// Unzips and confirms the update is intact, notarized, the advertised
+    /// version, and from the same developer as the running app.
+    nonisolated private static func unpackAndVerify(zip: URL, work: URL, oldApp: String, version: String, sha256: String?) throws -> URL {
+        if let sha256 {
+            let data = try Data(contentsOf: zip)
+            let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            guard actual == sha256 else { throw UpdateError(message: "Download didn't match its checksum.") }
         }
-    }
-
-    /// Unzips and confirms the update is intact, notarized, and from the same
-    /// developer as the running app — never swap in something we can't trust.
-    nonisolated private static func unpackAndVerify(zip: URL, work: URL, oldApp: String) throws -> URL {
         let unpack = work.appendingPathComponent("unpacked")
         try FileManager.default.createDirectory(at: unpack, withIntermediateDirectories: true)
         guard run("/usr/bin/ditto", ["-x", "-k", zip.path, unpack.path]).code == 0 else {
@@ -162,7 +343,12 @@ final class UpdateChecker: ObservableObject {
         guard let newApp = (try FileManager.default.contentsOfDirectory(at: unpack, includingPropertiesForKeys: nil))
             .first(where: { $0.pathExtension == "app" }) else { throw UpdateError(message: "Update didn't contain an app.") }
 
-        guard run("/usr/bin/codesign", ["--verify", "--strict", newApp.path]).code == 0 else {
+        let plist = newApp.appendingPathComponent("Contents/Info.plist")
+        if let dict = NSDictionary(contentsOf: plist), let v = dict["CFBundleShortVersionString"] as? String,
+           UpdateStrategy.compare(UpdateStrategy.normalize(v), version) != 0 {
+            throw UpdateError(message: "Update is version \(v), not \(version).")
+        }
+        guard run("/usr/bin/codesign", ["--verify", "--strict", "--deep", newApp.path]).code == 0 else {
             throw UpdateError(message: "Update failed its signature check.")
         }
         guard run("/usr/sbin/spctl", ["--assess", "--type", "execute", newApp.path]).code == 0 else {
@@ -172,22 +358,40 @@ final class UpdateChecker: ObservableObject {
         if let oldTeam = teamID(oldApp), let newTeam, oldTeam != newTeam {
             throw UpdateError(message: "Update is signed by a different developer.")
         }
+        try? FileManager.default.removeItem(at: zip)
         return newApp
     }
 
-    /// Writes and launches a detached shell helper. It outlives this process,
-    /// waits for it to exit, replaces the bundle, and relaunches.
-    nonisolated private static func relaunchHelper(pid: Int32, oldApp: String, newApp: String, work: URL) throws {
+    /// A detached shell helper that outlives this process: waits for it to exit,
+    /// keeps the old bundle as a backup, moves the new one into place, and if the
+    /// new app isn't running shortly after relaunch puts the backup back.
+    nonisolated private static func relaunchHelper(pid: Int32, oldApp: String, newApp: String, work: URL, relaunch: Bool) throws {
         let script = """
         #!/bin/sh
+        OLD="\(oldApp)"; NEW="\(newApp)"; BACKUP="\(oldApp).previous"; WORK="\(work.path)"
         while /bin/kill -0 \(pid) 2>/dev/null; do /bin/sleep 0.2; done
-        /bin/rm -rf "\(oldApp)"
-        /usr/bin/ditto "\(newApp)" "\(oldApp)"
-        /usr/bin/xattr -dr com.apple.quarantine "\(oldApp)" 2>/dev/null
-        /usr/bin/open "\(oldApp)"
-        /bin/rm -rf "\(work.path)"
+        /bin/rm -rf "$BACKUP"
+        /bin/mv "$OLD" "$BACKUP" || exit 1
+        if /bin/mv "$NEW" "$OLD" 2>/dev/null || /usr/bin/ditto "$NEW" "$OLD"; then
+          /usr/bin/xattr -dr com.apple.quarantine "$OLD" 2>/dev/null
+          if [ "\(relaunch ? 1 : 0)" = "1" ]; then
+            /usr/bin/open "$OLD"
+            /bin/sleep 20
+            if /usr/bin/pgrep -f "$OLD/Contents/MacOS/" >/dev/null; then
+              /bin/rm -rf "$BACKUP"
+            else
+              /bin/rm -rf "$OLD"; /bin/mv "$BACKUP" "$OLD"; /usr/bin/open "$OLD"
+            fi
+          else
+            /bin/rm -rf "$BACKUP"
+          fi
+        else
+          /bin/rm -rf "$OLD"; /bin/mv "$BACKUP" "$OLD"
+          if [ "\(relaunch ? 1 : 0)" = "1" ]; then /usr/bin/open "$OLD"; fi
+        fi
+        /bin/rm -rf "$WORK"
         """
-        let scriptURL = work.appendingPathComponent("apply.sh")
+        let scriptURL = FileManager.default.temporaryDirectory.appendingPathComponent("xeneon-apply-\(pid).sh")
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -214,13 +418,11 @@ final class UpdateChecker: ObservableObject {
         return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
     }
 
-    func skip(_ info: UpdateInfo) { skippedVersion = info.version; available = nil }
-    func ignoreThisTime(_ info: UpdateInfo) { snoozedThisSession.insert(info.version); available = nil }
-    func dismiss() { available = nil }
+    // MARK: - Demo
 
-    /// Inject a sample update for previewing the modal (XENEON_UPDATE_DEMO).
-    func demo() {
-        available = UpdateInfo(
+    /// Sample states for previewing (XENEON_UPDATE_DEMO = 1 | ready | updated).
+    func demo(_ mode: String) {
+        let info = UpdateInfo(
             version: "9.9.9", name: "Preview",
             notes: """
             ## ✨ New
@@ -234,25 +436,13 @@ final class UpdateChecker: ObservableObject {
             - The browser's Stop and Retry buttons now behave correctly.
             """,
             pageURL: URL(string: "https://github.com/\(repo)/releases/latest")!, downloadURL: nil)
-    }
-
-    // MARK: - Version helpers
-
-    static func normalize(_ tag: String) -> String {
-        var s = tag.trimmingCharacters(in: .whitespaces)
-        if s.first == "v" || s.first == "V" { s.removeFirst() }
-        return s
-    }
-
-    /// Numeric semver-ish compare: 1 if a>b, -1 if a<b, 0 if equal.
-    static func compare(_ a: String, _ b: String) -> Int {
-        let pa = a.split(separator: ".").map { Int($0.prefix(while: \.isNumber)) ?? 0 }
-        let pb = b.split(separator: ".").map { Int($0.prefix(while: \.isNumber)) ?? 0 }
-        for i in 0..<max(pa.count, pb.count) {
-            let x = i < pa.count ? pa[i] : 0
-            let y = i < pb.count ? pb[i] : 0
-            if x != y { return x > y ? 1 : -1 }
+        switch mode {
+        case "ready": staged = info; showReadyNotice = true
+        case "updated": justUpdated = info
+        default: available = info
         }
-        return 0
     }
+
+    static func normalize(_ tag: String) -> String { UpdateStrategy.normalize(tag) }
+    static func compare(_ a: String, _ b: String) -> Int { UpdateStrategy.compare(a, b) }
 }

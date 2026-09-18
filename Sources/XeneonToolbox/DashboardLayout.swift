@@ -4,6 +4,7 @@ import ToolboxKit
 /// The dashboard's gadgets, identified so a board can be saved.
 enum DashTile: String, CaseIterable, Codable, Identifiable {
     case clock, cpu, gpu, memory, network, storage, power, upNext, tasks, thermals, dock, clipboard, nowPlaying
+    case focus, worldClocks, weather, devices, quickActions
     var id: String { rawValue }
 
     var title: String {
@@ -21,6 +22,11 @@ enum DashTile: String, CaseIterable, Codable, Identifiable {
         case .dock: return "Running apps"
         case .clipboard: return "Clipboard"
         case .nowPlaying: return "Now Playing"
+        case .focus: return "Focus"
+        case .worldClocks: return "World clocks"
+        case .weather: return "Weather"
+        case .devices: return "Devices"
+        case .quickActions: return "Quick actions"
         }
     }
 
@@ -39,6 +45,11 @@ enum DashTile: String, CaseIterable, Codable, Identifiable {
         case .dock: return "macwindow.on.rectangle"
         case .clipboard: return "doc.on.clipboard"
         case .nowPlaying: return "music.note"
+        case .focus: return "timer"
+        case .worldClocks: return "globe"
+        case .weather: return "cloud.sun.fill"
+        case .devices: return "wave.3.right"
+        case .quickActions: return "bolt.fill"
         }
     }
 
@@ -58,6 +69,11 @@ enum DashTile: String, CaseIterable, Codable, Identifiable {
         case .dock: return "Every running app — tap one to bring it forward."
         case .clipboard: return "The last few things you copied. Tap to copy again."
         case .nowPlaying: return "Spotify or Music, with playback controls."
+        case .focus: return "A focus timer you can start and pause from the board."
+        case .worldClocks: return "The cities from your Clock page, at a glance."
+        case .weather: return "Current conditions with the next hours. Tap for the forecast."
+        case .devices: return "Connected Bluetooth devices and their charge."
+        case .quickActions: return "Keep awake, dark mode, screenshot, lock and more."
         }
     }
 
@@ -68,6 +84,9 @@ enum DashTile: String, CaseIterable, Codable, Identifiable {
         case .storage, .power, .thermals: return [.s]
         case .upNext, .dock: return [.w, .s]
         case .tasks, .clipboard, .nowPlaying: return [.s, .w]
+        case .focus: return [.s]
+        case .worldClocks, .weather, .quickActions: return [.w, .s]
+        case .devices: return [.s, .w]
         }
     }
 
@@ -118,6 +137,16 @@ final class DashboardLayout: ObservableObject {
     private struct SavedV1: Codable { var order: [String]; var hidden: [String] }
 
     init() {
+        // XENEON_BOARD="clock:t,cpu:s,…" renders a given board without touching the saved one.
+        if let spec = ProcessInfo.processInfo.environment["XENEON_BOARD"] {
+            board = Self.sanitized(spec.split(separator: ",").compactMap { item in
+                let parts = item.split(separator: ":").map(String.init)
+                guard let t = DashTile(rawValue: parts[0]) else { return nil }
+                return PlacedTile(tile: t, size: parts.count > 1 ? (TileSize(rawValue: parts[1]) ?? t.defaultSize) : t.defaultSize)
+            })
+            repack()
+            return
+        }
         if let data = AppDefaults.shared.data(forKey: key),
            let saved = try? JSONDecoder().decode([SavedTile].self, from: data), !saved.isEmpty {
             board = Self.sanitized(saved.compactMap { s in

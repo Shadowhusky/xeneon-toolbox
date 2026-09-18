@@ -195,6 +195,9 @@ final class WeatherService: ObservableObject {
 
     func start() {
         guard timer == nil else { return }
+        if ProcessInfo.processInfo.environment["XENEON_WEATHER_DEMO"] != nil {
+            weather = Self.demo(); firstAttemptDone = true; return
+        }
         Task { await refresh() }
         let t = Timer(timeInterval: 900, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
@@ -208,6 +211,22 @@ final class WeatherService: ObservableObject {
         timer = nil
         retryTimer?.invalidate()
         retryTimer = nil
+    }
+
+    /// A plausible forecast for screenshots (XENEON_WEATHER_DEMO), relative to now.
+    private static func demo() -> Weather {
+        let now = Date()
+        let hourStart = Calendar.current.date(bySetting: .minute, value: 0, of: now) ?? now
+        let hourly: [(Int, Double)] = [(2, 21), (2, 22), (1, 23), (0, 24), (0, 24), (1, 22), (3, 20), (61, 18)]
+        let daily: [(Int, Double, Double)] = [(2, 25, 16), (61, 21, 15), (3, 22, 14), (0, 26, 15), (1, 27, 17), (2, 24, 16)]
+        return Weather(
+            tempC: 22, code: 2, city: "Seattle", highC: 25, lowC: 16, windKph: 14, humidity: 58,
+            days: daily.enumerated().map { i, d in
+                DayForecast(date: Calendar.current.date(byAdding: .day, value: i, to: now)!, code: d.0, highC: d.1, lowC: d.2)
+            },
+            hours: hourly.enumerated().map { i, h in
+                HourForecast(date: hourStart.addingTimeInterval(Double(i + 1) * 3600), code: h.0, tempC: h.1)
+            })
     }
 
     func refresh() async {

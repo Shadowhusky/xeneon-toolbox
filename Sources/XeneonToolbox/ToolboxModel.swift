@@ -64,6 +64,7 @@ final class ToolboxModel: ObservableObject {
     let audioOutput = AudioOutput()
     let keepAwake = KeepAwake()
     let focusTimer = FocusTimer()
+    let bluetooth = BluetoothDevices()
     let runningApps = RunningAppsMonitor()
     let clipboard = ClipboardStore()
     let dashboardCommands = DashboardCommands()
@@ -74,6 +75,7 @@ final class ToolboxModel: ObservableObject {
     lazy var remote = RemoteServer(model: self)
     lazy var web = WebController()   // persists the Web tab's page/history across tab switches
     lazy var updater = UpdateChecker()
+    private let launchedAt = Date()
     @Published var remoteEnabled = (AppDefaults.shared.object(forKey: "remote.enabled") as? Bool) ?? true
     /// How the page change should animate: swipes slide directionally (the page
     /// follows the finger); tab taps and programmatic jumps cross-fade with a
@@ -631,7 +633,14 @@ final class ToolboxModel: ObservableObject {
         if env["XENEON_DEMO_TOUCH"] != nil { touchOn = true; edgeDetected = true }
         else if env["XENEON_NO_TOUCH"] == nil { startTouch() }
         if remoteEnabled { remote.start() }
-        if ProcessInfo.processInfo.environment["XENEON_UPDATE_DEMO"] != nil { updater.demo() } else { updater.start() }
+        updater.isQuiet = { [weak self] in
+            guard let self else { return false }
+            let idle = Date().timeIntervalSince(lastTouchInputAt ?? launchedAt)
+            let interacting = showSettings || showRailMenu || showAgenda || showNowPlayingFull || crashPrompt != nil
+                || dashboardCommands.editing || agent.busy
+            return UpdateStrategy.isQuietMoment(idleSeconds: idle, interacting: interacting, fullUI: displayMode == .full)
+        }
+        if let demo = ProcessInfo.processInfo.environment["XENEON_UPDATE_DEMO"] { updater.demo(demo) } else { updater.start() }
         if canControlBacklight {
             DispatchQueue.global(qos: .utility).async {
                 if let b = Backlight.getBrightness() {
@@ -643,6 +652,7 @@ final class ToolboxModel: ObservableObject {
 
     func startTouch() {
         touchOn = true
+        cursor.onRealPointerInput = { [weak self] in self?.touch.realPointerMoved() }
         cursor.start()   // hide the pointer while touching; shows again on real mouse use
         attemptAcquire()
     }

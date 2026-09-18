@@ -17,7 +17,7 @@ final class RemoteServer: ObservableObject {
     private weak var model: ToolboxModel?
     private var listener: NWListener?
     private var candidates: [UInt16] = []
-    private let accessToken: String
+    private var accessToken: String
 
     private static let portRange: [UInt16] = Array(8765...8784)
     private static let tokenKey = "remote.accessToken.v1"
@@ -43,6 +43,20 @@ final class RemoteServer: ObservableObject {
     func stop() {
         listener?.cancel(); listener = nil
         running = false; port = 0; urls = []
+    }
+
+    /// Issues a fresh access key; every link handed out before stops working.
+    func regenerateToken() {
+        accessToken = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        AppDefaults.shared.set(accessToken, forKey: Self.tokenKey)
+        if running { urls = Self.lanIPv4().map { "http://\($0):\(port)/?t=\(accessToken)" } }
+    }
+
+    /// What the Settings page prints. Screenshots (XENEON_REMOTE_DEMO) get a placeholder key.
+    var displayURLs: [String] {
+        guard ProcessInfo.processInfo.environment["XENEON_REMOTE_DEMO"] != nil else { return urls }
+        return urls.isEmpty ? ["http://192.168.1.20:8766/?t=0123456789ABCDEF0123456789ABCDEF"]
+                            : urls.map { $0.replacingOccurrences(of: accessToken, with: "0123456789ABCDEF0123456789ABCDEF") }
     }
 
     private func tryNextPort() {

@@ -12,10 +12,10 @@ extension EnvironmentValues {
     }
 }
 
-/// The ring arc as Core Animation layers. Animating `strokeEnd` there is
-/// interpolated by the render server; animating a SwiftUI shape's `trim`
-/// instead re-laid-out the entire panel on every frame of every tick, which was
-/// most of the dashboard's CPU.
+/// The tick ring as Core Animation layers: one path of 48 tick segments drawn
+/// dark, the same path drawn in the metric hue and masked by an arc whose
+/// `strokeEnd` the render server animates. Animating a SwiftUI shape instead
+/// re-laid-out the entire panel on every frame of every tick.
 struct RingLayerView: NSViewRepresentable {
     var value: Double
     var color: Color
@@ -23,37 +23,37 @@ struct RingLayerView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> RingHostView {
         let v = RingHostView()
-        v.apply(value: value, color: NSColor(color), lineWidth: lineWidth, animated: false)
+        v.apply(value: value, color: NSColor(color), tickLength: lineWidth, animated: false)
         return v
     }
 
     func updateNSView(_ v: RingHostView, context: Context) {
-        v.apply(value: value, color: NSColor(color), lineWidth: lineWidth, animated: true)
+        v.apply(value: value, color: NSColor(color), tickLength: lineWidth, animated: true)
     }
 }
 
 final class RingHostView: NSView {
-    private let track = CAShapeLayer()
-    private let halo = CAShapeLayer()
+    private let unlit = CAShapeLayer()
+    private let lit = CAShapeLayer()
     private let arcMask = CAShapeLayer()
-    private let arcGradient = CAGradientLayer()
-    private var lineWidth: CGFloat = 12
+    private var tickLength: CGFloat = 12
     private var lastSize = CGSize.zero
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        for shape in [track, halo, arcMask] {
+        for shape in [unlit, lit] {
             shape.fillColor = nil
             shape.lineCap = .round
-            shape.strokeStart = 0
+            shape.lineWidth = 2.5
         }
-        arcGradient.startPoint = CGPoint(x: 0.5, y: 0)
-        arcGradient.endPoint = CGPoint(x: 0.5, y: 1)
-        arcGradient.mask = arcMask
-        layer?.addSublayer(track)
-        layer?.addSublayer(halo)
-        layer?.addSublayer(arcGradient)
+        arcMask.fillColor = nil
+        arcMask.lineCap = .butt
+        arcMask.strokeColor = NSColor.black.cgColor
+        arcMask.strokeStart = 0
+        lit.mask = arcMask
+        layer?.addSublayer(unlit)
+        layer?.addSublayer(lit)
         syncScale()
     }
 
@@ -70,7 +70,7 @@ final class RingHostView: NSView {
 
     private func syncScale() {
         let s = window?.backingScaleFactor ?? 2
-        for l in [track, halo, arcMask, arcGradient] { l.contentsScale = s }
+        for l in [unlit, lit, arcMask] { l.contentsScale = s }
     }
 
     override func layout() {
@@ -79,40 +79,40 @@ final class RingHostView: NSView {
     }
 
     private func rebuildPaths() {
-        let b = bounds
-        let side = min(b.width, b.height)
-        let center = CGPoint(x: b.midX, y: b.midY)
-        // Room for the halo (5 pt each side of the ring) inside the frame.
-        let radius = max(1, side / 2 - lineWidth / 2 - 5)
-        // Start at 12 o'clock, run clockwise (the view is flipped, so angles
-        // increase clockwise on screen).
-        let path = CGMutablePath()
-        path.addArc(center: center, radius: radius, startAngle: -.pi / 2, endAngle: 3 * .pi / 2, clockwise: false)
-        for shape in [track, halo, arcMask] {
-            shape.frame = b
-            shape.path = path
+        let b = bounds.insetBy(dx: 4, dy: 4)
+        let c = CGPoint(x: b.midX, y: b.midY)
+        let outer = min(b.width, b.height) / 2
+        let ticks = CGMutablePath()
+        for i in 0..<TickRingShape.tickCount {
+            let a = (TickRingShape.startAngle + TickRingShape.sweep * Double(i) / Double(TickRingShape.tickCount - 1)) * .pi / 180
+            let dx = cos(a), dy = sin(a)
+            ticks.move(to: CGPoint(x: c.x + dx * (outer - tickLength), y: c.y + dy * (outer - tickLength)))
+            ticks.addLine(to: CGPoint(x: c.x + dx * outer, y: c.y + dy * outer))
         }
-        arcGradient.frame = b
-        track.lineWidth = lineWidth
-        halo.lineWidth = lineWidth + 10
-        arcMask.lineWidth = lineWidth
+        for shape in [unlit, lit] { shape.frame = bounds; shape.path = ticks }
+        // The reveal arc runs through the middle of the ticks; the view is
+        // flipped, so angles increase clockwise on screen.
+        let arc = CGMutablePath()
+        let start = TickRingShape.startAngle * .pi / 180
+        arc.addArc(center: c, radius: outer - tickLength / 2, startAngle: start,
+                   endAngle: start + TickRingShape.sweep * .pi / 180, clockwise: false)
+        arcMask.frame = bounds
+        arcMask.path = arc
+        arcMask.lineWidth = tickLength + 6
     }
 
-    func apply(value: Double, color: NSColor, lineWidth: CGFloat, animated: Bool) {
-        if self.lineWidth != lineWidth { self.lineWidth = lineWidth; rebuildPaths() }
-        let end = CGFloat(max(0.001, min(1, value)))
-        track.strokeColor = NSColor.white.withAlphaComponent(0.07).cgColor
-        halo.strokeColor = color.withAlphaComponent(0.18).cgColor
-        arcMask.strokeColor = NSColor.black.cgColor
-        arcGradient.colors = [color.cgColor, color.withAlphaComponent(0.6).cgColor]
+    func apply(value: Double, color: NSColor, tickLength: CGFloat, animated: Bool) {
+        if self.tickLength != tickLength { self.tickLength = tickLength; rebuildPaths() }
+        let end = CGFloat(max(0.002, min(1, value)))
+        unlit.strokeColor = NSColor.white.withAlphaComponent(0.09).cgColor
+        lit.strokeColor = color.cgColor
         CATransaction.begin()
         if animated {
-            CATransaction.setAnimationDuration(0.35)
+            CATransaction.setAnimationDuration(0.4)
             CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         } else {
             CATransaction.setDisableActions(true)
         }
-        halo.strokeEnd = end
         arcMask.strokeEnd = end
         CATransaction.commit()
     }

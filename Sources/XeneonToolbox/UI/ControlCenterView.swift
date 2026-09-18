@@ -133,8 +133,9 @@ struct ControlCenterView: View {
         .padding(20)
         .frame(width: 760)
         .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(.ultraThinMaterial))
-        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-        .shadow(color: .black.opacity(0.55), radius: 30, y: 12)
+            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 26)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         .onAppear {
             brightness = Double(model.brightness)
             if let v = SystemVolume.level() { volume = Double(v); volumeAvailable = true }
@@ -408,7 +409,7 @@ struct ControlCenterView: View {
                                           @ViewBuilder rows: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text(title.uppercased()).font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+                Text(title).font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
                 if loading { ProgressView().controlSize(.small) }
             }
             if empty && !loading {

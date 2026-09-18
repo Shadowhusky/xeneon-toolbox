@@ -1,4 +1,5 @@
 import SwiftUI
+import ToolboxKit
 import AppKit
 import CoreImage
 import XeneonTouchDriver
@@ -18,15 +19,11 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Settings").font(.deck(30, .bold)).foregroundStyle(Theme.textPrimary)
+                Text("Settings").font(.deck(26, .semibold)).foregroundStyle(Theme.textPrimary)
                 Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 30)).foregroundStyle(Theme.textFaint)
-                        .frame(width: 48, height: 48).contentShape(Rectangle())
-                }.buttonStyle(.pressable)
+                CircleIconButton(icon: "xmark", size: 44) { dismiss() }
             }
-            Rectangle().fill(LinearGradient(colors: [Theme.accent.opacity(0.4), .clear], startPoint: .leading, endPoint: .trailing))
-                .frame(height: 1.5).padding(.bottom, 18)
+            .padding(.bottom, 18)
 
             // ScrollView content doesn't lay out in the off-screen renderer.
             ScrollOrStatic(scrolls: !model.exportMode) {
@@ -87,30 +84,37 @@ struct SettingsView: View {
                     section("Remote control", "Control the Edge from your phone or PC on the same network.", "antenna.radiowaves.left.and.right", Theme.netDown) {
                         Toggle("Enable remote control", isOn: Binding(get: { model.remoteEnabled }, set: { model.setRemote($0) }))
                         if model.remoteEnabled {
-                            if remote.urls.isEmpty {
+                            let urls = remote.displayURLs
+                            if urls.isEmpty {
                                 Text(remote.running ? "Running on port \(remote.port)" : "Starting…")
                                     .font(.deck(13)).foregroundStyle(Theme.textFaint)
                             } else {
                                 HStack(alignment: .top, spacing: 16) {
-                                    if let qr = Self.qrImage(remote.urls[0]) {
+                                    if let qr = Self.qrImage(urls[0]) {
                                         Image(nsImage: qr).interpolation(.none).resizable()
                                             .frame(width: 128, height: 128).padding(9)
                                             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.white))
                                     }
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text("Scan with your phone, or open:").font(.deck(13)).foregroundStyle(Theme.textSecondary)
-                                        ForEach(remote.urls, id: \.self) { u in
+                                        ForEach(urls, id: \.self) { u in
                                             Text(u).font(.system(size: 15, design: .monospaced))
                                                 .foregroundStyle(Theme.accent).textSelection(.enabled)
                                                 .lineLimit(1).minimumScaleFactor(0.5)
                                         }
                                         Text("The link includes a private access key. Share it only with people you trust.")
                                             .font(.deck(12)).foregroundStyle(Theme.textFaint)
+                                        GhostButton(title: "New link", icon: "arrow.triangle.2.circlepath", tint: Theme.textSecondary, height: 40) {
+                                            remote.regenerateToken()
+                                        }
                                     }
                                     Spacer(minLength: 0)
                                 }
                             }
                         }
+                    }
+                    section("Permissions", "What macOS must allow, and where to turn each one on.", "lock.shield.fill", Theme.ice) {
+                        PermissionsList()
                     }
                     section("Assistant", "Conversations are stored on this Mac.", "sparkles", Theme.batteryLow) {
                         if confirmClear {
@@ -153,17 +157,8 @@ struct SettingsView: View {
                         }
                         if !configStatus.isEmpty { Text(configStatus).font(.deck(12)).foregroundStyle(Theme.textFaint) }
                     }
-                    section("Software update", "Checks GitHub for new versions automatically.", "arrow.down.circle.fill", Theme.netDown) {
-                        labelRow("Current version", "v\(updater.currentVersion ?? "—")")
-                        Button { updater.check(manual: true) } label: {
-                            Label(updater.checking ? "Checking…" : "Check for updates", systemImage: "arrow.clockwise")
-                                .font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary)
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
-                        }.buttonStyle(.pressable).disabled(updater.checking)
-                        if !updater.statusLine.isEmpty {
-                            Text(updater.statusLine).font(.deck(12)).foregroundStyle(Theme.textFaint)
-                        }
+                    section("Software update", "New versions download in the background and install when you're away.", "arrow.down.circle.fill", Theme.netDown) {
+                        SoftwareUpdateControls(updater: updater)
                     }
                     section("About", nil, "info.circle.fill", Theme.time) {
                         labelRow("Xeneon Toolbox", "for the Corsair Xeneon Edge")
@@ -177,9 +172,9 @@ struct SettingsView: View {
         }
         .padding(30)
         .frame(width: 1240, height: 660)
-        .background(RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous).fill(Theme.background))
-        .overlay(RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
-        .shadow(color: .black.opacity(0.5), radius: 30)
+        .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Theme.background))
+        .bezel(corner: 26)
+        .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         .tint(Theme.accent)
         .preferredColorScheme(.dark)
         .onChange(of: model.displayIssue) { edge = EdgeScreen.current() }
@@ -200,9 +195,10 @@ struct SettingsView: View {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.battery)
                 } else {
                     Button { model.displayIssue = DisplayModeAdvisor.check(ignoringDismissal: true) } label: {
-                        Text("Fix").font(.deck(13, .bold)).foregroundStyle(.black)
+                        Text("Fix").font(.deck(13, .semibold)).foregroundStyle(Theme.backgroundEdge)
                             .padding(.horizontal, 14).frame(height: 34)
                             .background(Capsule().fill(Theme.warning))
+                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
                             .contentShape(Capsule())
                     }.buttonStyle(.pressable)
                 }
@@ -227,8 +223,10 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 8) {
-                    Image(systemName: icon).font(.system(size: 15, weight: .bold)).foregroundStyle(accent)
-                    Text(title.uppercased()).font(.deck(14, .bold)).tracking(1.4).foregroundStyle(accent)
+                    Image(systemName: icon).font(.system(size: 12, weight: .bold)).foregroundStyle(accent)
+                        .frame(width: 26, height: 26)
+                        .background(RoundedRectangle(cornerRadius: Theme.badgeCorner, style: .continuous).fill(accent.opacity(0.14)))
+                    Text(title).font(.deck(15, .semibold)).foregroundStyle(Theme.textPrimary)
                 }
                 Rectangle().fill(LinearGradient(colors: [accent.opacity(0.4), .clear], startPoint: .leading, endPoint: .trailing))
                     .frame(height: 1)
@@ -379,5 +377,49 @@ private struct WeatherLocationPicker: View {
             if !Task.isCancelled { results = found }
             searching = false
         }
+    }
+}
+
+private struct SoftwareUpdateControls: View {
+    @ObservedObject var updater: UpdateChecker
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Current version").foregroundStyle(Theme.textSecondary)
+                Spacer()
+                Text("v\(updater.currentVersion ?? "—")").font(.readout(14, .semibold)).foregroundStyle(Theme.textPrimary)
+            }
+            HStack(spacing: 8) {
+                policyButton("Automatic", .automatic)
+                policyButton("Ask first", .notify)
+                policyButton("Off", .off)
+            }
+            if let s = updater.staged {
+                PrimaryButton(title: "Restart to update to v\(s.version)", icon: "arrow.down.circle.fill", height: 44) {
+                    updater.installNow()
+                }
+                .frame(maxWidth: .infinity)
+            }
+            GhostButton(title: updater.checking ? "Checking…" : "Check for updates", icon: "arrow.clockwise",
+                        tint: Theme.textPrimary, height: 44) { updater.check(manual: true) }
+                .frame(maxWidth: .infinity)
+                .disabled(updater.checking)
+            if !updater.statusLine.isEmpty {
+                Text(updater.statusLine).font(.deck(12)).foregroundStyle(Theme.textFaint)
+            }
+        }
+    }
+
+    private func policyButton(_ title: String, _ value: UpdatePolicy) -> some View {
+        let on = updater.policy == value
+        return Button { updater.policy = value } label: {
+            Text(title).font(.deck(14, .semibold))
+                .foregroundStyle(on ? Theme.backgroundEdge : Theme.textSecondary)
+                .frame(maxWidth: .infinity).frame(height: 40)
+                .background(Capsule().fill(on ? Theme.accent : Color.white.opacity(0.06)))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(on ? 0.25 : 0.06), lineWidth: 1))
+                .contentShape(Capsule())
+        }.buttonStyle(.pressable)
     }
 }

@@ -39,11 +39,9 @@ struct EnergyFlowView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
                 Image(systemName: "bolt.fill").font(.system(size: 20, weight: .bold)).foregroundStyle(Theme.battery)
-                Text("Energy").font(.deck(24, .bold)).foregroundStyle(Theme.textPrimary)
+                Text("Energy").font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 26)).foregroundStyle(Theme.textFaint)
-                }.buttonStyle(.pressable)
+                CircleIconButton(icon: "xmark", size: 42, action: onClose)
             }
 
             if !power.warmedUp {
@@ -67,8 +65,8 @@ struct EnergyFlowView: View {
         .frame(width: 1040, height: 560)
         .background(RoundedRectangle(cornerRadius: 24, style: .continuous)
             .fill(LinearGradient(colors: [Theme.tileTop, Theme.tileBottom], startPoint: .top, endPoint: .bottom)))
-        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Theme.battery.opacity(0.3), lineWidth: 1))
-        .shadow(color: .black.opacity(0.5), radius: 30)
+        .bezel(corner: 24, tint: Theme.battery)
+        .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
     }
 
     // MARK: - Flow diagram
@@ -95,7 +93,7 @@ struct EnergyFlowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Image(systemName: "powerplug.fill").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.battery)
-                    Text(s.external ? "WALL" : "BATTERY").font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+                    Text(s.external ? "Wall" : "Battery").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
                 }
                 if let wall = s.wall {
                     Text(Self.watts(wall)).font(.readout(44, .bold)).foregroundStyle(Theme.textPrimary)
@@ -119,7 +117,7 @@ struct EnergyFlowView: View {
                     HStack(spacing: 8) {
                         Image(systemName: s.charging ? "battery.100.bolt" : "battery.75")
                             .font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.battery)
-                        Text("BATTERY").font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+                        Text("Battery").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
                         Spacer()
                         if let p = s.batteryPercent {
                             Text("\(p)%").font(.readout(15, .bold)).foregroundStyle(Theme.textPrimary)
@@ -160,7 +158,7 @@ struct EnergyFlowView: View {
 
     private var highPower: some View {
         HStack(spacing: 14) {
-            Text("HIGH POWER USE").font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+            Text("High power use").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             ForEach(topApps.prefix(3)) { p in
                 HStack(spacing: 8) {
                     Text(p.name).font(.deck(14, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)

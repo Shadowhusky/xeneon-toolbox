@@ -41,12 +41,9 @@ struct TileEditForm: View {
         ModalScaffold(onDismiss: onDone) {
             VStack(spacing: 0) {
                 HStack {
-                    Text("Edit tile").font(.deck(22, .bold)).foregroundStyle(Theme.textPrimary)
+                    Text("Edit tile").font(.deck(20, .semibold)).foregroundStyle(Theme.textPrimary)
                     Spacer()
-                    Button(action: onDone) {
-                        Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.textSecondary)
-                            .frame(width: 40, height: 40).background(Circle().fill(Color.white.opacity(0.08))).contentShape(Circle())
-                    }.buttonStyle(.pressable)
+                    CircleIconButton(icon: "xmark", size: 42, action: onDone)
                 }
                 .padding(.bottom, 12)
 
@@ -75,14 +72,15 @@ struct TileEditForm: View {
             .padding(24)
             .frame(width: 720, height: 560)
             .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 30, y: 12)
+            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 26)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         }
     }
 
     private var iconSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("ICON").font(.deckLabel).tracking(Theme.labelTracking).foregroundStyle(Theme.textFaint)
+            Text("Icon").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             HStack(spacing: 14) {
                 preview
                 Button {
@@ -148,10 +146,11 @@ struct AddButtonLabeled: View {
     var action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(title).font(.deck(16, .bold)).foregroundStyle(.white)
+            Text(title).font(.deck(16, .semibold)).foregroundStyle(enabled ? Theme.backgroundEdge : Theme.textFaint)
                 .frame(maxWidth: .infinity).frame(height: 52)
-                .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(enabled ? Theme.battery : Color.white.opacity(0.08)))
-                .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .background(Capsule().fill(enabled ? Theme.accent : Color.white.opacity(0.06)))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(enabled ? 0.25 : 0.06), lineWidth: 1))
+                .contentShape(Capsule())
         }.buttonStyle(.pressable).disabled(!enabled)
     }
 }

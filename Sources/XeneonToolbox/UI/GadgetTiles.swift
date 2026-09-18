@@ -61,22 +61,7 @@ struct UpNextTile: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            VStack(spacing: 10) {
-                Text("Allow Calendar access to see your day here").font(.deck(14)).foregroundStyle(Theme.textSecondary)
-                    .multilineTextAlignment(.center)
-                Button {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    Label("Open Privacy settings", systemImage: "arrow.up.forward.app")
-                        .font(.deck(13, .semibold)).foregroundStyle(Theme.textPrimary)
-                        .padding(.horizontal, 14).frame(height: 40)
-                        .background(Capsule().fill(Color.white.opacity(0.07)))
-                        .contentShape(Capsule())
-                }.buttonStyle(.pressable)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            PermissionGuide(.calendar, compact: size.columns == 1) { calendar.refresh() }
         }
     }
 }
@@ -183,7 +168,7 @@ struct ThermalsTile: View {
                     RingGauge(value: min(1, s / 110), color: tint) {
                         VStack(spacing: 2) {
                             Text("\(Int(s.rounded()))°").font(.readout(46, .bold)).foregroundStyle(Theme.textPrimary)
-                            Text("SOC").font(.deck(11, .bold)).tracking(1.6).foregroundStyle(Theme.textFaint)
+                            Text("soc").font(.deck(12, .medium)).foregroundStyle(Theme.textFaint)
                         }
                     }
                     .aspectRatio(1, contentMode: .fit)

@@ -1,44 +1,58 @@
 import SwiftUI
 
-/// Telemetry-deck design language: near-black layered surfaces, hue-coded
-/// metrics, soft glows, monospaced readouts.
+/// Obsidian Instrument: black glass surfaces with a physical bezel, warm bone
+/// text, one amber signature, and hue-coded instruments. Everything in the app
+/// draws from here.
 enum Theme {
-    static let background = Color(red: 0.035, green: 0.04, blue: 0.05)
-    static let backgroundEdge = Color(red: 0.02, green: 0.022, blue: 0.03)
-    static let tileTop = Color(red: 0.10, green: 0.11, blue: 0.135)
-    static let tileBottom = Color(red: 0.065, green: 0.07, blue: 0.09)
-    static let stroke = Color.white.opacity(0.07)
-    static let strokeStrong = Color.white.opacity(0.14)
+    // Surfaces
+    static let background = Color(hex: 0x0A0B0D)        // carbon
+    static let backgroundEdge = Color(hex: 0x060708)
+    static let tileTop = Color(hex: 0x171A20)            // graphite
+    static let tileBottom = Color(hex: 0x0E1014)         // slate
+    static let stroke = Color.white.opacity(0.06)
+    static let strokeStrong = Color.white.opacity(0.12)
+    static let bezelLight = Color.white.opacity(0.11)    // the lit top edge of glass
+    static let bezelDark = Color.black.opacity(0.6)      // the shaded bottom edge
+    static let trackFill = Color.white.opacity(0.06)     // empty part of any gauge/bar
+    static let wellFill = Color.black.opacity(0.3)       // recessed graph/gauge area
+    static let innerHighlight = Color.white.opacity(0.05)
 
-    static let textPrimary = Color(red: 0.93, green: 0.95, blue: 0.98)
-    static let textSecondary = Color(red: 0.58, green: 0.62, blue: 0.70)
-    static let textFaint = Color(red: 0.40, green: 0.44, blue: 0.52)
+    // Text — warm bone on cool glass
+    static let textPrimary = Color(hex: 0xECE9E1)
+    static let textSecondary = Color(hex: 0x9C9B95)
+    static let textFaint = Color(hex: 0x5F615F)
 
-    // Hue-coded per metric — the colour encodes which signal you're reading.
-    static let cpu = Color(red: 0.33, green: 0.84, blue: 0.92)      // cyan
-    static let gpu = Color(red: 1.0, green: 0.45, blue: 0.72)       // pink
-    static let memory = Color(red: 0.56, green: 0.49, blue: 1.0)    // violet
-    static let netDown = Color(red: 0.36, green: 0.90, blue: 0.65)  // mint
-    static let netUp = Color(red: 0.98, green: 0.74, blue: 0.38)    // amber
-    static let disk = Color(red: 0.40, green: 0.62, blue: 1.0)      // blue
-    static let battery = Color(red: 0.46, green: 0.89, blue: 0.58)  // green
-    static let batteryLow = Color(red: 0.98, green: 0.45, blue: 0.42)
-    static let accent = Color(red: 0.33, green: 0.84, blue: 0.92)
-    static let time = Color(red: 0.70, green: 0.78, blue: 0.88)     // ice — clock identity, distinct from cpu cyan
-    static let heat = Color(red: 1.0, green: 0.58, blue: 0.36)      // coral — thermals
+    // The signature and its second
+    static let accent = Color(hex: 0xF5B544)             // amber
+    static let time = accent                             // the clock is the primary instrument
+    static let ice = Color(hex: 0x8FD3F4)
+
+    // Hue-coded instruments
+    static let cpu = ice
+    static let gpu = Color(hex: 0xC79BFF)                // orchid
+    static let memory = Color(hex: 0xFF8FA3)             // rose
+    static let netDown = Color(hex: 0x8BE3B0)            // mint
+    static let netUp = Color(hex: 0xE3C97A)              // sand
+    static let disk = Color(hex: 0xA9B4C2)               // steel
+    static let battery = Color(hex: 0x9BD97A)            // moss
+    static let batteryLow = Color(hex: 0xFF5E5E)
+    static let heat = Color(hex: 0xFF7A59)               // ember
 
     // Semantic state hues — one place to escalate any metric.
-    static let warning = netUp          // amber
-    static let critical = batteryLow    // red
+    static let warning = accent
+    static let critical = batteryLow
 
     /// A metric's colour under load: its own hue until 75 %, amber to 90 %, red above.
     static func pressure(_ fraction: Double, base: Color) -> Color {
         fraction >= 0.9 ? critical : fraction >= 0.75 ? warning : base
     }
 
-    static let labelTracking: CGFloat = 1.8
+    static let labelTracking: CGFloat = 0.2
 
-    static let tileCorner: CGFloat = 26
+    // Radius encodes hierarchy: tiles, then wells/rows, then badges.
+    static let tileCorner: CGFloat = 22
+    static let wellCorner: CGFloat = 12
+    static let badgeCorner: CGFloat = 8
     static let tileGap: CGFloat = 16
 
     // Modular spacing scale so interiors share one rhythm.
@@ -47,40 +61,34 @@ enum Theme {
     static let s3: CGFloat = 16
     static let s4: CGFloat = 22
 
-    // The "empty" substrate behind any gauge/bar/track — one shared material.
-    static let trackFill = Color.white.opacity(0.07)
-    // Elevation cues: a recessed well for graphs/gauges, a 1 px top highlight on surfaces.
-    static let wellFill = Color.black.opacity(0.22)
-    static let innerHighlight = Color.white.opacity(0.06)
-
-    // The signature hue-coded bloom. One calibrated recipe for every accent.
-    static let glowOpacity: Double = 0.55
-    static let glowRadius: CGFloat = 7
+    // The lamp bloom — used on indicators, never on large shapes.
+    static let glowOpacity: Double = 0.6
+    static let glowRadius: CGFloat = 6
 }
 
-extension View {
-    /// The deck's signature accent bloom, applied consistently.
-    func deckGlow(_ color: Color, strength: CGFloat = 1) -> some View {
-        shadow(color: color.opacity(Theme.glowOpacity), radius: Theme.glowRadius * strength)
+extension Color {
+    init(hex: UInt32) {
+        self.init(red: Double((hex >> 16) & 0xFF) / 255,
+                  green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255)
     }
 }
 
-/// A recessed area inside a tile — graphs and gauges sit in one so the surface
-/// reads as layered rather than flat.
-struct Well<Content: View>: View {
-    var corner: CGFloat = 14
-    var inset: CGFloat = 10
-    @ViewBuilder var content: Content
+extension View {
+    /// The indicator bloom, applied consistently to small lit elements.
+    func deckGlow(_ color: Color, strength: CGFloat = 1) -> some View {
+        shadow(color: color.opacity(Theme.glowOpacity), radius: Theme.glowRadius * strength)
+    }
 
-    var body: some View {
-        content
-            .padding(inset)
-            .background(RoundedRectangle(cornerRadius: corner, style: .continuous).fill(Theme.wellFill))
-            .overlay(RoundedRectangle(cornerRadius: corner, style: .continuous).strokeBorder(Color.black.opacity(0.3), lineWidth: 1))
-            .overlay(alignment: .top) {
-                RoundedRectangle(cornerRadius: corner, style: .continuous)
-                    .fill(Color.white.opacity(0.03)).frame(height: 1).padding(.horizontal, 10).padding(.top, 1)
-            }
+    /// A physical bezel: lit top edge, shaded bottom edge, hairline stroke.
+    func bezel(corner: CGFloat, tint: Color = .clear) -> some View {
+        overlay(
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(colors: [Theme.bezelLight.opacity(1), tint.opacity(0.18), Theme.bezelDark],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1)
+        )
     }
 }
 
@@ -88,8 +96,8 @@ struct Well<Content: View>: View {
 struct PressableStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .opacity(configuration.isPressed ? 0.82 : 1)
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .opacity(configuration.isPressed ? 0.8 : 1)
             .animation(Motion.press, value: configuration.isPressed)
     }
 }
@@ -99,17 +107,53 @@ extension ButtonStyle where Self == PressableStyle {
 }
 
 extension Font {
+    /// Words: SF Pro, sentence case.
     static func deck(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+        .system(size: size, weight: weight, design: .default)
     }
+    /// Numbers: monospaced so readouts never jitter and read as instruments.
     static func readout(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
-        .system(size: size, weight: weight, design: .rounded).monospacedDigit()
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+    /// The hero clock: light monospaced, like an aircraft clock.
+    static func hero(_ size: CGFloat) -> Font {
+        .system(size: size, weight: .light, design: .monospaced)
     }
     // Named roles so hierarchy stays consistent across pages.
-    static var deckLabel: Font { deck(13, .bold) }   // uppercase tile/section header
+    static var deckLabel: Font { deck(14, .semibold) }   // tile/section header
     static var deckCaption: Font { deck(12) }
-    static var readoutHero: Font { readout(58, .bold) }
-    static var readoutXL: Font { readout(48, .bold) }
+    static var readoutHero: Font { readout(56, .semibold) }
+    static var readoutXL: Font { readout(44, .semibold) }
+}
+
+/// A recessed area inside a tile — graphs and gauges sit in one so the surface
+/// reads as layered rather than flat.
+struct Well<Content: View>: View {
+    var corner: CGFloat = Theme.wellCorner
+    var inset: CGFloat = 10
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .padding(inset)
+            .background(RoundedRectangle(cornerRadius: corner, style: .continuous).fill(Theme.wellFill))
+            .overlay(RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .strokeBorder(LinearGradient(colors: [Color.black.opacity(0.5), Color.white.opacity(0.05)],
+                                             startPoint: .top, endPoint: .bottom), lineWidth: 1))
+    }
+}
+
+/// An indicator lamp: a small dot that is either lit (with bloom) or dark.
+struct Lamp: View {
+    var color: Color
+    var on = true
+    var size: CGFloat = 7
+    var body: some View {
+        Circle()
+            .fill(on ? color : Color.white.opacity(0.12))
+            .frame(width: size, height: size)
+            .deckGlow(on ? color : .clear, strength: 0.9)
+    }
 }
 
 enum Fmt {

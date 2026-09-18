@@ -23,23 +23,19 @@ private struct FocusDoneOverlay: View {
         ModalScaffold(onDismiss: onDismiss) {
             VStack(spacing: 18) {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 46)).foregroundStyle(Theme.netUp)
-                    .deckGlow(Theme.netUp, strength: 1)
+                    .font(.system(size: 46)).foregroundStyle(Theme.accent)
+                    .deckGlow(Theme.accent, strength: 1)
                 VStack(spacing: 6) {
-                    Text("Focus session complete").font(.deck(24, .bold)).foregroundStyle(Theme.textPrimary)
-                    Text("Nice work — time for a break.").font(.deck(15)).foregroundStyle(Theme.textSecondary)
+                    Text("Focus session complete").font(.deck(22, .semibold)).foregroundStyle(Theme.textPrimary)
+                    Text("Nice work. Time for a break.").font(.deck(15)).foregroundStyle(Theme.textSecondary)
                 }
-                Button(action: onDismiss) {
-                    Text("Done").font(.deck(17, .bold)).foregroundStyle(.black)
-                        .frame(maxWidth: .infinity, minHeight: 54)
-                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.netUp))
-                        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }.buttonStyle(.pressable)
+                PrimaryButton(title: "Done", height: 54, action: onDismiss).frame(maxWidth: .infinity)
             }
             .padding(30).frame(width: 440)
             .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 28, y: 12)
+            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 24)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         }
     }
 }
@@ -52,13 +48,13 @@ struct FocusTimerPill: View {
     var body: some View {
         if timer.running {
             HStack(spacing: 9) {
-                Image(systemName: "timer").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.netUp)
+                Image(systemName: "timer").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.accent)
                 Text(timer.clock).font(.readout(16, .semibold)).foregroundStyle(Theme.textPrimary)
                 Text("focus").font(.deck(12, .medium)).foregroundStyle(Theme.textFaint)
             }
             .padding(.horizontal, 14).frame(height: 38)
-            .background(Capsule().fill(Theme.netUp.opacity(0.12)))
-            .overlay(Capsule().strokeBorder(Theme.netUp.opacity(0.35), lineWidth: 1))
+            .background(Capsule().fill(Theme.accent.opacity(0.12)))
+            .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1))
         }
     }
 }

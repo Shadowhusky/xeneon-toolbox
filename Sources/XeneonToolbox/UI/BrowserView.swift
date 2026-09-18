@@ -232,8 +232,8 @@ struct BrowserView: View {
         .padding(.horizontal, 16)
         .frame(height: 48)
         .frame(maxWidth: .infinity)
-        .background(Capsule().fill(Color.white.opacity(0.06)))
-        .overlay(Capsule().strokeBorder(addressFocused ? accent.opacity(0.7) : Theme.strokeStrong, lineWidth: 1))
+        .background(Capsule().fill(Theme.wellFill))
+        .overlay(Capsule().strokeBorder(addressFocused ? accent.opacity(0.7) : Color.black.opacity(0.4), lineWidth: 1))
     }
 
     private var addressIcon: String {
@@ -313,8 +313,9 @@ struct BrowserView: View {
                 .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(active ? accent : (enabled ? Theme.textPrimary : Theme.textFaint.opacity(0.5)))
                 .frame(width: 48, height: 48)
-                .background(Circle().fill(active ? accent.opacity(0.16) : Color.white.opacity(0.06)))
-                .overlay(Circle().strokeBorder(Theme.stroke, lineWidth: 1))
+                .background(Circle().fill(active ? accent.opacity(0.16) : Color.white.opacity(0.07)))
+                .overlay(Circle().strokeBorder(LinearGradient(colors: [Theme.bezelLight, Theme.bezelDark], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                .contentShape(Circle())
         }
         .buttonStyle(.pressable)
         .disabled(!enabled)

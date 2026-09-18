@@ -28,19 +28,19 @@ private struct NowCard: View {
                     TileHeader(title: "Now", systemImage: "clock.fill", accent: Theme.accent)
                     Spacer()
                     Text(now, format: .dateTime.weekday(.wide))
-                        .font(.deck(30, .semibold)).foregroundStyle(Theme.textSecondary)
+                        .font(.deck(28, .medium)).foregroundStyle(Theme.textSecondary)
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Text(now, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-                            .font(.readout(116, .bold)).foregroundStyle(Theme.textPrimary)
+                            .font(.hero(124)).foregroundStyle(Theme.textPrimary)
                         TimelineView(.periodic(from: .now, by: 1)) { sec in
                             Text(sec.date, format: .dateTime.second(.twoDigits))
-                                .font(.readout(40, .bold)).foregroundStyle(Theme.accent)
-                                .frame(width: 76, alignment: .leading)
+                                .font(.readout(36, .medium)).foregroundStyle(Theme.accent)
+                                .frame(width: 70, alignment: .leading)
                         }
                     }
                     .lineLimit(1).minimumScaleFactor(0.5)
                     Text(now, format: .dateTime.month(.wide).day().year())
-                        .font(.deck(20, .medium)).foregroundStyle(Theme.textFaint)
+                        .font(.deck(19, .medium)).foregroundStyle(Theme.textSecondary)
                     Spacer()
                     DayProgressBar(date: now)
                 }
@@ -105,7 +105,7 @@ private struct WorldClocksCard: View {
     @State private var query = ""
 
     var body: some View {
-        TileSurface(accent: Theme.memory) {
+        TileSurface(accent: Theme.ice) {
             VStack(alignment: .leading, spacing: 0) {
                 header
                 Spacer(minLength: 14)
@@ -125,8 +125,10 @@ private struct WorldClocksCard: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: "globe").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.memory)
-                Text("WORLD").font(.deck(13, .bold)).tracking(1.8).foregroundStyle(Theme.textSecondary)
+                Image(systemName: "globe").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.ice)
+                    .frame(width: 26, height: 26)
+                    .background(RoundedRectangle(cornerRadius: Theme.badgeCorner, style: .continuous).fill(Theme.ice.opacity(0.14)))
+                Text("World").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
                 Spacer(minLength: 0)
                 if !exportMode {
                     if adding {
@@ -138,18 +140,17 @@ private struct WorldClocksCard: View {
                     }
                 }
             }
-            Rectangle()
-                .fill(LinearGradient(colors: [Theme.memory.opacity(0.45), .clear], startPoint: .leading, endPoint: .trailing))
-                .frame(height: 1.5)
+            .frame(height: 28)
         }
     }
 
     private func headerButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.deck(12, .bold)).foregroundStyle(Theme.memory)
-                .padding(.horizontal, 11).padding(.vertical, 6)
-                .background(Capsule().fill(Theme.memory.opacity(0.14)))
+                .font(.deck(12, .semibold)).foregroundStyle(Theme.ice)
+                .padding(.horizontal, 12).frame(height: 30)
+                .background(Capsule().fill(Theme.ice.opacity(0.14)))
+                .contentShape(Capsule())
         }
         .buttonStyle(.pressable)
     }
@@ -186,9 +187,9 @@ private struct WorldClocksCard: View {
     private var addButton: some View {
         Button { adding = true } label: {
             Label("Add city", systemImage: "plus")
-                .font(.deck(15, .semibold)).foregroundStyle(Theme.memory)
+                .font(.deck(15, .semibold)).foregroundStyle(Theme.ice)
                 .frame(maxWidth: .infinity).padding(.vertical, 12)
-                .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Theme.memory.opacity(0.13)))
+                .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Theme.ice.opacity(0.13)))
         }
         .buttonStyle(.pressable)
     }
@@ -241,7 +242,7 @@ private struct WorldRow: View {
             let now = ctx.date
             let tz = clock.timeZone ?? .current
             let day = WorldClockInfo.isDaytime(in: tz, at: now)
-            let cue = day ? Theme.netUp : Theme.memory
+            let cue = day ? Theme.accent : Theme.gpu
             HStack(spacing: 14) {
                 ZStack {
                     Circle().fill(cue.opacity(0.16)).frame(width: 38, height: 38)
@@ -267,7 +268,7 @@ private struct WorldRow: View {
                 } else {
                     Text(now, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
                         .environment(\.timeZone, tz)
-                        .font(.readout(27, .bold)).foregroundStyle(Theme.textSecondary)
+                        .font(.readout(26, .medium)).foregroundStyle(Theme.textPrimary)
                 }
             }
             .padding(.vertical, 12)
@@ -281,12 +282,12 @@ private struct FocusTimerCard: View {
     @ObservedObject var timer: FocusTimer
 
     var body: some View {
-        TileSurface(accent: Theme.netUp) {
+        TileSurface(accent: Theme.accent) {
             VStack(alignment: .leading, spacing: 0) {
-                TileHeader(title: "Focus", systemImage: "timer", accent: Theme.netUp)
+                TileHeader(title: "Focus", systemImage: "timer", accent: Theme.accent)
                 Spacer()
-                RingGauge(value: timer.fraction, color: Theme.netUp) {
-                    Text(timer.clock).font(.readout(40, .bold)).foregroundStyle(Theme.textPrimary)
+                RingGauge(value: timer.fraction, color: Theme.accent) {
+                    Text(timer.clock).font(.readout(38, .semibold)).foregroundStyle(Theme.textPrimary)
                 }
                 .frame(width: 188, height: 188)
                 .frame(maxWidth: .infinity)
@@ -312,14 +313,14 @@ private struct FocusTimerCard: View {
         return Button {
             timer.setDuration(minutes: mins)
         } label: {
-            Text("\(mins)m").font(.deck(17, .semibold))
-                .foregroundStyle(selected ? Theme.netUp : Theme.textSecondary)
+            Text("\(mins) min").font(.readout(15, .semibold))
+                .foregroundStyle(selected ? Theme.accent : Theme.textSecondary)
                 .frame(maxWidth: .infinity, minHeight: 52)
                 .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .background(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(selected ? Theme.netUp.opacity(0.16) : Color.white.opacity(0.05)))
+                    .fill(selected ? Theme.accent.opacity(0.16) : Color.white.opacity(0.05)))
                 .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .strokeBorder(selected ? Theme.netUp.opacity(0.5) : .clear, lineWidth: 1))
+                    .strokeBorder(selected ? Theme.accent.opacity(0.5) : Theme.stroke, lineWidth: 1))
         }
         .buttonStyle(.pressable)
     }
@@ -327,13 +328,13 @@ private struct FocusTimerCard: View {
     private func control(_ title: String, icon: String, accent: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.deck(17, .semibold))
-                .foregroundStyle(accent ? Theme.netUp : Theme.textSecondary)
-                .frame(maxWidth: .infinity, minHeight: 58)
-                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(accent ? Theme.netUp.opacity(0.16) : Color.white.opacity(0.05)))
+                .font(.deck(16, .semibold))
+                .foregroundStyle(accent ? Theme.backgroundEdge : Theme.textSecondary)
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .contentShape(Capsule())
+                .background(Capsule().fill(accent ? Theme.accent : Color.white.opacity(0.06)))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(accent ? 0.25 : 0.06), lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }

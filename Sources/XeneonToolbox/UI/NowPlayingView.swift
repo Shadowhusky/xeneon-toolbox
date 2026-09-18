@@ -146,7 +146,7 @@ struct NowPlayingFullView: View {
                 HStack(spacing: 8) {
                     Image(systemName: np.source == .spotify ? "music.note" : "applelogo")
                         .font(.system(size: 13, weight: .bold))
-                    Text(np.source == .spotify ? "Spotify" : "Music").font(.deck(14, .bold)).tracking(1)
+                    Text(np.source == .spotify ? "Spotify" : "Music").font(.deck(14, .semibold))
                 }.foregroundStyle(.white.opacity(0.5))
                 VStack(alignment: .leading, spacing: 8) {
                     Text(np.title).font(.deck(40, .bold)).foregroundStyle(.white).lineLimit(2)

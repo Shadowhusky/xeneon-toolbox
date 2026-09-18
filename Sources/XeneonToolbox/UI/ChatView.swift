@@ -74,20 +74,15 @@ struct ChatView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Image(systemName: "sparkles").font(.system(size: 20, weight: .bold)).foregroundStyle(Theme.accent)
-            Text("Assistant").font(.deck(28, .bold)).foregroundStyle(Theme.textPrimary)
+            Image(systemName: "sparkles").font(.system(size: 20, weight: .bold)).foregroundStyle(Theme.gpu)
+            Text("Assistant").font(.deck(26, .semibold)).foregroundStyle(Theme.textPrimary)
             Spacer()
             if let c = config, !showSettings {
                 Label("\(c.model) · \(host(c))", systemImage: "server.rack")
                     .font(.deck(13, .medium)).foregroundStyle(Theme.textSecondary)
                     .padding(.horizontal, 12).padding(.vertical, 7)
                     .background(Capsule().fill(Color.white.opacity(0.06)))
-                Button { showSettings = true } label: {
-                    Image(systemName: "gearshape.fill").font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(Theme.textSecondary).frame(width: 50, height: 44)
-                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.06)))
-                }
-                .buttonStyle(.plain)
+                CircleIconButton(icon: "gearshape.fill", size: 44) { showSettings = true }
             }
         }
     }
@@ -208,7 +203,9 @@ struct ChatView: View {
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(isUser ? Theme.accent.opacity(0.22) : Color.white.opacity(0.06)))
+                    .fill(isUser ? Theme.accent.opacity(0.16) : Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(isUser ? Theme.accent.opacity(0.35) : Theme.stroke, lineWidth: 1))
                 .frame(maxWidth: 860, alignment: isUser ? .trailing : .leading)
                 if !isUser { Spacer(minLength: 80) }
             }
@@ -241,23 +238,21 @@ struct ChatView: View {
                 .background(Capsule().fill(Color.white.opacity(0.06)))
             }
             HStack(spacing: 12) {
-                Button(action: pickImage) {
-                    Image(systemName: "photo.badge.plus").font(.system(size: 24))
-                        .foregroundStyle(Theme.textSecondary).frame(width: 52, height: 52)
-                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)))
-                }.buttonStyle(.plain)
+                CircleIconButton(icon: "photo.badge.plus", size: 52, action: pickImage)
                 Group {
                     if model.exportMode {
                         // ImageRenderer renders live TextFields poorly; use a static pill for mockups.
                         HStack { Text("Message the assistant…").foregroundStyle(Theme.textFaint); Spacer() }
                             .font(.deck(17))
-                            .padding(.horizontal, 18).padding(.vertical, 14)
-                            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
+                            .padding(.horizontal, 20).padding(.vertical, 14)
+                            .background(Capsule().fill(Color.white.opacity(0.06)))
+                            .overlay(Capsule().strokeBorder(LinearGradient(colors: [Theme.bezelDark, Theme.bezelLight], startPoint: .top, endPoint: .bottom), lineWidth: 1))
                     } else {
                         TextField("Message the assistant…", text: $input)
                             .textFieldStyle(.plain).font(.deck(17))
-                            .padding(.horizontal, 18).padding(.vertical, 14)
-                            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.06)))
+                            .padding(.horizontal, 20).padding(.vertical, 14)
+                            .background(Capsule().fill(Color.white.opacity(0.06)))
+                            .overlay(Capsule().strokeBorder(LinearGradient(colors: [Theme.bezelDark, Theme.bezelLight], startPoint: .top, endPoint: .bottom), lineWidth: 1))
                             .onSubmit(send)
                     }
                 }
@@ -267,11 +262,10 @@ struct ChatView: View {
                             .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(voice.listening ? Theme.batteryLow : Theme.textSecondary)
                             .frame(width: 52, height: 52)
-                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(voice.listening ? Theme.batteryLow.opacity(0.18) : Color.white.opacity(0.06)))
-                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(voice.listening ? Theme.batteryLow.opacity(0.5) : .clear, lineWidth: 1))
-                    }.buttonStyle(.plain)
+                            .background(Circle().fill(voice.listening ? Theme.batteryLow.opacity(0.18) : Color.white.opacity(0.07)))
+                            .overlay(Circle().strokeBorder(voice.listening ? Theme.batteryLow.opacity(0.5) : Theme.bezelLight, lineWidth: 1))
+                            .contentShape(Circle())
+                    }.buttonStyle(.pressable)
                 }
                 Button(action: agent.busy ? agent.cancel : send) {
                     Image(systemName: agent.busy ? "stop.circle.fill" : "arrow.up.circle.fill")
@@ -287,15 +281,15 @@ struct ChatView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: p.dangerous ? "exclamationmark.triangle.fill" : "exclamationmark.shield.fill").foregroundStyle(accent)
-                Text("Approve: \(p.title)?").font(.deck(16, .bold)).foregroundStyle(Theme.textPrimary)
+                Text("Approve: \(p.title)?").font(.deck(16, .semibold)).foregroundStyle(Theme.textPrimary)
                 Spacer()
             }
             Text(p.detail).font(.system(size: 14, design: .monospaced)).foregroundStyle(Theme.textSecondary)
                 .lineLimit(5).frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 12) {
-                pill("Approve", fg: Theme.background, bg: accent) { agent.resolve(.approve) }
-                if !p.dangerous { pill("Always allow", fg: Theme.accent, bg: Theme.accent.opacity(0.2)) { agent.resolve(.always) } }
-                pill("Deny", fg: Theme.textSecondary, bg: Color.white.opacity(0.08)) { agent.resolve(.deny) }
+                PrimaryButton(title: "Approve", tint: accent, height: 46) { agent.resolve(.approve) }
+                if !p.dangerous { GhostButton(title: "Always allow", tint: Theme.accent, height: 46) { agent.resolve(.always) } }
+                GhostButton(title: "Deny", tint: Theme.textSecondary, height: 46) { agent.resolve(.deny) }
             }
         }
         .padding(16)
@@ -303,12 +297,6 @@ struct ChatView: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(accent.opacity(0.4), lineWidth: 1))
     }
 
-    private func pill(_ title: String, fg: Color, bg: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(.deck(15, .semibold)).foregroundStyle(fg)
-                .padding(.horizontal, 22).padding(.vertical, 12).background(Capsule().fill(bg))
-        }.buttonStyle(.plain)
-    }
 
     private var canSend: Bool {
         (!input.trimmingCharacters(in: .whitespaces).isEmpty || pendingImageURL != nil) && !agent.busy && config != nil
@@ -365,34 +353,24 @@ private struct ChatSettingsView: View {
                 .font(.deck(14)).foregroundStyle(Theme.textFaint)
             HStack(spacing: 12) {
                 ForEach(ChatConfig.presets, id: \.name) { preset in
-                    Button {
+                    GhostButton(title: preset.name, tint: Theme.accent, height: 46) {
                         baseURL = preset.config.baseURL; model = preset.config.model; detect()
-                    } label: {
-                        Text(preset.name).font(.deck(15, .semibold)).foregroundStyle(Theme.accent)
-                            .padding(.horizontal, 18).padding(.vertical, 12)
-                            .background(Capsule().fill(Theme.accent.opacity(0.14)))
-                    }.buttonStyle(.plain)
+                    }
                 }
             }
             field("Endpoint", text: $baseURL, placeholder: "http://localhost:11434/v1")
             modelRow
             field("API key (optional for local)", text: $apiKey, placeholder: "sk-…", secure: true)
             HStack(spacing: 12) {
-                Button {
+                PrimaryButton(title: "Save", tint: canSave ? Theme.accent : Theme.textFaint) {
                     onSave(ChatConfig(baseURL: baseURL.trimmingCharacters(in: .whitespaces),
                                       model: model.trimmingCharacters(in: .whitespaces),
                                       apiKey: apiKey.isEmpty ? nil : apiKey,
                                       systemPrompt: nil))
-                } label: {
-                    Text("Save").font(.deck(17, .semibold)).foregroundStyle(Theme.background)
-                        .padding(.horizontal, 32).padding(.vertical, 13)
-                        .background(Capsule().fill(canSave ? Theme.accent : Theme.textFaint))
-                }.buttonStyle(.plain).disabled(!canSave)
+                }
+                .disabled(!canSave)
                 if initial != nil {
-                    Button(action: cancel) {
-                        Text("Cancel").font(.deck(17, .medium)).foregroundStyle(Theme.textSecondary)
-                            .padding(.horizontal, 24).padding(.vertical, 13)
-                    }.buttonStyle(.plain)
+                    GhostButton(title: "Cancel", tint: Theme.textSecondary, action: cancel)
                 }
             }
             Spacer()
@@ -403,7 +381,7 @@ private struct ChatSettingsView: View {
     private var modelRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("MODEL").font(.deck(11, .bold)).tracking(1.2).foregroundStyle(Theme.textFaint)
+                Text("Model").font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
                 Spacer()
                 Button(action: detect) {
                     HStack(spacing: 6) {
@@ -454,7 +432,7 @@ private struct ChatSettingsView: View {
 
     private func field(_ label: String, text: Binding<String>, placeholder: String, secure: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(label.uppercased()).font(.deck(11, .bold)).tracking(1.2).foregroundStyle(Theme.textFaint)
+            Text(label).font(.deck(13, .semibold)).foregroundStyle(Theme.textSecondary)
             Group {
                 if secure { SecureField(placeholder, text: text) } else { TextField(placeholder, text: text) }
             }

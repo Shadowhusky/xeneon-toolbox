@@ -10,21 +10,25 @@ struct RailMenu: View {
         ModalScaffold(dim: 0.45, onDismiss: onClose) {
             VStack(spacing: 6) {
                 row("Full screen", "arrow.up.left.and.arrow.down.right", Theme.accent) { model.toggleFullscreen() }
-                row("Ambient screen", "rectangle.compress.vertical", Theme.accent) { model.setDisplay(.minimal) }
-                row("Sleep", "moon.fill", Theme.time) { model.setDisplay(.sleep) }
-                row("Hide · use the screen", "pip.enter", Theme.accent) { model.hideToBadge() }
+                row("Ambient screen", "rectangle.compress.vertical", Theme.ice) { model.setDisplay(.minimal) }
+                row("Sleep", "moon.fill", Theme.gpu) { model.setDisplay(.sleep) }
+                row("Hide and use the screen", "pip.enter", Theme.ice) { model.hideToBadge() }
                 if model.route == .dashboard {
                     row("Edit dashboard", "square.grid.3x2", Theme.battery) { model.dashboardCommands.editing = true }
                 }
                 row("Settings", "gearshape.fill", Theme.textSecondary) { model.showSettings = true }
+                if let s = model.updater.staged {
+                    row("Restart to update to v\(s.version)", "arrow.down.circle.fill", Theme.accent) { model.updater.installNow() }
+                }
                 Rectangle().fill(Theme.stroke).frame(height: 1).padding(.vertical, 4)
                 row("Quit Xeneon Toolbox", "power", Theme.batteryLow) { NSApplication.shared.terminate(nil) }
             }
             .padding(12)
             .frame(width: 340)
             .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 22)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(.leading, 124).padding(.bottom, 18)
         }

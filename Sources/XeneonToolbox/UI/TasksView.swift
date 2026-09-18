@@ -74,10 +74,10 @@ struct TasksView: View {
                     .onSubmit(add)
                 if !newTitle.trimmingCharacters(in: .whitespaces).isEmpty {
                     Button(action: add) {
-                        Text("Add").font(.deck(16, .semibold)).foregroundStyle(Theme.background)
+                        Text("Add").font(.deck(16, .semibold)).foregroundStyle(Theme.backgroundEdge)
                             .padding(.horizontal, 20).frame(height: 44)
                             .background(Capsule().fill(Theme.accent))
-                            .deckGlow(Theme.accent, strength: 0.6)
+                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
                     }.buttonStyle(.pressable)
                 }
             }
@@ -111,7 +111,7 @@ struct TasksView: View {
             ForEach(grouped, id: \.title) { group in
                 VStack(alignment: .leading, spacing: 9) {
                     HStack(spacing: 8) {
-                        Text(group.title.uppercased()).font(.deck(13, .bold)).tracking(1.4).foregroundStyle(group.color)
+                        Text(group.title).font(.deck(14, .semibold)).foregroundStyle(group.color)
                         Text("\(group.items.count)").font(.readout(12, .bold)).foregroundStyle(group.color)
                             .padding(.horizontal, 7).padding(.vertical, 2)
                             .background(Capsule().fill(group.color.opacity(0.15)))
@@ -178,12 +178,7 @@ private struct DeckRow: ViewModifier {
                                              center: .topLeading, startRadius: 0, endRadius: 320))
                 }
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: corner, style: .continuous)
-                    .strokeBorder(LinearGradient(colors: [tint.opacity(0.28 * emphasis), Theme.stroke],
-                                                 startPoint: .top, endPoint: .bottom), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.4), radius: 12, x: 0, y: 6)
+            .bezel(corner: corner, tint: tint)
     }
 }
 
@@ -350,33 +345,24 @@ private struct DueDatePicker: View {
             VStack(spacing: 18) {
                 HStack(spacing: 10) {
                     Image(systemName: "calendar.badge.clock").font(.system(size: 20, weight: .bold)).foregroundStyle(Theme.netUp)
-                    Text("Remind me").font(.deck(22, .bold)).foregroundStyle(Theme.textPrimary)
+                    Text("Remind me").font(.deck(20, .semibold)).foregroundStyle(Theme.textPrimary)
                     Spacer(minLength: 0)
                 }
                 DatePicker("", selection: $date, in: Date()..., displayedComponents: [.date, .hourAndMinute])
                     .datePickerStyle(.graphical)
                     .labelsHidden()
-                    .tint(Theme.netUp)
+                    .tint(Theme.accent)
                     .frame(maxWidth: .infinity)
                 HStack(spacing: 12) {
-                    Button(action: onClose) {
-                        Text("Cancel").font(.deck(16, .semibold)).foregroundStyle(Theme.textSecondary)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(0.06)))
-                            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    }.buttonStyle(.pressable)
-                    Button { onSet(date) } label: {
-                        Text("Set reminder").font(.deck(16, .bold)).foregroundStyle(.black)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                            .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Theme.netUp))
-                            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    }.buttonStyle(.pressable)
+                    GhostButton(title: "Cancel", tint: Theme.textSecondary, action: onClose).frame(maxWidth: .infinity)
+                    PrimaryButton(title: "Set reminder") { onSet(date) }.frame(maxWidth: .infinity)
                 }
             }
             .padding(26).frame(width: 520)
             .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Theme.strokeStrong, lineWidth: 1))
-            .shadow(color: .black.opacity(0.55), radius: 26, y: 10)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Theme.tileBottom.opacity(0.85)))
+            .bezel(corner: 22)
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 14)
         }
     }
 }
