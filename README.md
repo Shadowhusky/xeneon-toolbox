@@ -16,7 +16,7 @@ ultrawide strip you operate with your finger — and light enough to run all day
 &nbsp;![SwiftUI](https://img.shields.io/badge/SwiftUI-native-0a84ff)
 &nbsp;![License: MIT](https://img.shields.io/badge/License-MIT-44c767)
 
-### [⬇︎ Download for macOS](https://github.com/Shadowhusky/xeneon-toolbox/releases/latest)
+### [⬇︎ Download for macOS](https://github.com/Shadowhusky/xeneon-toolbox/releases/latest) · [Website](https://xeneon.shadowhusky-london.uk)
 
 Free and open source. If it makes your Edge more useful, you can
 [**buy me a coffee ☕**](https://www.buymeacoffee.com/Richardliao).
