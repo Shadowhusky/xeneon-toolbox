@@ -129,12 +129,16 @@ h1 .line > span { display: inline-block; }
 
 /* Captions arrive in depth: tilted back and below, then settle. */
 .cap [data-r] {
-  opacity: 0; transform: perspective(900px) translate3d(0, 28px, -60px) rotateX(-22deg); transform-origin: 50% 100%;
-  transition: opacity .55s var(--ease), transform .8s var(--ease); transition-delay: 0ms;
-  will-change: transform, opacity;
+  opacity: 0; filter: blur(12px); transform: perspective(1100px) translate3d(0, 34px, -90px) rotateX(-16deg); transform-origin: 50% 100%;
+  transition: opacity .45s ease, transform .6s var(--ease), filter .45s ease; transition-delay: 0ms;
+  will-change: transform, opacity, filter;
 }
-.cap[data-on] [data-r] { opacity: 1; transform: none; transition-delay: calc(var(--i, 0) * 70ms + 80ms); }
-h1 .line > span[data-r] { transform: translateY(110%); opacity: 1; }
+.cap[data-on] [data-r] {
+  opacity: 1; filter: blur(0); transform: none;
+  transition: opacity .9s var(--ease), transform 1.15s cubic-bezier(.16, 1, .3, 1), filter .9s var(--ease);
+  transition-delay: calc(var(--i, 0) * 90ms + 120ms);
+}
+h1 .line > span[data-r] { transform: translateY(110%) rotate(4deg); transform-origin: 0 100%; opacity: 1; filter: none; }
 .cap[data-on] h1 .line > span[data-r] { transform: none; }
 .cap:not([data-on]) { pointer-events: none; }
 .cap:not([data-on]) a { pointer-events: none; }
@@ -168,8 +172,9 @@ h1 .line > span[data-r] { transform: translateY(110%); opacity: 1; }
   opacity: 0; transition: opacity .4s; font-size: 15px; will-change: transform;
 }
 .label { --lead: 46px; padding-left: calc(var(--lead) + 12px); }
-.label[data-part="glass"] { --lead: 190px; }
-.label[data-part="screen"] { --lead: 120px; }
+.label[data-part="glass"] { --lead: 130px; }
+.label[data-part="screen"] { --lead: 80px; }
+@media (max-width: 900px) { #labels { display: none; } }
 .label::before { content: ""; position: absolute; left: 0; top: 11px; width: var(--lead); height: 1px; background: linear-gradient(90deg, var(--amber), rgba(245, 181, 68, .2)); }
 .label::after { content: ""; position: absolute; left: -3px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 10px var(--amber); }
 .label.on { opacity: 1; }
@@ -205,6 +210,6 @@ h1 .line > span[data-r] { transform: translateY(110%); opacity: 1; }
 .no-gl main { pointer-events: auto; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cap [data-r], h1 .line > span[data-r] { transition: opacity .3s; transform: none; }
+  .cap [data-r], h1 .line > span[data-r] { transition: opacity .3s; transform: none; filter: none; }
   #boot { transition: none; }
 }

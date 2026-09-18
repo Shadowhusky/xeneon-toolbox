@@ -5,6 +5,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
@@ -47,28 +48,61 @@ const screenShader = {
   fragment: `
     uniform sampler2D texA, texB; uniform float mixT, power, time, dim, gain; uniform vec3 ripples[4];
     varying vec2 vUv;
-    const vec3 amber = vec3(0.92, 0.47, 0.06);
+    const vec3 WARM = vec3(1.0, 0.92, 0.80);
+    float ease(float x){ x = clamp(x, 0.0, 1.0); return x * x * x * (x * (6.0 * x - 15.0) + 10.0); }
+    // One soft front travels across the glass; every point has its own moment inside it.
+    float wave(vec2 uv, float t){ return ease(t * 1.62 - (uv.x * 0.86 + uv.y * 0.14) * 0.62); }
+    // A page seen at a given depth: scaled about the centre, and out of focus by mip bias.
+    vec3 page(sampler2D tex, vec2 uv, float scale, float blur){
+      vec2 p = 0.5 + (uv - 0.5) / scale;
+      vec2 edge = smoothstep(vec2(0.0), vec2(0.004, 0.012), p) * smoothstep(vec2(0.0), vec2(0.004, 0.012), 1.0 - p);
+      return texture2D(tex, p, blur).rgb * edge.x * edge.y;
+    }
     void main(){
-      vec3 a = texture2D(texA, vUv).rgb, b = texture2D(texB, vUv).rgb;
-      float w = mixT * 1.16;
-      float m = smoothstep(w - 0.1, w, vUv.x);                      // 1 where the old page still shows
-      vec3 col = mix(b, a, m);
-      float edge = (1.0 - abs(m - 0.5) * 2.0) * step(0.001, mixT) * step(mixT, 0.999);
-      col += amber * edge * 1.4;
+      vec2 uv = vUv; float glow = 0.0;
+      // A touch bends the picture like a drop on water, then settles.
       for (int i = 0; i < 4; i++) {
         float t = time - ripples[i].z;
-        if (t > 0.0 && t < 1.3) {
-          float r = length((vUv - ripples[i].xy) * vec2(3.552, 1.0));
-          float ring = smoothstep(0.035, 0.0, abs(r - t * 0.6)) * (1.0 - t / 1.3);
-          float dot = smoothstep(0.07, 0.0, r) * (1.0 - smoothstep(0.0, 0.3, t));
-          col += amber * ring * 1.5 + vec3(1.0, 0.9, 0.75) * dot * 0.35;
+        if (t > 0.0 && t < 1.8) {
+          vec2 d = (uv - ripples[i].xy) * vec2(3.552, 1.0);
+          float r = length(d) + 1e-4, front = t * 0.5, life = 1.0 - t / 1.8;
+          float w = sin((r - front) * 40.0) * exp(-abs(r - front) * 11.0) * life * life;
+          uv += (d / r) * w * 0.005 / vec2(3.552, 1.0);
+          glow += exp(-r * r * 30.0) * (1.0 - smoothstep(0.0, 0.8, t)) * 0.16 + max(w, 0.0) * 0.07;
         }
       }
-      float open = power * power * (3.0 - 2.0 * power);
-      float band = step(abs(vUv.y - 0.5), open * 0.5 + 0.0008);
-      float line = smoothstep(0.014, 0.0, abs(abs(vUv.y - 0.5) - open * 0.5)) * (1.0 - open) * step(0.001, power);
-      col = col * band * smoothstep(0.1, 1.0, power) + amber * line * 3.0;
+      vec3 col;
+      if (power < 0.999) {
+        float pw = wave(uv, power);
+        col = page(texA, uv, mix(1.12, 1.0, pw), (1.0 - pw) * 5.0) * pw;
+        col += vec3(0.5, 0.58, 0.7) * 0.03 * smoothstep(0.0, 0.35, power) * (1.0 - pw);      // the backlight swells first
+        col += WARM * sin(pw * 3.14159) * 0.06;
+      } else {
+        float p = wave(uv, mixT), turning = sin(p * 3.14159) * step(0.001, mixT) * step(mixT, 0.999);
+        vec3 leaving = page(texA, uv, mix(1.0, 0.92, p), p * 4.5) * (1.0 - smoothstep(0.0, 0.6, p));
+        vec3 arriving = page(texB, uv, mix(1.1, 1.0, p), (1.0 - p) * 4.5) * smoothstep(0.3, 1.0, p);
+        col = leaving + arriving + WARM * turning * 0.045;
+      }
+      col += WARM * glow;
       gl_FragColor = vec4(col * gain * (1.0 - dim * 0.88), 1.0);
+    }`,
+};
+
+// A glowing frame that draws itself around a layer of the exploded panel.
+const frameShader = {
+  fragment: `
+    uniform vec2 size; uniform float radius, progress, strength, time; varying vec2 vUv;
+    void main(){
+      vec2 p = (vUv - 0.5) * (size + 0.016), q = abs(p) - size * 0.5 + radius;
+      float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+      float stroke = 1.0 - smoothstep(0.0, 0.00028, abs(d));
+      float halo = exp(-abs(d) * 1400.0) * 0.12;
+      float ang = atan(p.y, -p.x) / 6.28318 + 0.5;
+      float drawn = 1.0 - smoothstep(progress * 1.3 - 0.3, progress * 1.3, ang);
+      float g = fract(ang - time * 0.05);
+      float glint = exp(-g * g * 260.0) + exp(-(1.0 - g) * (1.0 - g) * 260.0);
+      vec3 col = vec3(0.93, 0.91, 0.88) * (stroke * 0.42 + halo) + vec3(0.96, 0.62, 0.16) * glint * (stroke * 1.5 + halo * 2.0);
+      gl_FragColor = vec4(col * drawn * strength, 1.0);
     }`,
 };
 
@@ -108,6 +142,16 @@ async function world() {
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.45, 0.75, 0.9);
   composer.addPass(bloom);
+  const film = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, time: { value: 0 } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float time; varying vec2 vUv;
+      void main(){ vec4 c = texture2D(tDiffuse, vUv); vec2 q = (vUv - 0.5) * vec2(1.0, 0.86);
+        c.rgb *= mix(0.55, 1.0, smoothstep(0.9, 0.28, length(q)));
+        c.rgb += (fract(sin(dot(vUv * (time + 1.0), vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * 0.014;
+        gl_FragColor = c; }`,
+  });
+  composer.addPass(film);
   composer.addPass(new OutputPass());
 
   // ----- Assets
@@ -154,14 +198,18 @@ async function world() {
     color: 0x050608, roughness: 0.42, metalness: 0.55, envMapIntensity: 0.15, transparent: true, opacity: 0.9, alphaMap: new THREE.CanvasTexture(fade), depthWrite: false }));
   floor.rotation.x = -Math.PI / 2; floor.position.y = 0.001; floor.renderOrder = 1; scene.add(floor);
 
-  // Amber outlines that appear with the exploded view, one per layer.
-  const outline = (of, w, h, dz) => {
-    const pts = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([x, y]) => new THREE.Vector3(x, SCREEN.y + y, 0));
-    const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
-      new THREE.LineBasicMaterial({ color: AMBER.clone().multiplyScalar(1.8), transparent: true, opacity: 0, toneMapped: false }));
-    line.visible = false; panel.add(line); return { of, line, dz };
+  // Frames that draw themselves around each layer of the exploded panel.
+  const frameFor = (of, w, h, z) => {
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: screenShader.vertex, fragmentShader: frameShader.fragment, transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      uniforms: { size: { value: new THREE.Vector2(w * 2, h * 2) }, radius: { value: 0.004 }, progress: { value: 0 }, strength: { value: 0 }, time: { value: 0 } },
+    });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w * 2 + 0.016, h * 2 + 0.016), mat);
+    mesh.position.z = z; mesh.visible = false; mesh.renderOrder = 4; of.add(mesh);
+    return { mesh, mat };
   };
-  const outlines = [outline(glass, 0.1912, 0.0572, 0.0006), outline(screenMesh, 0.1865, 0.0525, -0.0006), outline(housing, 0.1925, 0.0585, -0.0121)];
+  const frames = [frameFor(glass, 0.1912, 0.0572, 0.0012), frameFor(screenMesh, 0.1865, 0.0525, 0.0002), frameFor(housing, 0.1925, 0.0585, -0.0122)];
 
   scene.updateMatrixWorld(true);
   const C = new THREE.Vector3(0, SCREEN.y, 0); panel.localToWorld(C);
@@ -187,25 +235,28 @@ async function world() {
       away: new THREE.Vector3(cx * 1.34, SCREEN.y + cy * 1.95 + 0.004, 0.045 + jitter * 0.06),
       awayRot: new THREE.Euler(cy * 3.2, -cx * 2.1, 0),
       focusScale: Math.min(0.118 / h, 0.21 / w),
+      order: (cx / SCREEN.w + 0.5) * 0.85 + (cy > 0 ? 0 : 0.15),
       pos: new THREE.Vector3(cx, SCREEN.y + cy, 0.0014), rot: new THREE.Vector3(), scale: 1, opacity: 1,
     };
   });
 
-  // ----- The dial: 48 ticks in space behind the panel, lit by how far you've scrolled
-  const dial = new THREE.InstancedMesh(new THREE.BoxGeometry(0.035, 0.27, 0.035), new THREE.MeshBasicMaterial({ toneMapped: false }), 48);
-  { const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
-    for (let i = 0; i < 48; i++) {
-      const th = (-45 + (270 * i) / 47) * Math.PI / 180;   // lit from the lower right, away from the copy
-      p.set(Math.cos(th) * 2.55, Math.sin(th) * 2.55, 0); q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), th - Math.PI / 2);
-      dial.setMatrixAt(i, m.compose(p, q, one)); dial.setColorAt(i, new THREE.Color(0x15161a));
+  // ----- The dial: a fine ring of 96 ticks behind the panel; scroll fills it, the leading ticks glow amber
+  const TICKS = 96;
+  const dial = new THREE.InstancedMesh(new THREE.BoxGeometry(0.011, 1, 0.011), new THREE.MeshBasicMaterial({ toneMapped: false }), TICKS);
+  { const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+    for (let i = 0; i < TICKS; i++) {
+      const th = (-45 + (270 * i) / (TICKS - 1)) * Math.PI / 180, len = i % 4 === 0 ? 0.2 : 0.1;
+      p.set(Math.cos(th) * (2.55 - len / 2), Math.sin(th) * (2.55 - len / 2), 0); q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), th - Math.PI / 2);
+      dial.setMatrixAt(i, m.compose(p, q, sc.set(1, len, 1))); dial.setColorAt(i, new THREE.Color(0x0f1013));
     } }
   dial.position.copy(C).add(new THREE.Vector3(0, 0.2, -2.0)); scene.add(dial);
-  let dialLit = -1;
-  const litColor = AMBER.clone().multiplyScalar(2.4), dimColor = new THREE.Color(0x0f1013), tmpColor = new THREE.Color();
-  const setDial = (count, brightness) => {
-    const key = count * 100 + Math.round(brightness * 20);
-    if (key === dialLit) return; dialLit = key;
-    for (let i = 0; i < 48; i++) dial.setColorAt(i, i < count ? tmpColor.copy(litColor).multiplyScalar(brightness) : dimColor);
+  const boneColor = new THREE.Color(0.62, 0.6, 0.56), leadColor = AMBER.clone().multiplyScalar(2.6), dimColor = new THREE.Color(0x0d0e11), tmpColor = new THREE.Color();
+  // A fractional fill: ticks fade up rather than pop, and the newest few carry the amber.
+  const setDial = (fill, brightness) => {
+    for (let i = 0; i < TICKS; i++) {
+      const on = clamp(fill - i), lead = clamp(1 - (fill - i) / 7);
+      dial.setColorAt(i, tmpColor.copy(boneColor).lerp(leadColor, lead * lead).multiplyScalar(on * brightness).add(dimColor));
+    }
     dial.instanceColor.needsUpdate = true;
   };
 
@@ -232,7 +283,7 @@ async function world() {
     poses = [
       { v: dir(-0.46, 0.2, 1), d: fit(wide ? 0.5 : 0.92), t: new THREE.Vector3(), shift: wide ? [0.2, 0.02] : [0, -0.3] },
       { v: N.clone(), d: fit(0.95), t: new THREE.Vector3(), shift: wide ? [0, -0.06] : [0, -0.24] },
-      { v: dir(0.74, 0.36, 1), d: fit(wide ? 0.46 : 0.84), t: new THREE.Vector3(), shift: wide ? [0.1, 0] : [0, -0.22] },
+      { v: dir(0.74, 0.36, 1), d: fit(wide ? 0.44 : 0.84), t: new THREE.Vector3(), shift: wide ? [0.06, 0] : [0, -0.22] },
       { v: dir(-0.08, 0.36, 1), d: fit(wide ? 0.62 : 1.0), t: N.clone().multiplyScalar(0.7), shift: wide ? [0.05, -0.09] : [0, -0.2] },
       { v: dir(0.58, -0.05, 1), d: fit(wide ? 0.54 : 0.9), t: new THREE.Vector3(), shift: wide ? [0.18, 0] : [0, -0.22] },
       { v: dir(-0.34, 0.2, 1), d: fit(wide ? 0.42 : 0.86), t: new THREE.Vector3(0, -0.12, 0), shift: wide ? [0, -0.24] : [0, -0.28] },
@@ -244,8 +295,9 @@ async function world() {
   const names = chapters.map((c) => c.dataset.chapter);
   let metrics = [];
   const measure = () => { metrics = chapters.map((c) => ({ top: c.offsetTop, h: c.offsetHeight })); };
+  let softY = scrollY;          // the scroll position with inertia; everything reads this
   const where = () => {
-    const y = scrollY; let idx = 0;
+    const y = softY; let idx = 0;
     for (let i = 0; i < metrics.length; i++) if (y >= metrics[i].top - 1) idx = i;
     const m = metrics[idx], last = idx === metrics.length - 1;
     const local = clamp((y - m.top) / Math.max(1, last ? m.h - innerHeight * 0.75 : m.h));
@@ -282,7 +334,7 @@ async function world() {
   let pageNow = "dashboard", pageNext = null, wipe = 0;
   const showPage = (name, dt) => {
     if (pageNext) {
-      wipe += dt / 0.55; screenMat.uniforms.mixT.value = smooth(0, 1, wipe);
+      wipe += dt / 1.25; screenMat.uniforms.mixT.value = clamp(wipe);
       if (wipe >= 1) { pageNow = pageNext; pageNext = null; screenMat.uniforms.texA.value = textures[pageNow]; screenMat.uniforms.mixT.value = 0; }
     } else if (name !== pageNow) {
       pageNext = name; wipe = 0; screenMat.uniforms.texB.value = textures[name];
@@ -298,7 +350,13 @@ async function world() {
   addEventListener("resize", resize); resize();
 
   const cam = { v: poses[0].v.clone(), d: poses[0].d * 1.35, t: new THREE.Vector3(), sx: poses[0].shift[0], sy: poses[0].shift[1] };
-  const state = { explode: 0, lift: 0, night: 0, floor: 1, dial: 1, power: 0, booted: false, bootAt: 0 };
+  const state = { explode: 0, explodeV: 0, lift: 0, liftV: 0, night: 0, floor: 1, dial: 1, fill: 0, fov: 30, roll: 0, power: 0, booted: false, bootAt: 0 };
+  // A lightly under-damped spring: arrives with a breath of overshoot instead of a dead stop.
+  const spring = (key, to, dt, k = 64, c = 12.5) => {
+    if (reduce) { state[key] = to; return; }
+    const v = key + "V"; state[v] += ((to - state[key]) * k - state[v] * c) * dt; state[key] += state[v] * dt;
+  };
+  const ease5 = (x) => { x = clamp(x); return x * x * x * (x * (6 * x - 15) + 10); };
   const tmpV = new THREE.Vector3(), tmpT = new THREE.Vector3(), tmpP = new THREE.Vector3(), lookAt = new THREE.Vector3();
 
   let last = performance.now();
@@ -309,10 +367,11 @@ async function world() {
   }
   function update(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
+    softY = damp(softY, scrollY, 7.5, dt);
     const { idx, local } = where();
     const isLast = idx === poses.length - 1;
-    const hold = isLast ? 0 : smooth(0.62, 1.0, local);
-    const s = clamp(local / 0.62);
+    const hold = isLast ? 0 : ease5((local - 0.56) / 0.44);
+    const s = clamp(local / 0.58);
     const chapter = names[idx];
 
     // Camera: blend this chapter's pose toward the next one at the end of the chapter.
@@ -320,14 +379,19 @@ async function world() {
     tmpV.copy(a.v).lerp(b.v, hold).normalize();
     tmpT.copy(a.t).lerp(b.t, hold);
     const d = a.d + (b.d - a.d) * hold, sx = a.shift[0] + (b.shift[0] - a.shift[0]) * hold, sy = a.shift[1] + (b.shift[1] - a.shift[1]) * hold;
-    cam.v.x = damp(cam.v.x, tmpV.x, 4.5, dt); cam.v.y = damp(cam.v.y, tmpV.y, 4.5, dt); cam.v.z = damp(cam.v.z, tmpV.z, 4.5, dt);
-    cam.d = damp(cam.d, d, 4.5, dt); cam.sx = damp(cam.sx, sx, 4.5, dt); cam.sy = damp(cam.sy, sy, 4.5, dt);
-    cam.t.x = damp(cam.t.x, tmpT.x, 4.5, dt); cam.t.y = damp(cam.t.y, tmpT.y, 4.5, dt); cam.t.z = damp(cam.t.z, tmpT.z, 4.5, dt);
+    const CL = 3.6, intro = 1 + 0.26 * (1 - ease5(state.power));      // a slow push-in while the panel wakes
+    cam.v.x = damp(cam.v.x, tmpV.x, CL, dt); cam.v.y = damp(cam.v.y, tmpV.y, CL, dt); cam.v.z = damp(cam.v.z, tmpV.z, CL, dt);
+    cam.d = damp(cam.d, d * intro, CL, dt); cam.sx = damp(cam.sx, sx, CL, dt); cam.sy = damp(cam.sy, sy, CL, dt);
+    cam.t.x = damp(cam.t.x, tmpT.x, CL, dt); cam.t.y = damp(cam.t.y, tmpT.y, CL, dt); cam.t.z = damp(cam.t.z, tmpT.z, CL, dt);
+    // Between chapters the lens opens a touch and the camera banks into the move.
+    const travel = Math.sin(Math.PI * hold);
+    state.fov = damp(state.fov, 30 + travel * 4, 4, dt); state.roll = damp(state.roll, travel * 0.035 * (idx % 2 ? 1 : -1), 4, dt);
+    camera.fov = state.fov;
     pointer.sx = damp(pointer.sx, reduce ? 0 : pointer.x, 3, dt); pointer.sy = damp(pointer.sy, reduce ? 0 : pointer.y, 3, dt);
     lookAt.copy(C).add(cam.t);
     tmpP.copy(cam.v).normalize().multiplyScalar(cam.d).add(lookAt);
     tmpP.x += pointer.sx * 0.32; tmpP.y += pointer.sy * 0.18;
-    camera.position.copy(tmpP); camera.lookAt(lookAt);
+    camera.position.copy(tmpP); camera.lookAt(lookAt); camera.rotateZ(reduce ? 0 : state.roll);
     camera.setViewOffset(innerWidth, innerHeight, -cam.sx * innerWidth, -cam.sy * innerHeight, innerWidth, innerHeight);
 
     // Chapter choreography
@@ -338,48 +402,55 @@ async function world() {
     const dialOf = { hero: 1, strip: 0.5, apart: 0.3, tiles: 0.28, night: 0.3, land: 0.85 };
     state.dial = damp(state.dial, dialOf[chapter] + ((dialOf[names[idx + 1]] ?? dialOf[chapter]) - dialOf[chapter]) * hold, 4, dt);
     const wantFloor = floorOf[chapter] + ((floorOf[names[idx + 1]] ?? floorOf[chapter]) - floorOf[chapter]) * hold;
-    state.explode = damp(state.explode, wantExplode, 5, dt);
-    state.lift = damp(state.lift, wantLift, 5, dt);
+    spring("explode", wantExplode, dt);
+    spring("lift", wantLift, dt);
     state.night = damp(state.night, wantNight, 3.5, dt);
     state.floor = damp(state.floor, wantFloor, 4, dt);
 
     // Power on, once the boot screen is gone
-    if (state.booted) state.power = reduce ? 1 : clamp((clock - state.bootAt - 0.35) / 1.7);
+    if (state.booted) state.power = reduce ? 1 : clamp((clock - state.bootAt - 0.3) / 2.6);
     const lit = smooth(0, 1, state.power);
-    screenMat.uniforms.power.value = state.power; screenMat.uniforms.time.value = clock;
+    screenMat.uniforms.power.value = state.power; screenMat.uniforms.time.value = clock; film.uniforms.time.value = reduce ? 0 : clock;
     key.intensity = (0.3 + lit * 1.5) * (1 - state.night * 0.93);
     hemi.intensity = lit * 0.4 * (1 - state.night * 0.85);
     rim.intensity = 5 + lit * 6 + state.night * 12;
     bloom.strength = 0.42 + state.night * 0.4;
     scene.environmentIntensity = 0.12 + lit * 0.36 - state.night * 0.3;
 
-    // Exploded panel
-    const e = state.explode;
-    glass.position.z = rest.glass + e * 0.11; screenMesh.position.z = rest.screen + e * 0.045;
-    housing.position.z = rest.housing - e * 0.04; stand.position.z = rest.stand - e * 0.085;
-    for (const o of outlines) { o.line.position.z = o.of.position.z + o.dz; o.line.material.opacity = smooth(0.15, 0.8, e) * 0.9; o.line.visible = e > 0.02; }
-    const showLabels = e > 0.72;
+    // Exploded panel: the layers leave in turn and fan a few degrees, frames drawing themselves as they go
+    const e = clamp(state.explode, -0.05, 1.08), e1 = smooth(0, 0.7, e) + (e - clamp(e)) , e2 = smooth(0.12, 0.85, e), e3 = smooth(0.25, 1, e);
+    glass.position.z = rest.glass + e1 * 0.11; glass.rotation.y = -0.07 * e1;
+    screenMesh.position.z = rest.screen + e2 * 0.045;
+    housing.position.z = rest.housing - e3 * 0.04; housing.rotation.y = 0.07 * e3;
+    stand.position.z = rest.stand - e3 * 0.085;
+    [e1, e2, e3].forEach((v, i) => {
+      const f = frames[i]; f.mesh.visible = v > 0.01;
+      f.mat.uniforms.progress.value = smooth(0.05, 0.9, v); f.mat.uniforms.strength.value = smooth(0, 0.6, v) * 0.9; f.mat.uniforms.time.value = reduce ? 0 : clock;
+    });
+    const showLabels = e > 0.78;
     labels.forEach((el) => {
-      const part = el.dataset.part;
-      const z = part === "glass" ? glass.position.z : part === "screen" ? screenMesh.position.z - 0.0008 : housing.position.z - 0.006;
-      const x = part === "screen" ? 0.1865 : part === "glass" ? 0.1912 : 0.1925;
-      tmpP.set(x, SCREEN.y + (part === "glass" ? -0.036 : part === "screen" ? 0 : 0.036), z); panel.localToWorld(tmpP); tmpP.project(camera);
-      el.style.transform = `translate3d(${((tmpP.x + 1) / 2 * innerWidth).toFixed(1)}px, ${((1 - tmpP.y) / 2 * innerHeight - 11).toFixed(1)}px, 0)`;
+      const part = el.dataset.part, of = part === "glass" ? glass : part === "screen" ? screenMesh : housing;
+      tmpP.set(part === "screen" ? 0.1865 : part === "glass" ? 0.1912 : 0.1925, part === "glass" ? -0.036 : part === "screen" ? 0 : 0.036,
+               part === "glass" ? 0 : part === "screen" ? -0.0008 : -0.006);
+      of.localToWorld(tmpP); tmpP.project(camera);
+      const lx = Math.min((tmpP.x + 1) / 2 * innerWidth, innerWidth - el.offsetWidth - 20);
+      el.style.transform = `translate3d(${lx.toFixed(1)}px, ${((1 - tmpP.y) / 2 * innerHeight - 11).toFixed(1)}px, 0)`;
       el.classList.toggle("on", showLabels);
     });
 
     // Tiles
-    const L = state.lift, focus = chapter === "tiles" && s >= 0.2 && hold < 0.5 ? Math.min(4, Math.floor((s - 0.2) / 0.8 * 5)) : -1;
-    screenMat.uniforms.dim.value = L;
+    const L = clamp(state.lift, 0, 1.06), focus = chapter === "tiles" && s >= 0.2 && hold < 0.5 ? Math.min(4, Math.floor((s - 0.2) / 0.8 * 5)) : -1;
+    screenMat.uniforms.dim.value = clamp(L);
     for (const t of tiles) {
       const focused = focus >= 0 && t.name === FOCUS[focus];
       t.mesh.visible = L > 0.004;
       if (!t.mesh.visible) { t.pos.copy(t.home); t.rot.set(0, 0, 0); t.scale = 1; t.opacity = 1; continue; }
-      const tp = focused ? tmpP.set(0.02, SCREEN.y + 0.004, 0.2) : tmpP.copy(t.home).lerp(t.away, L);
-      t.pos.x = damp(t.pos.x, tp.x, 6, dt); t.pos.y = damp(t.pos.y, tp.y, 6, dt); t.pos.z = damp(t.pos.z, tp.z, 6, dt);
-      t.rot.x = damp(t.rot.x, focused ? 0 : t.awayRot.x * L, 6, dt); t.rot.y = damp(t.rot.y, focused ? 0 : t.awayRot.y * L, 6, dt);
-      t.scale = damp(t.scale, focused ? t.focusScale : 1, 6, dt);
-      t.opacity = damp(t.opacity, focus >= 0 && !focused ? 0.32 : 1, 6, dt);
+      const Li = ease5(L * 1.55 - t.order * 0.55) + Math.max(0, L - 1);      // each column leaves a beat after the last
+      const tp = focused ? tmpP.set(0.02, SCREEN.y + 0.004, 0.2) : tmpP.copy(t.home).lerp(t.away, Li);
+      t.pos.x = damp(t.pos.x, tp.x, 5, dt); t.pos.y = damp(t.pos.y, tp.y, 5, dt); t.pos.z = damp(t.pos.z, tp.z, 5, dt);
+      t.rot.x = damp(t.rot.x, focused ? 0 : t.awayRot.x * Li, 5, dt); t.rot.y = damp(t.rot.y, focused ? 0 : t.awayRot.y * Li, 5, dt);
+      t.scale = damp(t.scale, focused ? t.focusScale : 1, 5, dt);
+      t.opacity = damp(t.opacity, focus >= 0 && !focused ? 0.3 : 1, 4, dt);
       const bob = reduce ? 0 : Math.sin(clock * 0.7 + t.home.x * 40) * 0.0012 * L;
       t.mesh.position.set(t.pos.x, t.pos.y + bob, t.pos.z); t.mesh.rotation.set(t.rot.x, t.rot.y, 0); t.mesh.scale.setScalar(t.scale);
       t.mat.uniforms.opacity.value = t.opacity; t.mesh.renderOrder = focused ? 5 : 3;
@@ -392,8 +463,8 @@ async function world() {
 
     // Dial, dust, cursor light
     const overall = (idx + local) / names.length;
-    setDial(Math.round(lit * (5 + overall * 43)), state.dial);
-    dial.rotation.z = pointer.sx * -0.03; dial.position.x = C.x + pointer.sx * -0.25;
+    state.fill = damp(state.fill, lit * (8 + overall * (TICKS - 8)), 4, dt); setDial(state.fill, state.dial);
+    dial.rotation.z = pointer.sx * -0.03 - overall * 0.5; dial.position.x = C.x + pointer.sx * -0.25;
     if (!reduce) dust.rotation.y += dt * 0.012;
     const active = !reduce && clock - pointer.lastMove < 3 ? 1 : 0;
     cursorLight.intensity = damp(cursorLight.intensity, active * (1.4 + state.night * 2) * lit, 4, dt);
