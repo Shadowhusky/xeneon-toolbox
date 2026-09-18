@@ -210,6 +210,7 @@ struct RootView: View {
         case .dashboard: DashboardView(model: model, metrics: metrics, weather: model.weather, layout: model.dashboardLayout,
                                        gestures: model.gestures, commands: model.dashboardCommands)
         case .deck: DeckView(model: model, deck: model.deck, gestures: model.gestures)
+        case .surfaces: SurfacesView(model: model)
         case .clock: ClockAppView(store: model.worldClocks, timer: model.focusTimer, exportMode: model.exportMode)
         case .tasks: TasksView(todos: model.todos, exportMode: model.exportMode)
         case .web: BrowserView(model: model, web: model.web)

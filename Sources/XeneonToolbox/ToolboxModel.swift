@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import XeneonTouchDriver
 import XeneonTouchCore
 import ToolboxKit
@@ -6,12 +7,13 @@ import ToolboxKit
 enum DisplayMode { case full, minimal, sleep }
 
 enum AppRoute: String, CaseIterable, Identifiable {
-    case dashboard, deck, clock, tasks, web, chat
+    case dashboard, deck, surfaces, clock, tasks, web, chat
     var id: String { rawValue }
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
         case .deck: return "Deck"
+        case .surfaces: return "Surfaces"
         case .clock: return "Clock"
         case .tasks: return "Tasks"
         case .web: return "Web"
@@ -22,6 +24,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "gauge.with.dots.needle.67percent"
         case .deck: return "square.grid.3x3.fill"
+        case .surfaces: return "slider.horizontal.3"
         case .clock: return "clock.fill"
         case .tasks: return "checklist"
         case .web: return "globe"
@@ -33,6 +36,7 @@ enum AppRoute: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return Theme.accent
         case .deck: return Theme.battery
+        case .surfaces: return Theme.ice
         case .clock: return Theme.time
         case .tasks: return Theme.netUp
         case .web: return Theme.disk
@@ -126,6 +130,8 @@ final class ToolboxModel: ObservableObject {
     @Published var showAgenda = false           // today's calendar schedule overlay
     @Published var showNowPlayingFull = false   // full-screen media view
     @Published var showBoost = false            // quit heavy apps you're not using
+    @Published var surface: Surface?            // the open surface on the Surfaces page (nil = the grid)
+    let rawTouch = RawTouchHub()
     let boost = BoostScanner()
     @Published var crashPrompt: CrashReport?   // last session's crash — offer to report it
     var exportMode = false   // static input bar etc. for off-screen mockup renders
@@ -445,7 +451,23 @@ final class ToolboxModel: ObservableObject {
 
     /// Push the panel's current global rect into the driver (display arrangement
     /// or mode changed) without a rebuild.
-    func refreshTouchDisplay() { touch.refreshDisplay() }
+    func refreshTouchDisplay() { touch.refreshDisplay(); rawTouch.refresh() }
+
+    /// Raw-touch canvases only get fingers while nothing is drawn over them.
+    private func wireRawTouch() {
+        rawTouch.origin = { Self.edgeOrigin() }
+        rawTouch.apply = { [weak self] regions in self?.touch.setRawRegions(regions) }
+        let gate = { [weak self] in
+            guard let self else { return }
+            rawTouch.enabled = displayMode == .full && route == .surfaces && !hiddenToBadge
+                && !(showSettings || showRailMenu || showAgenda || showNowPlayingFull || showBoost || showFsTutorial)
+                && crashPrompt == nil && displayIssue == nil && gestures.controlExt == 0 && gestures.pullFrac == nil
+        }
+        objectWillChange.receive(on: RunLoop.main).sink { _ in gate() }.store(in: &rawTouchGate)
+        gestures.objectWillChange.receive(on: RunLoop.main).sink { _ in gate() }.store(in: &rawTouchGate)
+        gate()
+    }
+    private var rawTouchGate = Set<AnyCancellable>()
 
     /// The one-tap equivalent of toggling touch off and on.
     func restartTouch() {
@@ -475,6 +497,7 @@ final class ToolboxModel: ObservableObject {
         t.onBottomPull = { [weak self] frac, phase in Task { @MainActor in self?.handleBottomPull(frac, phase) } }
         t.onSwipeApp = { [weak self] next in Task { @MainActor in self?.handleSwipeApp(next) } }
         t.onLongPress = { [weak self] p in Task { @MainActor in self?.handleLongPress((x: p.x, y: p.y)) } }
+        t.onRawTouches = { [weak self] touches in Task { @MainActor in self?.rawTouch.ingest(touches) } }
         t.sideSwipeEnabled = true   // side swipes work in the full UI too (auto-enter fullscreen)
         return t
     }
@@ -602,8 +625,12 @@ final class ToolboxModel: ObservableObject {
             displayMode = .full; fullscreen = true; showFsTutorial = true
         }
         if ProcessInfo.processInfo.environment["XENEON_AGENDA"] != nil { showAgenda = true }
+        if let name = ProcessInfo.processInfo.environment["XENEON_SURFACE"] {
+            displayMode = .full; route = .surfaces; surface = Surface(rawValue: name)
+        }
         if ProcessInfo.processInfo.environment["XENEON_RESOLUTION_DEMO"] != nil { displayIssue = DisplayModeAdvisor.check() }
         migrateWebAppsToDeck()
+        wireRawTouch()
     }
 
     /// One-time: fold the old "Saved sites" bookmarks into the Deck as website tiles,

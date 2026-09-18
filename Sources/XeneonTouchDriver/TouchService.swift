@@ -91,6 +91,8 @@ final class TouchDriver: @unchecked Sendable {
     var onSwipeApp: ((Bool) -> Void)?                  // side-edge swipe inward — true = next app
     var onLongPress: ((ScreenPoint) -> Void)?          // finger held still — screen point (top-left global)
     var onReport: ((CFAbsoluteTime) -> Void)?          // any HID report seen (liveness for diagnostics)
+    var onRawTouches: (([RawTouch]) -> Void)?          // fingers inside a raw region (empty = all lifted)
+    var rawRouter = RawTouchRouter()
     var sideSwipeEnabled = false                       // app-switch swipes (set true in fullscreen)
     var longPressEnabled = false                       // detect long-press (set true only on the deck)
 
@@ -305,6 +307,7 @@ final class TouchDriver: @unchecked Sendable {
     /// Release anything held (button down, open scroll) — called on stop or
     /// device loss so a touch in progress can't leave the mouse stuck.
     func releaseHeld() {
+        if rawRouter.reset() { onRawTouches?([]) }
         for action in recognizer.reset() { post(action) }
         for action in machine.reset() { post(action) }
         longPress.reset()
@@ -377,6 +380,9 @@ final class TouchDriver: @unchecked Sendable {
             contacts.append(TouchContact(id: rc.id, point: point))
         }
         filters = filters.filter { seen.contains($0.key) }
+        let routed = rawRouter.route(contacts)
+        if let raw = routed.raw { onRawTouches?(raw) }
+        contacts = routed.pointer
         if let first = contacts.first { lastPoint = first.point }
         if !contacts.isEmpty && !gestureActive { cursorReturn.touchBegan(pointerAt: pointerLocation) }
         feedEdge(down: !contacts.isEmpty, point: contacts.first?.point)
@@ -767,6 +773,16 @@ public final class TouchService: @unchecked Sendable {
     public var onSwipeApp: ((Bool) -> Void)?
     /// Called when a finger is held still on the deck — the screen point (off the main thread).
     public var onLongPress: ((ScreenPoint) -> Void)?
+    /// Fingers inside a raw region, every report while any are down, then one
+    /// empty list when the last lifts (off the main thread).
+    public var onRawTouches: (([RawTouch]) -> Void)?
+    /// Parts of the panel whose touches skip the pointer and arrive through
+    /// `onRawTouches`, so a view can track several fingers at once.
+    public func setRawRegions(_ regions: [RawRegion]) {
+        lock.withLock { rawRegions = regions }
+        onDriverThread { $0.rawRouter.regions = regions }
+    }
+    private var rawRegions: [RawRegion] = []
     /// Enables the left/right edge app-switch swipes (set true only in fullscreen).
     public var sideSwipeEnabled = false {
         didSet { lock.withLock { driver?.sideSwipeEnabled = sideSwipeEnabled } }
@@ -851,6 +867,8 @@ public final class TouchService: @unchecked Sendable {
         driver.onBottomPull = { [weak self] f, p in self?.onBottomPull?(f, p) }
         driver.onSwipeApp = { [weak self] next in self?.onSwipeApp?(next) }
         driver.onLongPress = { [weak self] p in self?.onLongPress?(p) }
+        driver.onRawTouches = { [weak self] t in self?.onRawTouches?(t) }
+        driver.rawRouter.regions = lock.withLock { rawRegions }
         driver.onReport = { [weak self] t in
             guard let self else { return }
             self.lock.withLock { self.lastReport = t }

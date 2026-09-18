@@ -52,6 +52,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
         <key>NSAllowsLocalNetworking</key><true/>
     </dict>
     <key>NSLocalNetworkUsageDescription</key><string>Xeneon Toolbox connects to AI model servers (such as LM Studio or Ollama) running on your local network.</string>
+    <key>NSAudioCaptureUsageDescription</key><string>Xeneon Toolbox listens to the sound your Mac is playing to set each app's volume and to write live captions. Audio never leaves your Mac.</string>
     <key>NSMicrophoneUsageDescription</key><string>Xeneon Toolbox uses the microphone for voice commands to the assistant.</string>
     <key>NSSpeechRecognitionUsageDescription</key><string>Xeneon Toolbox transcribes your voice on-device to send commands to the assistant.</string>
     <key>NSLocationUsageDescription</key><string>Xeneon Toolbox uses your approximate location to show local weather on the dashboard and ambient screen.</string>
