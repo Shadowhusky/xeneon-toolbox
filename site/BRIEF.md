@@ -38,7 +38,6 @@ tasks, an assistant and a phone remote — all built for a 2560 × 720 strip.
 - 3D: `site/assets/3d/edge.glb` (the panel), rendered stills in
   `site/assets/3d/*.png`, built by `site/3d/edge.py` (Blender 5.1 headless).
 - Music: `site/assets/audio/theme.mp3` (instrumental, 30–40 s, loopable).
-- Video: `site/assets/video/promo.mp4` + `.webm`.
 
 ## Site
 
